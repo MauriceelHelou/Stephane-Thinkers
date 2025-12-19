@@ -1,0 +1,25 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+
+    volumes:
+      - ..:/workspace:cached
+      - stephane-thinkers-node-modules:/workspace/frontend/node_modules
+      - stephane-thinkers-venv:/workspace/backend/venv
+
+    command: sleep infinity
+
+    network_mode: host
+
+    user: vscode
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NODE_ENV=development
+      - DATABASE_URL=sqlite:////tmp/intellectual_graph.db
+
+volumes:
+  stephane-thinkers-node-modules:
+  stephane-thinkers-venv:

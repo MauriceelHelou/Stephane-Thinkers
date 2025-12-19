@@ -1,0 +1,67 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - link "Skip to timeline" [ref=e3] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - heading "IGM" [level=1] [ref=e6]
+        - button "?" [ref=e7] [cursor=pointer]
+      - button "Toggle menu" [ref=e8] [cursor=pointer]:
+        - img [ref=e9]
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - button "+new" [ref=e13] [cursor=pointer]
+        - button "+combine" [ref=e14] [cursor=pointer]
+      - button "All Thinkers" [ref=e18] [cursor=pointer]
+    - generic [ref=e19]:
+      - paragraph [ref=e21]: Loading timeline...
+      - generic [ref=e23]:
+        - button "×" [ref=e24] [cursor=pointer]
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - heading "Connection Types" [level=3] [ref=e27]
+            - generic [ref=e28]:
+              - button "All" [disabled] [ref=e29]
+              - button "None" [ref=e30] [cursor=pointer]
+          - generic [ref=e31]:
+            - generic [ref=e32] [cursor=pointer]:
+              - checkbox "Influenced" [checked] [ref=e33]
+              - img [ref=e35]
+              - img [ref=e37]
+              - generic [ref=e39]: Influenced
+            - generic [ref=e40] [cursor=pointer]:
+              - checkbox "Critiqued" [checked] [ref=e41]
+              - img [ref=e43]
+              - img [ref=e45]
+              - generic [ref=e47]: Critiqued
+            - generic [ref=e48] [cursor=pointer]:
+              - checkbox "Built Upon" [checked] [ref=e49]
+              - img [ref=e51]
+              - img [ref=e53]
+              - generic [ref=e55]: Built Upon
+            - generic [ref=e56] [cursor=pointer]:
+              - checkbox "Synthesized" [checked] [ref=e57]
+              - img [ref=e59]
+              - img [ref=e61]
+              - generic [ref=e63]: Synthesized
+          - paragraph [ref=e65]:
+            - text: Line thickness indicates connection strength.
+            - text: Click a thinker to highlight their connections.
+    - generic [ref=e68]:
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - heading "Question of the Day" [level=2] [ref=e72]
+          - paragraph [ref=e73]: Test your knowledge of intellectual history
+        - button [ref=e74] [cursor=pointer]:
+          - img [ref=e75]
+      - paragraph [ref=e80]: Loading question...
+      - generic [ref=e81]:
+        - button "Skip" [ref=e82] [cursor=pointer]
+        - button "Take Full Quiz" [ref=e83] [cursor=pointer]:
+          - img [ref=e84]
+          - text: Take Full Quiz
+  - alert [ref=e86]
+```

@@ -1,0 +1,651 @@
+Build a minimalist intellectual genealogy mapping tool for Harvard PhD research.
+
+═══════════════════════════════════════════════════════════════════════
+CRITICAL CONTEXT
+═══════════════════════════════════════════════════════════════════════
+
+STARTING STATE:
+- Empty git repository (initialize if needed)
+- No files exist yet
+- Backend will run on port 8001
+- Frontend will run on port 3001
+- Standard ports (3000, 8000) are occupied - DO NOT USE THEM
+
+RESOURCE CONSTRAINTS:
+- Keep everything LEAN - no over-allocation
+- Minimal dependencies
+- Efficient database queries
+- Small bundle sizes
+- No unnecessary features
+
+═══════════════════════════════════════════════════════════════════════
+PROJECT VISION
+═══════════════════════════════════════════════════════════════════════
+
+An elegant timeline-based knowledge graph where Harvard PhD students can:
+- Map intellectual history along a horizontal timeline 
+- Add thinkers with biographical details, publications, and quotes
+- Draw connections between thinkers with explanatory notes
+- Organize by time periods
+- Export network diagrams for academic papers
+- Track research evolution over time
+
+DESIGN PHILOSOPHY:
+- Academic minimalism (think Harvard exhibition quality)
+- Serif fonts, neutral palette, clean lines
+- Feels like a research notebook, not a tech product
+- Every element intentional and purposeful
+
+═══════════════════════════════════════════════════════════════════════
+TECHNICAL STACK
+═══════════════════════════════════════════════════════════════════════
+
+FRONTEND:
+- Next.js 14 App Router with TypeScript strict mode
+- Port: 3001 (CRITICAL: do not use 3000)
+- Use context7 for latest Next.js 14 patterns
+- Canvas-based rendering (HTML Canvas or SVG)
+- TailwindCSS for styling
+- Serif font: Crimson Text or EB Garamond
+- React Query for data fetching
+- Zod for validation
+
+BACKEND:
+- FastAPI (Python) - lean and fast
+- Port: 8001 (CRITICAL: do not use 8000)
+- PostgreSQL database
+- SQLAlchemy ORM
+- Pydantic for validation
+- Alembic for migrations
+
+VERSION CONTROL:
+- Git-based workflow
+- Proper .gitignore
+- Database migrations tracked in git
+- Config files tracked, secrets in .env
+
+DEPLOYMENT:
+- Frontend: Vercel
+- Backend: Railway or Fly.io
+- Database: Neon (serverless Postgres)
+
+═══════════════════════════════════════════════════════════════════════
+FEATURES - TIMELINE + GRAPH HYBRID
+═══════════════════════════════════════════════════════════════════════
+
+1. TIMELINE VIEW (Primary Interface)
+   - Horizontal timeline:
+   - Thinkers positioned by birth year or active period
+   - Zoom in/out on timeline
+   - Pan left/right
+   - Period labels (Enlightenment, Modernism, Contemporary, etc.)
+   - Grid for visual structure
+
+2. THINKER MANAGEMENT
+   When adding a thinker, capture:
+   - Name (required)
+   - Birth-Death dates or active period (required)
+   - Field/discipline (philosophy, sociology, economics, etc.)
+   - Key publications (list, can be empty initially)
+   - Quotes that influenced your research (rich text)
+   - Tags (auto-updating, multiple allowed)
+   - Your research notes (markdown supported)
+   - Position on timeline (auto-calculated from dates)
+   - Position on Y-axis (manual for clustering)
+
+   Interactions:
+   - Click timeline to add thinker
+   - Drag to reposition vertically (keep horizontal position tied to date)
+   - Double-click to edit
+   - Right-click for context menu (edit, delete, duplicate)
+   - Hover to see quick info card
+
+3. CONNECTION/ARROW SYSTEM
+   - Click thinker A, then thinker B to create connection
+   - Arrow drawn with smooth curves (Bezier)
+   - Each connection has:
+     * Visual line (with arrow head pointing to influenced)
+     * Notes field (markdown) explaining relationship
+     * Type indicator: influenced, critiqued, built upon, synthesized
+     * Bidirectional toggle (if mutual influence)
+   
+   Visual styling:
+   - Subtle gray lines (not distracting)
+   - Thicker on hover
+   - Click arrow to edit notes
+   - Color-coded by type (optional, subtle)
+
+4. ORGANIZATION & NAVIGATION
+   Time period filtering:
+Timelines can be added and defined with label and date range, and then can toggle between main timeline and individual timelines
+
+   - Custom ranges
+
+   Views:
+   - Full timeline (all thinkers)
+   - Filtered by period
+   - Filtered by tag
+   - Filtered by field
+   - Search by name
+
+5. RESEARCH SCENARIOS SUPPORT
+
+   Scenario A: Quick Capture
+   - Keyboard shortcut (Cmd+N) to add thinker
+   - Quick form: name, date, one-line note
+   - Save and position automatically
+   - Can elaborate later
+
+   Scenario B: Deep Exploration
+   - Click thinker to see detail panel
+   - Shows: full bio, all connections, publications, quotes
+   - Edit inline
+   - Add publications/quotes incrementally
+
+   Scenario C: Export for Papers
+   - Select region of timeline
+   - Export as high-res SVG or PNG
+   - Include or exclude notes/labels
+   - Harvard citation style for thinker list
+   - Generate bibliography from publications
+
+6. EXPORT FUNCTIONALITY
+   - Network diagram as SVG (vector, publication-quality)
+   - Network diagram as PNG (high-res, 300dpi)
+   - JSON export (full data backup)
+   - Markdown outline (text hierarchy of influences)
+   - Bibliography in Harvard citation style
+   - Include watermark: "Generated with [Tool Name]"
+
+═══════════════════════════════════════════════════════════════════════
+DATABASE SCHEMA
+═══════════════════════════════════════════════════════════════════════
+
+Tables (PostgreSQL):
+
+thinkers:
+- id (UUID, primary key)
+- name (VARCHAR, required)
+- birth_year (INTEGER, nullable)
+- death_year (INTEGER, nullable)
+- active_period (VARCHAR, nullable, e.g. "1920s-1940s")
+- field (VARCHAR, nullable)
+- biography_notes (TEXT, markdown)
+- position_x (FLOAT, calculated from dates)
+- position_y (FLOAT, manual placement)
+- created_at (TIMESTAMP)
+- updated_at (TIMESTAMP)
+
+publications:
+- id (UUID, primary key)
+- thinker_id (UUID, foreign key)
+- title (VARCHAR, required)
+- year (INTEGER)
+- citation (TEXT, Harvard style)
+- notes (TEXT, your research notes)
+- created_at (TIMESTAMP)
+
+quotes:
+- id (UUID, primary key)
+- thinker_id (UUID, foreign key)
+- text (TEXT, required)
+- source (VARCHAR, nullable)
+- context_notes (TEXT, why this matters to you)
+- created_at (TIMESTAMP)
+
+tags:
+- id (UUID, primary key)
+- name (VARCHAR, unique)
+- color (VARCHAR, hex code)
+- created_at (TIMESTAMP)
+
+thinker_tags:
+- thinker_id (UUID, foreign key)
+- tag_id (UUID, foreign key)
+- PRIMARY KEY (thinker_id, tag_id)
+
+connections:
+- id (UUID, primary key)
+- from_thinker_id (UUID, foreign key)
+- to_thinker_id (UUID, foreign key)
+- connection_type (ENUM: influenced, critiqued, built_upon, synthesized)
+- notes (TEXT, markdown, explain relationship)
+- bidirectional (BOOLEAN, default false)
+- strength (INTEGER, 1-5, optional)
+- created_at (TIMESTAMP)
+- updated_at (TIMESTAMP)
+
+INDEXES:
+- thinker_tags (thinker_id, tag_id)
+- connections (from_thinker_id, to_thinker_id)
+- thinkers (birth_year, death_year)
+
+═══════════════════════════════════════════════════════════════════════
+VISUAL DESIGN SPECIFICATIONS
+═══════════════════════════════════════════════════════════════════════
+
+AESTHETIC: Academic Minimalism
+- Inspiration: Harvard GSD exhibition boards, academic journals
+- Not: Tech startup, colorful dashboard
+
+COLOR PALETTE:
+- Background: #FAFAF8 (warm off-white)
+- Primary text: #1A1A1A (near black)
+- Secondary text: #666666 (mid gray)
+- Timeline: #E0E0E0 (light gray)
+- Accent: #8B4513 (Harvard crimson, very subtle use)
+- Canvas grid: #F0F0F0 (barely visible)
+
+TYPOGRAPHY:
+- Headers: Crimson Text (serif), 600 weight
+- Body: Crimson Text (serif), 400 weight
+- UI labels: Inter (sans-serif), 500 weight
+- Monospace: JetBrains Mono (for dates/years)
+
+LAYOUT:
+- Clean margins (80px on desktop)
+- Generous white space
+- Timeline takes 90% of vertical space
+- Controls in minimal top bar
+- Detail panel slides in from right (30% width)
+
+THINKER NODES:
+- Simple circles (32px diameter)
+- Name label below (12px font)
+- Dates in smaller text (10px)
+- Hover: subtle shadow, name enlarges
+- Selected: thicker border, Harvard crimson
+
+CONNECTIONS:
+- Smooth Bezier curves
+- 2px stroke width
+- Light gray (#CCCCCC)
+- Arrow head 8px
+- On hover: 3px stroke, darker gray
+- Selected: Harvard crimson
+
+INTERACTIONS:
+- Smooth animations (200-300ms)
+- No jarring transitions
+- Subtle feedback (hover states)
+- Keyboard navigation supported
+
+═══════════════════════════════════════════════════════════════════════
+DEVELOPMENT PROCESS (TEST-DRIVEN + ITERATIVE)
+═══════════════════════════════════════════════════════════════════════
+
+PHASE 1: PROJECT SETUP (10 min)
+1. Initialize git repository
+   - Create .gitignore (node_modules, .env, __pycache__, etc.)
+   - Initial commit: "Initial commit"
+
+2. Create project structure:
+/ ├── frontend/ # Next.js app │ ├── src/ │ │ ├── app/ # App router │ │ ├── components/ │ │ ├── lib/ # Utils, API client │ │ └── types/ │ ├── public/ │ ├── package.json │ ├── tsconfig.json │ └── next.config.js (port 3001) │ ├── backend/ # FastAPI app │ ├── app/ │ │ ├── models/ # SQLAlchemy models │ │ ├── routes/ # API endpoints │ │ ├── schemas/ # Pydantic schemas │ │ └── main.py # FastAPI app (port 8001) │ ├── alembic/ # Migrations │ ├── requirements.txt │ └── .env.example │ ├── README.md └── docker-compose.yml (optional, for local DB)
+
+3. Initialize frontend (Next.js)
+   - npx create-next-app@latest frontend --typescript --tailwind --app
+   - Configure to run on port 3001 (modify next.config.js and package.json)
+   - Install dependencies:
+     * @tanstack/react-query
+     * zod
+     * axios
+     * date-fns
+   - Set up TailwindCSS with custom fonts
+
+4. Initialize backend (FastAPI)
+   - Create Python virtual environment
+   - Install dependencies:
+     * fastapi
+     * uvicorn[standard]
+     * sqlalchemy
+     * psycopg2-binary
+     * alembic
+     * pydantic
+     * python-dotenv
+   - Configure to run on port 8001 (in main.py)
+   - Set up CORS for frontend (allow localhost:3001)
+
+5. Set up PostgreSQL
+   - Create database "intellectual_graph"
+   - Create .env files (backend and frontend)
+   - Initialize Alembic for migrations
+
+6. Git commit: "Project structure and dependencies"
+
+PHASE 2: DATABASE & BACKEND API (20 min)
+1. Create SQLAlchemy models (all tables from schema above)
+2. Generate Alembic migration
+3. Run migration to create tables
+4. Create Pydantic schemas for validation
+5. Build API endpoints:
+   - POST   /api/thinkers          (create)
+   - GET    /api/thinkers          (list all)
+   - GET    /api/thinkers/:id      (get one)
+   - PUT    /api/thinkers/:id      (update)
+   - DELETE /api/thinkers/:id      (delete)
+   - POST   /api/connections       (create)
+   - GET    /api/connections       (list all)
+   - PUT    /api/connections/:id   (update)
+   - DELETE /api/connections/:id   (delete)
+   - POST   /api/publications      (create for thinker)
+   - POST   /api/quotes            (create for thinker)
+   - POST   /api/tags              (create/get)
+   - POST   /api/export/svg        (generate SVG)
+
+6. Test API with curl or Postman
+7. Git commit: "Backend API complete"
+
+PHASE 3: FRONTEND FOUNDATION (15 min)
+1. Set up TypeScript types (mirror Pydantic schemas)
+2. Create API client (axios wrapper)
+3. Set up React Query
+4. Create basic layout:
+   - Top navigation bar (minimal)
+   - Main canvas area
+   - Detail panel (hidden by default)
+
+5. Implement Timeline Canvas:
+   - HTML Canvas or SVG (your choice, SVG might be better for export)
+   - Draw horizontal timeline (based on tab selected)
+   - Period labels
+   - Grid lines
+   - Zoom controls
+   - Pan functionality
+
+6. Git commit: "Frontend foundation with timeline"
+
+PHASE 4: THINKER MANAGEMENT (20 min)
+1. Create Thinker Node component
+   - Circle with name label
+   - Position based on dates
+   - Drag to reposition (Y-axis only)
+   - Click to select
+
+2. Create Add Thinker modal
+   - Form with all fields
+   - Validation with Zod
+   - Date pickers
+   - Tags multi-select
+   - Markdown editor for notes
+
+3. Create Detail Panel
+   - Slides in from right
+   - Shows full thinker info
+   - Inline editing
+   - Add publications button
+   - Add quotes button
+   - Delete button
+
+4. Wire up to backend API
+   - Fetch all thinkers on load
+   - Create new thinker
+   - Update thinker
+   - Delete thinker
+
+5. Test ALL interactions manually
+6. Git commit: "Thinker management complete"
+
+PHASE 5: CONNECTION SYSTEM (20 min)
+1. Implement connection drawing
+   - Click mode: select two thinkers
+   - Draw Bezier curve between them
+   - Arrow head at destination
+   - Store in state
+
+2. Create Connection modal
+   - Connection type dropdown
+   - Notes field (markdown)
+   - Bidirectional toggle
+   - Save/cancel
+
+3. Render connections on canvas
+   - Draw all connections
+   - Hover to highlight
+   - Click to edit
+
+4. Wire up to backend
+   - Create connection
+   - Update connection
+   - Delete connection
+
+5. Test connection creation and editing
+6. Git commit: "Connection system complete"
+
+PHASE 6: PUBLICATIONS & QUOTES (15 min)
+1. Add Publication form (in detail panel)
+   - Title, year, citation fields
+   - Save to backend
+
+2. Add Quote form (in detail panel)
+   - Quote text, source, context
+   - Rich text formatting
+
+3. Display lists in detail panel
+   - Publications chronologically
+   - Quotes with attribution
+   - Edit/delete each
+
+4. Git commit: "Publications and quotes"
+
+PHASE 7: FILTERING & SEARCH (10 min)
+1. Add filter controls to top bar
+   - Time period dropdown
+   - Tag filter (multi-select)
+   - Field filter
+   - Search input
+
+2. Implement filtering logic
+   - Filter thinkers based on criteria
+   - Update canvas rendering
+   - Maintain connections between visible thinkers
+
+3. Test all filter combinations
+4. Git commit: "Filtering and search"
+
+PHASE 8: EXPORT FUNCTIONALITY (15 min)
+1. Implement SVG export
+   - Generate SVG from canvas state
+   - Include selected region or full timeline
+   - Option to include/exclude notes
+   - Download as .svg file
+
+2. Implement PNG export
+   - Convert canvas to image
+   - High resolution (300dpi)
+   - Download as .png file
+
+3. Implement data exports
+   - JSON backup (full database)
+   - Markdown outline (hierarchical text)
+   - Bibliography (Harvard style)
+
+4. Test all export formats
+5. Git commit: "Export functionality"
+
+PHASE 9: POLISH & REFINEMENT (20 min)
+1. Refine visual design
+   - Ensure fonts loaded correctly
+   - Check color consistency
+   - Smooth animations
+   - Responsive (desktop focused but works on laptop)
+
+2. Add keyboard shortcuts
+   - Cmd+N: New thinker
+   - Cmd+E: Export menu
+   - Cmd+F: Search
+   - Delete: Remove selected
+   - Escape: Clear selection
+
+3. Error handling
+   - Network errors with retry
+   - Validation errors with helpful messages
+   - Empty states with guidance
+
+4. Loading states
+   - Skeleton for initial load
+   - Spinners for operations
+   - Optimistic updates where possible
+
+5. Accessibility
+   - Keyboard navigation
+   - ARIA labels
+   - Focus management
+
+6. Git commit: "Polish and refinement"
+
+PHASE 10: TESTING & DEPLOYMENT (15 min)
+1. Manual testing checklist:
+   □ Add thinker with all fields
+   □ Edit thinker
+   □ Delete thinker
+   □ Create connection
+   □ Edit connection notes
+   □ Delete connection
+   □ Add publication
+   □ Add quote
+   □ Filter by time period
+   □ Filter by tag
+   □ Search by name
+   □ Export SVG
+   □ Export PNG
+   □ Export JSON
+   □ Zoom timeline
+   □ Pan timeline
+   □ Keyboard shortcuts work
+
+2. Create comprehensive README.md:
+   - Project description
+   - Setup instructions (local development)
+   - Environment variables needed
+   - How to run (frontend and backend)
+   - Database migration commands
+   - Usage guide
+   - Export formats
+   - Tech stack
+   - Project structure
+
+3. Create .env.example files (both frontend and backend)
+
+4. Deploy backend to Railway/Fly.io
+   - Set environment variables
+   - Run migrations
+   - Test API endpoint
+
+5. Deploy frontend to Vercel
+   - Set API_URL environment variable
+   - Test production build
+
+6. Verify production deployment works
+   - Add test thinker
+   - Create test connection
+   - Export diagram
+
+7. Git commit: "Production deployment"
+
+8. Create final git tag: "v1.0.0"
+
+═══════════════════════════════════════════════════════════════════════
+QUALITY GATES
+═══════════════════════════════════════════════════════════════════════
+
+AFTER EACH PHASE:
+□ TypeScript: zero errors (npm run type-check)
+□ Git commit with descriptive message
+□ Code runs without console errors
+□ Manual test of new functionality
+
+BEFORE FINAL DEPLOYMENT:
+□ All features working in local development
+□ Frontend runs on port 3001
+□ Backend runs on port 8001
+□ Database properly seeded
+□ README complete with setup instructions
+□ Environment variables documented
+□ All exports generate correct output
+□ Visual design matches specifications
+□ Keyboard shortcuts functional
+□ No console warnings
+□ Git history clean with logical commits
+
+═══════════════════════════════════════════════════════════════════════
+CONSTRAINTS & REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════
+
+CRITICAL:
+- Backend MUST use port 8001 (not 8000)
+- Frontend MUST use port 3001 (not 3000)
+- Start from empty repository, create ALL files
+- Keep dependencies minimal (lean principle)
+- Database queries optimized (no N+1 problems)
+- Bundle size < 500KB gzipped
+- Timeline renders smoothly with 100+ thinkers
+
+CODE QUALITY:
+- TypeScript strict mode
+- Meaningful variable names
+- Comments for complex logic
+- No console.log statements
+- Proper error handling
+- Loading states everywhere
+
+GIT PRACTICES:
+- Logical commit messages
+- Commit after each phase
+- .gitignore properly configured
+- Secrets never committed
+- Migrations tracked in git
+
+LEAN DEVELOPMENT:
+- No unnecessary features
+- No bloated dependencies
+- No premature optimization
+- Focus on core functionality
+- Clean, readable code
+
+═══════════════════════════════════════════════════════════════════════
+DELIVERABLES
+═══════════════════════════════════════════════════════════════════════
+
+At completion, provide:
+
+1. GitHub repository URL (or confirm local repo ready)
+2. README.md with complete setup instructions
+3. Live URLs:
+   - Frontend: [Vercel URL]
+   - Backend API: [Railway/Fly.io URL]
+4. Demo video or screenshots showing:
+   - Timeline with multiple thinkers
+   - Connections between thinkers
+   - Detail panel with full info
+   - Export functionality
+5. Database schema diagram (exported from tool or documented)
+6. Brief architecture overview
+7. Known limitations or future enhancements
+
+═══════════════════════════════════════════════════════════════════════
+AUTONOMOUS WORK INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════
+
+Work autonomously through all phases. Make technical decisions aligned 
+with the specifications. Document major decisions in code comments.
+
+Progress updates: After completing each phase, give brief update:
+"✓ Phase X complete: [what was built]
+ Next: Phase X+1"
+
+Only ask questions if:
+1. Specification is ambiguous AND
+2. Decision significantly impacts user experience AND
+3. No reasonable default exists
+
+Otherwise, make best judgment and document decision.
+
+When you encounter minor issues:
+- Try alternative approaches
+- Use context7 for latest documentation
+- Debug systematically
+- Document solution in comments
+
+Begin with Phase 1: Project Setup.
+Initialize git repository and create complete project structure.
+

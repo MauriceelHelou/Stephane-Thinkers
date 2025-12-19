@@ -1,0 +1,24 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "headless": false,
+      "slowMo": 50
+    },
+    "contextOptions": {
+      "baseURL": "http://localhost:3001",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      }
+    }
+  },
+  "capabilities": ["core", "testing", "tracing"],
+  "testIdAttribute": "data-testid",
+  "timeouts": {
+    "action": 5000,
+    "navigation": 60000
+  },
+  "outputDir": "./test-artifacts",
+  "saveTrace": true
+}

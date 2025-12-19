@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:wght@400;600&family=Inter:wght@400;500&family=JetBrains+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+}
+
+html,
+body {
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: hidden;
+  background-color: #FAFAF8;
+  color: #1A1A1A;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: 'Crimson Text', serif;
+  touch-action: pan-x pan-y;
+}
+
+/* Prevent double-tap zoom */
+button, a, input, textarea, select {
+  touch-action: manipulation;
+}
+
+/* Prevent pinch zoom */
+html {
+  touch-action: pan-x pan-y;
+}
+
+/* Prevent browser zoom with Ctrl/Cmd + scroll */
+canvas {
+  touch-action: none;
+}
+
+/* Additional protection against browser zoom */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari specific */
+  body {
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari, Opera */
+}

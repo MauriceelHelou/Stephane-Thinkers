@@ -1,0 +1,83 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - link "Skip to timeline" [ref=e3] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - heading "Intellectual Genealogy Mapper" [level=1] [ref=e6]
+        - button "?" [ref=e7] [cursor=pointer]
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - textbox "Search thinkers..." [ref=e10]
+          - img [ref=e11]
+        - button "Thinker Ctrl+T" [ref=e13] [cursor=pointer]:
+          - text: Thinker
+          - generic [ref=e14]: Ctrl+T
+        - button "Connection Ctrl+K" [ref=e15] [cursor=pointer]:
+          - text: Connection
+          - generic [ref=e16]: Ctrl+K
+        - button "Event Ctrl+E" [ref=e17] [cursor=pointer]:
+          - text: Event
+          - generic [ref=e18]: Ctrl+E
+        - button "Tags" [ref=e19] [cursor=pointer]
+        - button "Filters" [ref=e21] [cursor=pointer]
+        - button "More" [ref=e23] [cursor=pointer]:
+          - text: More
+          - img [ref=e24]
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - button "+new" [ref=e28] [cursor=pointer]
+        - button "+combine" [ref=e29] [cursor=pointer]
+      - button "All Thinkers" [ref=e33] [cursor=pointer]
+    - generic [ref=e34]:
+      - paragraph [ref=e36]: Loading timeline...
+      - generic [ref=e38]:
+        - button "×" [ref=e39] [cursor=pointer]
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - heading "Connection Types" [level=3] [ref=e42]
+            - generic [ref=e43]:
+              - button "All" [disabled] [ref=e44]
+              - button "None" [ref=e45] [cursor=pointer]
+          - generic [ref=e46]:
+            - generic [ref=e47] [cursor=pointer]:
+              - checkbox "Influenced" [checked] [ref=e48]
+              - img [ref=e50]
+              - img [ref=e52]
+              - generic [ref=e54]: Influenced
+            - generic [ref=e55] [cursor=pointer]:
+              - checkbox "Critiqued" [checked] [ref=e56]
+              - img [ref=e58]
+              - img [ref=e60]
+              - generic [ref=e62]: Critiqued
+            - generic [ref=e63] [cursor=pointer]:
+              - checkbox "Built Upon" [checked] [ref=e64]
+              - img [ref=e66]
+              - img [ref=e68]
+              - generic [ref=e70]: Built Upon
+            - generic [ref=e71] [cursor=pointer]:
+              - checkbox "Synthesized" [checked] [ref=e72]
+              - img [ref=e74]
+              - img [ref=e76]
+              - generic [ref=e78]: Synthesized
+          - paragraph [ref=e80]:
+            - text: Line thickness indicates connection strength.
+            - text: Click a thinker to highlight their connections.
+    - generic [ref=e83]:
+      - generic [ref=e85]:
+        - generic [ref=e86]:
+          - heading "Question of the Day" [level=2] [ref=e87]
+          - paragraph [ref=e88]: Test your knowledge of intellectual history
+        - button [ref=e89] [cursor=pointer]:
+          - img [ref=e90]
+      - paragraph [ref=e95]: Loading question...
+      - generic [ref=e96]:
+        - button "Skip" [ref=e97] [cursor=pointer]
+        - button "Take Full Quiz" [ref=e98] [cursor=pointer]:
+          - img [ref=e99]
+          - text: Take Full Quiz
+  - alert [ref=e101]
+```

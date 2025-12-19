@@ -1,0 +1,47 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowLocalBinding": true,
+      "httpProxyPort": 8080,
+      "socksProxyPort": 8081
+    },
+    "enableWeakerNestedSandbox": false
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "deny": [
+      "Edit(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers-BACKUP-*/**)",
+      "Read(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers-BACKUP-*/**)",
+      "Write(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers-BACKUP-*/**)",
+      "Edit(../**)",
+      "Write(../**)",
+      "Edit(../../**)",
+      "Write(../../**)",
+      "Read(../.env)",
+      "Read(../../.env)"
+    ],
+    "allow": [
+      "Read(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers/**)",
+      "Edit(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers/**)",
+      "Write(/Users/mauriceelhelou/Library/CloudStorage/OneDrive-HarvardUniversity/New folder (2)/stephanie/Stephane-Thinkers/**)",
+      "Read(/Users/mauriceelhelou/Projects/Stephane-Thinkers/**)",
+      "Edit(/Users/mauriceelhelou/Projects/Stephane-Thinkers/**)",
+      "Write(/Users/mauriceelhelou/Projects/Stephane-Thinkers/**)",
+      "Read(/workspace/**)",
+      "Edit(/workspace/**)",
+      "Write(/workspace/**)",
+      "Bash(cd:*)",
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(git:*)",
+      "Bash(npm:*)",
+      "Bash(python:*)",
+      "Bash(pip:*)",
+      "Bash(uvicorn:*)",
+      "Bash(alembic:*)"
+    ]
+  }
+}
