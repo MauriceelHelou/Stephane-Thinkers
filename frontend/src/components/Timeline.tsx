@@ -1153,12 +1153,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const rect = canvas.getBoundingClientRect()
 
-    // Pinch-to-zoom on trackpad sends ctrlKey=true
-    // Also handle Ctrl+scroll for mouse users
-    const isPinchZoom = e.ctrlKey || e.metaKey
+    // INVERTED: Regular scroll = zoom, Cmd/Ctrl+scroll = pan
+    // Pinch-to-zoom on trackpad sends ctrlKey=true (still zooms)
+    const isPan = e.ctrlKey || e.metaKey
+    const isPinchZoom = Math.abs(e.deltaY) < 10 && e.ctrlKey // Trackpad pinch gesture
 
-    if (isPinchZoom) {
-      // ZOOM: Pinch gesture or Ctrl+scroll
+    if (!isPan || isPinchZoom) {
+      // ZOOM: Regular scroll wheel or pinch gesture
       const mouseX = e.clientX - rect.left
       const oldScale = scale
 
@@ -1202,7 +1203,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       setScale(newScale)
       setOffsetX(newOffsetX)
     } else {
-      // PAN: Two-finger scroll on trackpad or regular scroll wheel
+      // PAN: Cmd/Ctrl + scroll
       let startYear, endYear
       if (selectedTimeline) {
         startYear = selectedTimeline.start_year || DEFAULT_START_YEAR

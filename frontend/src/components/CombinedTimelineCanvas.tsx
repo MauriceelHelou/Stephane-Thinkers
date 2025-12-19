@@ -484,11 +484,13 @@ export function CombinedTimelineCanvas({
 
       const rect = canvas.getBoundingClientRect()
 
-      // Pinch-to-zoom on trackpad sends ctrlKey=true
-      const isPinchZoom = e.ctrlKey || e.metaKey
+      // INVERTED: Regular scroll = zoom, Cmd/Ctrl+scroll = pan
+      // Pinch-to-zoom on trackpad sends ctrlKey=true (still zooms)
+      const isPan = e.ctrlKey || e.metaKey
+      const isPinchZoom = Math.abs(e.deltaY) < 10 && e.ctrlKey // Trackpad pinch gesture
 
-      if (isPinchZoom) {
-        // ZOOM: Pinch gesture or Ctrl+scroll
+      if (!isPan || isPinchZoom) {
+        // ZOOM: Regular scroll wheel or pinch gesture
         const mouseX = e.clientX - rect.left
         const oldScale = scale
 
@@ -510,9 +512,10 @@ export function CombinedTimelineCanvas({
         setScale(newScale)
         setOffsetX(newOffsetX)
       } else {
-        // PAN: Two-finger scroll on trackpad
+        // PAN: Cmd/Ctrl + scroll
         const panMultiplier = 1.5
-        const dx = -e.deltaX * panMultiplier
+        // Use deltaY for vertical scroll to pan horizontally
+        const dx = -e.deltaY * panMultiplier
         setOffsetX(prev => prev + dx)
       }
     }

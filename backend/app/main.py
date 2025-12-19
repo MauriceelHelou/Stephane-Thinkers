@@ -7,7 +7,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import thinkers, connections, publications, quotes, tags, timelines, timeline_events, combined_timeline_views, institutions, notes, research_questions, ai, quiz
+from app.routes import thinkers, connections, publications, quotes, tags, timelines, timeline_events, combined_timeline_views, institutions, notes, research_questions, ai, quiz, auth
 from app.routes import test as test_routes
 
 # Determine environment
@@ -63,6 +63,7 @@ app.include_router(notes.router)
 app.include_router(research_questions.router)
 app.include_router(ai.router)
 app.include_router(quiz.router)
+app.include_router(auth.router)
 
 # Only include test routes in development
 if not is_production:

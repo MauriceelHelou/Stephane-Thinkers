@@ -30,10 +30,12 @@ import QuizPopupModal from '@/components/QuizPopupModal'
 import QuizModal from '@/components/QuizModal'
 import QuizHistoryPanel from '@/components/QuizHistoryPanel'
 import { SettingsModal } from '@/components/SettingsModal'
+import { LoginScreen } from '@/components/LoginScreen'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
 
 export default function Home() {
   const queryClient = useQueryClient()
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isConnectionModalOpen, setIsConnectionModalOpen] = useState(false)
   const [isAddTimelineModalOpen, setIsAddTimelineModalOpen] = useState(false)
@@ -125,6 +127,12 @@ export default function Home() {
   const [filterYearStart, setFilterYearStart] = useState<string>('')
   const [filterYearEnd, setFilterYearEnd] = useState<string>('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+
+  // Check authentication on mount
+  useEffect(() => {
+    const isAuth = sessionStorage.getItem('authenticated') === 'true'
+    setIsAuthenticated(isAuth)
+  }, [])
 
   // Debounce search query for performance
   useEffect(() => {
@@ -533,6 +541,20 @@ export default function Home() {
       document.removeEventListener('gesturechange', preventGesture)
     }
   }, [])
+
+  // Show loading state while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    )
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <LoginScreen onSuccess={() => setIsAuthenticated(true)} />
+  }
 
   return (
     <main className="flex flex-col h-screen bg-background overflow-hidden" role="main">

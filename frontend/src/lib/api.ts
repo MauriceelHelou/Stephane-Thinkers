@@ -476,3 +476,20 @@ export const quizApi = {
     await api.post(`/api/quiz/complete-session/${sessionId}`, null, { params })
   },
 }
+
+// Auth API
+export interface LoginResponse {
+  success: boolean
+  message: string
+}
+
+export const authApi = {
+  login: async (password: string): Promise<LoginResponse> => {
+    const response = await api.post('/api/auth/login', { password })
+    return response.data
+  },
+  checkAuth: async (): Promise<{ auth_required: boolean }> => {
+    const response = await api.get('/api/auth/check')
+    return response.data
+  },
+}
