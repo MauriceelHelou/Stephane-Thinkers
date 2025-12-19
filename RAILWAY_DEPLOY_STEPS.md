@@ -1,6 +1,6 @@
-# Railway Deployment Steps
+# Railway Deployment Steps (Railpack)
 
-Follow these steps in order to deploy to Railway.
+Railpack is Railway's zero-config builder. It auto-detects your app and builds it.
 
 ---
 
@@ -8,21 +8,19 @@ Follow these steps in order to deploy to Railway.
 
 ### Deployed (via GitHub)
 - All source code (`backend/`, `frontend/`)
-- Dockerfiles and configuration
 - Database migrations (`backend/alembic/versions/`)
 - Static assets
 
-### NOT Deployed (excluded by .gitignore & .dockerignore)
+### NOT Deployed (excluded by .gitignore & .railpackignore)
 - `.env` files (secrets) - configure in Railway dashboard
-- `node_modules/` - installed during Docker build
-- `venv/` - created during Docker build
+- `node_modules/` - installed during build
+- `venv/` - created during build
 - `.next/` build cache - built fresh
 - `__pycache__/` - Python cache
 - `*.db` SQLite files - using PostgreSQL instead
-- `data/chroma/` - local vector DB (not used in production)
 
 ### Database
-- Local SQLite → Railway PostgreSQL (automatic migration)
+- Local SQLite → Railway PostgreSQL (automatic)
 - All tables created via Alembic migrations on first deploy
 - Data starts empty - you'll add thinkers/timelines after deploy
 
@@ -30,9 +28,10 @@ Follow these steps in order to deploy to Railway.
 
 ## Step 1: Push Code to GitHub
 
-Make sure all changes are committed and pushed to your GitHub repository.
+Make sure all changes are committed and pushed:
 
 ```bash
+cd /path/to/Stephane-Thinkers
 git add .
 git commit -m "Add Railway deployment configuration"
 git push origin main
@@ -46,18 +45,13 @@ git push origin main
 2. Sign in with GitHub
 3. Click **"New Project"**
 4. Select **"Empty Project"**
-5. Name your project (e.g., "intellectual-genealogy")
 
 ---
 
 ## Step 3: Add PostgreSQL Database
 
-1. In your Railway project, click **"+ New"**
-2. Select **"Database"**
-3. Choose **"Add PostgreSQL"**
-4. Wait for it to provision (takes ~30 seconds)
-
-Railway automatically creates a `DATABASE_URL` variable.
+1. Click **"+ New"** → **"Database"** → **"Add PostgreSQL"**
+2. Wait for it to provision (~30 seconds)
 
 ---
 
@@ -65,12 +59,12 @@ Railway automatically creates a `DATABASE_URL` variable.
 
 1. Click **"+ New"** → **"GitHub Repo"**
 2. Select your repository
-3. Railway will ask which folder - select **`backend`** as the root directory
-4. Wait for initial deployment to fail (expected - we need to add env vars)
+3. Set **Root Directory**: `backend`
+4. Railway auto-detects Python/FastAPI via Railpack
 
 ### Add Backend Environment Variables
 
-Go to the backend service → **Variables** tab → Add these:
+Go to **Variables** tab and add:
 
 | Variable | Value |
 |----------|-------|
@@ -78,8 +72,10 @@ Go to the backend service → **Variables** tab → Add these:
 | `PORT` | `8001` |
 | `ENVIRONMENT` | `production` |
 | `FRONTEND_URL` | `https://placeholder.up.railway.app` (update later) |
+| `RAILWAY_RUN_COMMAND` | `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 
-Optional (for AI features):
+**Optional (AI features):**
+
 | Variable | Value |
 |----------|-------|
 | `OPENAI_API_KEY` | Your OpenAI key |
@@ -89,48 +85,40 @@ Optional (for AI features):
 
 ### Generate Backend Domain
 
-1. Go to backend service → **Settings** → **Networking**
-2. Click **"Generate Domain"**
-3. Copy the URL (e.g., `https://backend-production-xxxx.up.railway.app`)
+1. Go to **Settings** → **Networking** → **Generate Domain**
+2. Copy the URL (e.g., `https://backend-xxxx.up.railway.app`)
 
 ---
 
 ## Step 5: Deploy Frontend Service
 
 1. Click **"+ New"** → **"GitHub Repo"**
-2. Select the **same repository** again
-3. Select **`frontend`** as the root directory
-4. Wait for initial deployment
+2. Select the **same repository**
+3. Set **Root Directory**: `frontend`
+4. Railway auto-detects Next.js via Railpack
 
 ### Add Frontend Environment Variables
 
-Go to the frontend service → **Variables** tab → Add:
-
 | Variable | Value |
 |----------|-------|
-| `NEXT_PUBLIC_API_URL` | `https://backend-production-xxxx.up.railway.app` (your backend URL) |
-
-**IMPORTANT:** Also add this as a Build Variable:
-1. Go to **Settings** → **Build**
-2. Find **"Build Variables"** or **"Build Arguments"**
-3. Add: `NEXT_PUBLIC_API_URL` = `https://backend-production-xxxx.up.railway.app`
+| `NEXT_PUBLIC_API_URL` | `https://backend-xxxx.up.railway.app` (your backend URL) |
+| `PORT` | `3000` |
 
 ### Generate Frontend Domain
 
-1. Go to frontend service → **Settings** → **Networking**
-2. Click **"Generate Domain"**
-3. Copy the URL (e.g., `https://frontend-production-xxxx.up.railway.app`)
+1. Go to **Settings** → **Networking** → **Generate Domain**
+2. Copy the URL (e.g., `https://frontend-xxxx.up.railway.app`)
 
 ---
 
 ## Step 6: Update Backend CORS
 
-1. Go back to backend service → **Variables**
-2. Update `FRONTEND_URL` to your actual frontend URL:
+1. Go back to **backend service** → **Variables**
+2. Update `FRONTEND_URL`:
    ```
-   FRONTEND_URL = https://frontend-production-xxxx.up.railway.app
+   FRONTEND_URL = https://frontend-xxxx.up.railway.app
    ```
-3. Railway will auto-redeploy
+3. Railway auto-redeploys
 
 ---
 
@@ -138,93 +126,74 @@ Go to the frontend service → **Variables** tab → Add:
 
 ### Test Backend
 
-Open your browser or use curl:
-
 ```bash
-# Health check
 curl https://your-backend.up.railway.app/health
 # Expected: {"status":"healthy"}
 
-# API root
-curl https://your-backend.up.railway.app/
-# Expected: {"message":"Intellectual Genealogy API","version":"1.0.0"}
-
-# List thinkers
 curl https://your-backend.up.railway.app/api/thinkers/
-# Expected: [] (empty array if no data)
+# Expected: []
 ```
 
 ### Test Frontend
 
-1. Open `https://your-frontend.up.railway.app` in browser
-2. Check browser console for errors (F12 → Console)
-3. Try creating a timeline or thinker
+Open `https://your-frontend.up.railway.app` in browser.
 
 ---
 
 ## Troubleshooting
 
-### Backend won't start
-- Check **Deployments** → Click latest deployment → **View Logs**
-- Verify `DATABASE_URL` is set correctly
-- Ensure the service is linked to PostgreSQL
+### Build fails
+- Check **Deployments** → **View Logs**
+- Railpack auto-detects, but you can override with env vars
 
-### Frontend shows "Failed to fetch" or CORS error
-- Verify `FRONTEND_URL` in backend matches frontend URL exactly
-- Include `https://` and no trailing slash
-- Redeploy backend after changing FRONTEND_URL
+### Backend won't start
+- Verify `DATABASE_URL` is set to `${{Postgres.DATABASE_URL}}`
+- Check `RAILWAY_RUN_COMMAND` includes alembic migration
+
+### CORS errors
+- `FRONTEND_URL` must match exactly (include `https://`, no trailing slash)
+- Redeploy backend after updating
 
 ### Frontend shows wrong API URL
-- `NEXT_PUBLIC_API_URL` must be set as **Build Variable**
-- Trigger a redeploy after adding it
-
-### Database migration errors
-- Check backend logs for Alembic output
-- Migrations run automatically on startup
+- `NEXT_PUBLIC_API_URL` is baked into the build
+- Trigger redeploy after changing it
 
 ---
 
 ## Environment Variables Summary
 
-### Backend Service (Required)
+### Backend Service
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 PORT=8001
 ENVIRONMENT=production
 FRONTEND_URL=https://your-frontend.up.railway.app
+RAILWAY_RUN_COMMAND=alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
-
-### Backend Service (Optional - AI Features)
-```
-DEEPSEEK_API_KEY=sk-your-deepseek-key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
-OPENAI_API_KEY=sk-your-openai-key
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-```
-
-**Note:** AI features (suggestions, chat, summaries) only work if API keys are configured. The app works fine without them - AI features will just be disabled.
 
 ### Frontend Service
 ```
 NEXT_PUBLIC_API_URL=https://your-backend.up.railway.app
+PORT=3000
 ```
-(Also add as Build Variable)
 
 ---
 
 ## Optional: Custom Domain
 
-1. Go to service → **Settings** → **Networking**
+1. Service → **Settings** → **Networking**
 2. Click **"+ Custom Domain"**
-3. Enter your domain (e.g., `app.yourdomain.com`)
-4. Add the CNAME record to your DNS provider
-5. Wait for SSL certificate (automatic)
+3. Add CNAME record to your DNS
+4. SSL is automatic
 
 ---
 
-## Costs
+## Railpack vs Dockerfile
 
-- **Hobby Plan**: $5/month (includes $5 credit)
-- **Usage-based**: Pay for compute + database storage
-- Typical small app: ~$5-15/month total
+You're using **Railpack** (zero-config). Benefits:
+- No Dockerfile to maintain
+- Smaller images (38-77% smaller)
+- Automatic language detection
+- Better caching
+
+If you ever need more control, you can add a `Dockerfile` and Railway will use that instead.
