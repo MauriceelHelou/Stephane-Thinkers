@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
 
 
 revision: str = '8df30e2dcf6c'
@@ -20,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # Create quiz_questions table
     op.create_table('quiz_questions',
-        sa.Column('id', sa.String(32), nullable=False),
+        sa.Column('id', UUID(as_uuid=True), nullable=False),
         sa.Column('question_text', sa.Text(), nullable=False),
         sa.Column('question_type', sa.String(length=20), nullable=False),
         sa.Column('category', sa.String(length=20), nullable=False),
@@ -29,7 +30,7 @@ def upgrade() -> None:
         sa.Column('difficulty', sa.String(length=10), nullable=False),
         sa.Column('explanation', sa.Text(), nullable=True),
         sa.Column('related_thinker_ids', sa.JSON(), nullable=True),
-        sa.Column('timeline_id', sa.String(32), nullable=True),
+        sa.Column('timeline_id', UUID(as_uuid=True), nullable=True),
         sa.Column('times_asked', sa.Integer(), nullable=True, default=0),
         sa.Column('times_correct', sa.Integer(), nullable=True, default=0),
         sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
@@ -40,8 +41,8 @@ def upgrade() -> None:
 
     # Create quiz_sessions table
     op.create_table('quiz_sessions',
-        sa.Column('id', sa.String(32), nullable=False),
-        sa.Column('timeline_id', sa.String(32), nullable=True),
+        sa.Column('id', UUID(as_uuid=True), nullable=False),
+        sa.Column('timeline_id', UUID(as_uuid=True), nullable=True),
         sa.Column('difficulty', sa.String(length=10), nullable=False),
         sa.Column('question_count', sa.Integer(), nullable=False),
         sa.Column('score', sa.Integer(), nullable=True, default=0),
@@ -57,9 +58,9 @@ def upgrade() -> None:
 
     # Create quiz_answers table
     op.create_table('quiz_answers',
-        sa.Column('id', sa.String(32), nullable=False),
-        sa.Column('session_id', sa.String(32), nullable=False),
-        sa.Column('question_id', sa.String(32), nullable=False),
+        sa.Column('id', UUID(as_uuid=True), nullable=False),
+        sa.Column('session_id', UUID(as_uuid=True), nullable=False),
+        sa.Column('question_id', UUID(as_uuid=True), nullable=False),
         sa.Column('user_answer', sa.Text(), nullable=False),
         sa.Column('is_correct', sa.Boolean(), nullable=False),
         sa.Column('time_taken_seconds', sa.Integer(), nullable=True),
@@ -71,8 +72,8 @@ def upgrade() -> None:
 
     # Create spaced_repetition_queue table
     op.create_table('spaced_repetition_queue',
-        sa.Column('id', sa.String(32), nullable=False),
-        sa.Column('question_id', sa.String(32), nullable=False),
+        sa.Column('id', UUID(as_uuid=True), nullable=False),
+        sa.Column('question_id', UUID(as_uuid=True), nullable=False),
         sa.Column('last_answered_at', sa.TIMESTAMP(), nullable=True),
         sa.Column('next_review_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
         sa.Column('ease_factor', sa.Float(), nullable=True, default=2.5),
