@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { thinkersApi, publicationsApi, quotesApi, tagsApi, thinkerInstitutionsApi } from '@/lib/api'
-import type { ThinkerUpdate, PublicationCreate, QuoteCreate, Tag, ThinkerInstitutionWithRelations, PublicationCitations } from '@/types'
+import { thinkersApi, publicationsApi, quotesApi, tagsApi, thinkerInstitutionsApi, timelinesApi } from '@/lib/api'
+import type { ThinkerUpdate, PublicationCreate, QuoteCreate, Tag, ThinkerInstitutionWithRelations, PublicationCitations, Timeline } from '@/types'
 import { AddAffiliationModal } from './AddAffiliationModal'
 
 interface DetailPanelProps {
@@ -42,6 +42,11 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
   const { data: allTags = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: tagsApi.getAll,
+  })
+
+  const { data: timelines = [] } = useQuery({
+    queryKey: ['timelines'],
+    queryFn: timelinesApi.getAll,
   })
 
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
@@ -105,6 +110,7 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
         biography_notes: thinker.biography_notes,
         position_x: thinker.position_x,
         position_y: thinker.position_y,
+        timeline_id: thinker.timeline_id,
       })
     }
   }, [thinker])
@@ -394,6 +400,31 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
                 />
               ) : (
                 <p className="font-serif text-primary">{thinker.field || '—'}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-sans font-medium text-secondary mb-1">
+                TIMELINE
+              </label>
+              {isEditing ? (
+                <select
+                  value={formData.timeline_id || ''}
+                  onChange={(e) => setFormData({ ...formData, timeline_id: e.target.value || null })}
+                  className="w-full px-3 py-2 border border-timeline rounded font-serif focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <option value="">No timeline assigned</option>
+                  {timelines.map((t: Timeline) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="font-serif text-primary">
+                  {thinker.timeline_id
+                    ? timelines.find((t: Timeline) => t.id === thinker.timeline_id)?.name || '—'
+                    : <span className="text-secondary italic">Not assigned to a timeline</span>
+                  }
+                </p>
               )}
             </div>
 

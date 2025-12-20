@@ -237,6 +237,28 @@ export default function Home() {
     },
   })
 
+  // Mutation for repopulating thinker positions
+  const [isRepopulating, setIsRepopulating] = useState(false)
+  const repopulateMutation = useMutation({
+    mutationFn: (timelineId: string) => timelinesApi.repopulate(timelineId),
+    onMutate: () => {
+      setIsRepopulating(true)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['thinkers'] })
+      setIsRepopulating(false)
+    },
+    onError: () => {
+      setIsRepopulating(false)
+    },
+  })
+
+  const handleRepopulate = () => {
+    if (selectedTimelineId && !isRepopulating) {
+      repopulateMutation.mutate(selectedTimelineId)
+    }
+  }
+
   const selectedTimeline = selectedTimelineId
     ? timelines.find((t) => t.id === selectedTimelineId) || null
     : null
@@ -1304,6 +1326,39 @@ export default function Home() {
             </button>
           )}
         </div>
+
+        {/* Repopulate button - only show when a timeline is selected */}
+        {selectedTimelineId && (
+          <div className="flex items-center gap-1 flex-shrink-0 ml-2 pl-2 border-l border-timeline">
+            <button
+              onClick={handleRepopulate}
+              disabled={isRepopulating}
+              className={`px-3 py-1.5 font-sans text-sm border rounded transition-colors flex items-center gap-1.5 ${
+                isRepopulating
+                  ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'border-green-400 text-green-700 hover:bg-green-50 hover:border-green-500'
+              }`}
+              title="Auto-position all thinkers on this timeline using force-directed layout"
+            >
+              {isRepopulating ? (
+                <>
+                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Repositioning...
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Repopulate
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       <div id="timeline-canvas" className="flex-1 overflow-hidden relative z-0" tabIndex={-1}>

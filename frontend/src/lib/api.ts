@@ -89,9 +89,40 @@ function createCrudApi<T, TCreate, TUpdate = Partial<TCreate>>(endpoint: string)
   }
 }
 
+// Repopulate types
+export interface RepopulateConfig {
+  repulsion_strength?: number
+  attraction_strength?: number
+  center_gravity?: number
+  field_attraction?: number
+  damping?: number
+  max_iterations?: number
+  convergence_threshold?: number
+  min_node_distance?: number
+  vertical_spread?: number
+}
+
+export interface RepopulatePosition {
+  id: string
+  name: string
+  anchor_year: number | null
+  position_y: number | null
+}
+
+export interface RepopulateResponse {
+  updated_count: number
+  positions: RepopulatePosition[]
+}
+
 // Timelines API
 const timelinesBase = createCrudApi<Timeline, TimelineCreate, TimelineUpdate>('timelines')
-export const timelinesApi = timelinesBase
+export const timelinesApi = {
+  ...timelinesBase,
+  repopulate: async (timelineId: string, config?: RepopulateConfig): Promise<RepopulateResponse> => {
+    const response = await api.post(`/api/timelines/${timelineId}/repopulate`, config || {})
+    return response.data
+  },
+}
 
 // Timeline Events API (with timeline_id filter support)
 const timelineEventsBase = createCrudApi<TimelineEvent, TimelineEventCreate, TimelineEventUpdate>('timeline-events')

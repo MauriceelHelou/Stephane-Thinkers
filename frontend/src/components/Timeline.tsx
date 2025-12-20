@@ -448,8 +448,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     // Draw quarter dashes when zoomed in (show sub-intervals)
-    // Only show if the main interval is 1 year or greater and zoom is high enough
-    if (interval >= 1 && scale >= 2) {
+    // Show quarter marks at lower zoom threshold for all timelines
+    if (interval >= 1 && scale >= 1) {
       const quarterInterval = interval / 4
       ctx.strokeStyle = '#DDDDDD'
       ctx.lineWidth = 0.5
@@ -466,8 +466,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       }
     }
 
-    // Draw even finer marks (twelfths/months) at very high zoom
-    if (interval >= 1 && scale >= 8) {
+    // Draw even finer marks (twelfths/months) at higher zoom
+    if (interval >= 1 && scale >= 4) {
       const monthInterval = interval / 12
       ctx.strokeStyle = '#EEEEEE'
       ctx.lineWidth = 0.5
@@ -531,7 +531,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const MIN_VERTICAL_GAP = 6    // Constant minimum vertical gap between labels
     const horizontalMargin = MIN_HORIZONTAL_GAP // Fixed spacing regardless of zoom
     const verticalSpacing = MIN_VERTICAL_GAP    // Fixed spacing regardless of zoom
-    const elevationOffset = -20 // Elevate thinkers slightly above the timeline (closer to axis)
+    const elevationOffset = -5 // Small offset to position thinkers just above the timeline line
 
     // Second pass: resolve collisions by moving thinkers vertically
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
@@ -650,8 +650,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
 
-      const x = note.position_x + offsetX
-      const y = note.position_y + offsetY
+      // Don't add offset here - ctx.translate already handles it
+      const x = note.position_x
+      const y = note.position_y
       const color = (note.color as NoteColor) || 'yellow'
       const colors = STICKY_NOTE_COLORS[color] || STICKY_NOTE_COLORS.yellow
 
@@ -931,7 +932,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     events.forEach((event) => {
       const x = yearToX(event.year, canvasWidth, scale)
-      const y = centerY - 40  // Position events above the timeline
+      const y = centerY - 15  // Position events just above the timeline line
 
       // Different shapes for different event types
       ctx.fillStyle = '#8B4513'  // Brown color for events
@@ -1059,9 +1060,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const note = canvasNotes[i]
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) continue
 
-      // Apply same offset transformation as in drawStickyNotes
-      const nx = note.position_x + offsetX
-      const ny = note.position_y + offsetY
+      // Input x,y are in canvas-space (offset already subtracted), so compare directly
+      const nx = note.position_x
+      const ny = note.position_y
       const { width, height } = getStickyNoteDimensions(note)
 
       if (x >= nx && x <= nx + width && y >= ny && y <= ny + height) {
@@ -1136,7 +1137,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Use CSS dimensions (not DPR-scaled canvas dimensions) to match click coordinates
     const rect = canvas.getBoundingClientRect()
     const centerY = rect.height / 2
-    const eventY = centerY - 40  // Same as in drawTimelineEvents
+    const eventY = centerY - 15  // Same as in drawTimelineEvents
 
     for (const event of timelineEvents) {
       const eventX = yearToX(event.year, rect.width, scale)
@@ -1376,13 +1377,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (draggedThinkerId && draggedThinkerPos && onThinkerDrag && hasDragged) {
       const canvas = canvasRef.current
       if (canvas) {
-        // Convert X position to year (accounting for pan offset)
-        const canvasX = draggedThinkerPos.x - offsetX
-        const anchorYear = xToYear(canvasX, canvas.width, scale)
+        // Use CSS dimensions (not DPR-scaled canvas dimensions)
+        const rect = canvas.getBoundingClientRect()
+        // draggedThinkerPos is already in canvas-space (offset subtracted by getCanvasCoordinates)
+        // So we don't subtract offset again
+        const anchorYear = xToYear(draggedThinkerPos.x, rect.width, scale)
         // Get the timeline axis Y position for calculating vertical offset
-        const axisY = canvas.height / 2
-        // position_y is the offset from the axis line
-        const positionY = draggedThinkerPos.y - offsetY - axisY
+        const axisY = rect.height / 2
+        // position_y is the offset from the axis line (draggedThinkerPos.y is in canvas-space)
+        const positionY = draggedThinkerPos.y - axisY
         onThinkerDrag(draggedThinkerId, anchorYear, positionY)
       }
     }

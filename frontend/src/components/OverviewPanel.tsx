@@ -2,10 +2,10 @@
 
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { thinkersApi, connectionsApi, timelineEventsApi, timelinesApi } from '@/lib/api'
-import type { Thinker, Connection, TimelineEvent, Timeline, ConnectionType } from '@/types'
+import { thinkersApi, connectionsApi, timelineEventsApi, timelinesApi, publicationsApi } from '@/lib/api'
+import type { Thinker, Connection, TimelineEvent, Timeline, ConnectionType, Publication } from '@/types'
 
-type TabType = 'thinkers' | 'connections' | 'events'
+type TabType = 'thinkers' | 'connections' | 'events' | 'publications'
 
 interface OverviewPanelProps {
   isOpen: boolean
@@ -56,6 +56,11 @@ export function OverviewPanel({
     queryFn: timelinesApi.getAll,
   })
 
+  const { data: publications = [] } = useQuery({
+    queryKey: ['publications'],
+    queryFn: () => publicationsApi.getAll(),
+  })
+
   // Delete mutations
   const deleteThinkerMutation = useMutation({
     mutationFn: thinkersApi.delete,
@@ -78,6 +83,14 @@ export function OverviewPanel({
     mutationFn: timelineEventsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline-events'] })
+      setConfirmDelete(null)
+    },
+  })
+
+  const deletePublicationMutation = useMutation({
+    mutationFn: publicationsApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['publications'] })
       setConfirmDelete(null)
     },
   })
@@ -153,6 +166,30 @@ export function OverviewPanel({
     return result.sort((a, b) => a.year - b.year)
   }, [events, filterTimelineId, searchQuery])
 
+  const filteredPublications = useMemo(() => {
+    let result = publications
+    if (filterTimelineId) {
+      // Filter publications by thinker's timeline
+      result = result.filter(p => {
+        const thinker = thinkerMap.get(p.thinker_id)
+        return thinker?.timeline_id === filterTimelineId
+      })
+    }
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      result = result.filter(p => {
+        const thinker = thinkerMap.get(p.thinker_id)
+        return (
+          p.title.toLowerCase().includes(query) ||
+          thinker?.name.toLowerCase().includes(query) ||
+          p.journal?.toLowerCase().includes(query) ||
+          p.publisher?.toLowerCase().includes(query)
+        )
+      })
+    }
+    return result.sort((a, b) => (b.year || 0) - (a.year || 0))
+  }, [publications, filterTimelineId, searchQuery, thinkerMap])
+
   const handleDelete = (type: TabType, id: string) => {
     if (type === 'thinkers') {
       deleteThinkerMutation.mutate(id)
@@ -160,6 +197,8 @@ export function OverviewPanel({
       deleteConnectionMutation.mutate(id)
     } else if (type === 'events') {
       deleteEventMutation.mutate(id)
+    } else if (type === 'publications') {
+      deletePublicationMutation.mutate(id)
     }
   }
 
@@ -197,7 +236,7 @@ export function OverviewPanel({
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200">
-          {(['thinkers', 'connections', 'events'] as TabType[]).map((tab) => (
+          {(['thinkers', 'connections', 'events', 'publications'] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -211,7 +250,8 @@ export function OverviewPanel({
               <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
                 {tab === 'thinkers' ? filteredThinkers.length :
                  tab === 'connections' ? filteredConnections.length :
-                 filteredEvents.length}
+                 tab === 'events' ? filteredEvents.length :
+                 filteredPublications.length}
               </span>
             </button>
           ))}
@@ -475,6 +515,93 @@ export function OverviewPanel({
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       No events found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+
+          {/* Publications Table */}
+          {activeTab === 'publications' && (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr className="text-left text-gray-600">
+                  <th className="px-6 py-3 font-medium">Year</th>
+                  <th className="px-6 py-3 font-medium">Title</th>
+                  <th className="px-6 py-3 font-medium">Author</th>
+                  <th className="px-6 py-3 font-medium">Type</th>
+                  <th className="px-6 py-3 font-medium">Publisher/Journal</th>
+                  <th className="px-6 py-3 font-medium w-24">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredPublications.map((publication) => {
+                  const thinker = thinkerMap.get(publication.thinker_id)
+                  return (
+                    <tr key={publication.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-3 font-mono text-gray-600">{formatYear(publication.year)}</td>
+                      <td className="px-6 py-3 font-medium text-primary max-w-xs truncate" title={publication.title}>
+                        {publication.title}
+                      </td>
+                      <td className="px-6 py-3">
+                        <button
+                          onClick={() => {
+                            if (thinker) {
+                              onSelectThinker(thinker.id)
+                              onClose()
+                            }
+                          }}
+                          className="text-primary hover:text-accent hover:underline"
+                        >
+                          {thinker?.name || 'Unknown'}
+                        </button>
+                      </td>
+                      <td className="px-6 py-3">
+                        {publication.publication_type && (
+                          <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded capitalize">
+                            {publication.publication_type}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-gray-600 max-w-xs truncate">
+                        {publication.journal || publication.publisher || '—'}
+                      </td>
+                      <td className="px-6 py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (thinker) {
+                                onSelectThinker(thinker.id)
+                                onClose()
+                              }
+                            }}
+                            className="p-1.5 text-gray-500 hover:text-accent hover:bg-amber-50 rounded transition"
+                            title="View in thinker panel"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete({ type: 'publications', id: publication.id })}
+                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition"
+                            title="Delete"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredPublications.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      No publications found
                     </td>
                   </tr>
                 )}

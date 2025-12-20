@@ -169,7 +169,7 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
 
     const horizontalMargin = 15
     const verticalSpacing = 8
-    const elevationOffset = -20
+    const elevationOffset = -5
 
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 
@@ -380,7 +380,7 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
 
     events.forEach((event) => {
       const x = yearToX(event.year, canvasWidth)
-      const y = centerY - 40
+      const y = centerY - 15
 
       ctx.fillStyle = '#8B4513'
       ctx.strokeStyle = '#6B3410'
@@ -497,7 +497,7 @@ ${Array.from({ length: Math.floor((endYear - startYear) / interval) + 1 }, (_, i
   <g>
 ${timelineEvents.map((event) => {
   const x = yearToX(event.year, width)
-  const y = centerY - 40
+  const y = centerY - 15
   return `    <circle cx="${x}" cy="${y}" r="8" fill="#8B4513" stroke="#6B3410" stroke-width="2"/>
     <text x="${x}" y="${y - 13}" text-anchor="middle" class="event-label">${event.name}</text>`
 }).join('\n')}

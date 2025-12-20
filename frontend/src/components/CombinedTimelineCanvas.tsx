@@ -226,7 +226,7 @@ export function CombinedTimelineCanvas({
     // Collision detection parameters
     const MIN_HORIZONTAL_GAP = 8
     const MIN_VERTICAL_GAP = 6
-    const elevationOffset = -20 // Start slightly above the timeline (closer to axis)
+    const elevationOffset = -5 // Small offset to position thinkers just above the timeline line
 
     // Second pass: resolve collisions
     const placed: { x: number; y: number; width: number; height: number }[] = []
@@ -339,7 +339,7 @@ export function CombinedTimelineCanvas({
       const x = yearToX(event.year, canvasWidth)
       if (x < 0 || x > canvasWidth) return
 
-      const y = centerY - 40
+      const y = centerY - 15
       const timelineColor = timelineColorMap.get(event.timeline_id)
 
       ctx.fillStyle = timelineColor?.dot || '#8B4513'
