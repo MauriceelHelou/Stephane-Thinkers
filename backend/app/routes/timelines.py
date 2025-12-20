@@ -309,3 +309,76 @@ def repopulate_timeline(
         updated_count=len(thinkers),
         positions=updated_positions
     )
+
+
+@router.post("/repopulate-all", response_model=RepopulateResponse)
+def repopulate_all_thinkers(
+    config: Optional[RepopulateConfig] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Recalculate optimal positions for ALL thinkers across all timelines.
+
+    Uses a force-directed layout algorithm to:
+    - Spread thinkers to avoid overlapping
+    - Pull connected thinkers closer together
+    - Group thinkers in the same field
+    - Keep thinkers near the timeline center (y=0)
+
+    X-axis position (anchor_year) is calculated based on:
+    - Existing anchor_year if set
+    - Midpoint of birth_year and death_year
+    - Birth year + 40 if only birth known
+    - Death year - 20 if only death known
+
+    Y-axis position is optimized by the force simulation.
+    """
+    # Use default config if none provided
+    if config is None:
+        config = RepopulateConfig()
+
+    # Get ALL thinkers
+    thinkers = db.query(Thinker).all()
+
+    if len(thinkers) == 0:
+        return RepopulateResponse(updated_count=0, positions=[])
+
+    # Get ALL connections
+    connections = db.query(Connection).all()
+
+    # Calculate anchor years for all thinkers
+    anchor_years = {}
+    for thinker in thinkers:
+        anchor_year = calculate_anchor_year(thinker)
+        if anchor_year is not None:
+            anchor_years[str(thinker.id)] = anchor_year
+
+    # Run force simulation to get optimal Y positions
+    y_positions = run_force_simulation(thinkers, connections, config)
+
+    # Update thinker positions in database
+    updated_positions = []
+    for thinker in thinkers:
+        tid = str(thinker.id)
+
+        # Update anchor_year if calculated
+        if tid in anchor_years:
+            thinker.anchor_year = anchor_years[tid]
+
+        # Update Y position from simulation
+        if tid in y_positions:
+            thinker.position_y = y_positions[tid]
+
+        updated_positions.append({
+            "id": tid,
+            "name": thinker.name,
+            "anchor_year": thinker.anchor_year,
+            "position_y": thinker.position_y
+        })
+
+    db.commit()
+
+    return RepopulateResponse(
+        updated_count=len(thinkers),
+        positions=updated_positions
+    )

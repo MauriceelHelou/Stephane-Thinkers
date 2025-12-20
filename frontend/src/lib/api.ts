@@ -122,6 +122,10 @@ export const timelinesApi = {
     const response = await api.post(`/api/timelines/${timelineId}/repopulate`, config || {})
     return response.data
   },
+  repopulateAll: async (config?: RepopulateConfig): Promise<RepopulateResponse> => {
+    const response = await api.post('/api/timelines/repopulate-all', config || {})
+    return response.data
+  },
 }
 
 // Timeline Events API (with timeline_id filter support)

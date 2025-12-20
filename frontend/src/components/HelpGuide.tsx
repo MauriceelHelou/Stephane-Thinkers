@@ -24,7 +24,7 @@ export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
             <div><span className="font-mono bg-gray-100 px-1">{modKey}N</span> — New Timeline</div>
             <div><span className="font-mono bg-gray-100 px-1">{modKey}S</span> — Sticky Note Mode</div>
             <div><span className="font-mono bg-gray-100 px-1">{modKey}Click</span> — Quick Add at position</div>
-            <div><span className="font-mono bg-gray-100 px-1">Shift+Alt+Click</span> — Quick Connect</div>
+            <div><span className="font-mono bg-gray-100 px-1">Shift+Click</span> — Quick Connect</div>
             <div><span className="font-mono bg-gray-100 px-1">?</span> — This help</div>
           </div>
         </section>
@@ -63,8 +63,8 @@ export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
           <h3 className="font-semibold text-primary mb-2">Creating Connections</h3>
           <ul className="space-y-1 text-gray-700">
             <li className="font-medium text-accent">Quick Connect (recommended):</li>
-            <li className="ml-4">Hold <span className="font-mono bg-gray-100 px-1">Shift+Alt</span> and click first thinker</li>
-            <li className="ml-4">Keep holding and click second thinker</li>
+            <li className="ml-4">Hold <span className="font-mono bg-gray-100 px-1">Shift</span> and click first thinker</li>
+            <li className="ml-4">Keep holding Shift and click second thinker</li>
             <li className="ml-4">Connection modal opens with both pre-selected</li>
             <li><span className="font-mono bg-gray-100 px-1">{modKey}K</span> — Open Connection modal with dropdowns</li>
             <li><strong>Click</strong> on a connection line to edit or delete it</li>

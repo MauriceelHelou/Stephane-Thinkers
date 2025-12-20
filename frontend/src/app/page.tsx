@@ -58,7 +58,6 @@ export default function Home() {
   const [editingTimelineId, setEditingTimelineId] = useState<string | null>(null)
   const [editingCombinedViewId, setEditingCombinedViewId] = useState<string | null>(null)
   const [shiftHeld, setShiftHeld] = useState(false)
-  const [altHeld, setAltHeld] = useState(false)
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
   const [bulkSelectMode, setBulkSelectMode] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -240,7 +239,8 @@ export default function Home() {
   // Mutation for repopulating thinker positions
   const [isRepopulating, setIsRepopulating] = useState(false)
   const repopulateMutation = useMutation({
-    mutationFn: (timelineId: string) => timelinesApi.repopulate(timelineId),
+    mutationFn: (timelineId: string | null) =>
+      timelineId ? timelinesApi.repopulate(timelineId) : timelinesApi.repopulateAll(),
     onMutate: () => {
       setIsRepopulating(true)
     },
@@ -254,7 +254,7 @@ export default function Home() {
   })
 
   const handleRepopulate = () => {
-    if (selectedTimelineId && !isRepopulating) {
+    if (!isRepopulating && !selectedCombinedViewId) {
       repopulateMutation.mutate(selectedTimelineId)
     }
   }
@@ -321,12 +321,9 @@ export default function Home() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Track shift and alt keys for connection mode (Shift+Option+Click)
+      // Track shift key for quick connection mode (Shift+Click)
       if (e.key === 'Shift') {
         setShiftHeld(true)
-      }
-      if (e.key === 'Alt') {
-        setAltHeld(true)
       }
 
       // Don't trigger shortcuts when typing in inputs or when modals are open
@@ -395,9 +392,6 @@ export default function Home() {
       if (e.key === 'Shift') {
         setShiftHeld(false)
       }
-      if (e.key === 'Alt') {
-        setAltHeld(false)
-      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -440,12 +434,12 @@ export default function Home() {
     setStickyNotePosition(null)
   }
 
-  // Handle thinker click with Shift+Option for connections and Ctrl/Cmd for bulk selection
+  // Handle thinker click with Shift for quick connections and Ctrl/Cmd for bulk selection
   const handleThinkerClick = useCallback((thinkerId: string, isShiftClick?: boolean, isCtrlClick?: boolean, isAltClick?: boolean) => {
-    const useShiftAlt = (isShiftClick ?? shiftHeld) && (isAltClick ?? altHeld)
+    const useShift = isShiftClick ?? shiftHeld
 
-    // Ctrl/Cmd+Click toggles bulk selection (without Shift+Alt)
-    if (isCtrlClick && !useShiftAlt) {
+    // Ctrl/Cmd+Click toggles bulk selection (without Shift)
+    if (isCtrlClick && !useShift) {
       setBulkSelectedIds(prev =>
         prev.includes(thinkerId)
           ? prev.filter(id => id !== thinkerId)
@@ -454,8 +448,8 @@ export default function Home() {
       return
     }
 
-    // Shift+Option+Click for connection mode
-    if (connectionMode || useShiftAlt) {
+    // Shift+Click for quick connection mode
+    if (connectionMode || useShift) {
       if (!connectionFrom) {
         setConnectionFrom(thinkerId)
       } else if (connectionFrom !== thinkerId) {
@@ -470,7 +464,7 @@ export default function Home() {
       }
       setSelectedThinkerId(thinkerId)
     }
-  }, [shiftHeld, altHeld, connectionMode, connectionFrom, bulkSelectedIds])
+  }, [shiftHeld, connectionMode, connectionFrom, bulkSelectedIds])
 
   const handleCloseDetailPanel = () => {
     setSelectedThinkerId(null)
@@ -1010,7 +1004,7 @@ export default function Home() {
         {/* Connection mode indicator */}
         {connectionFrom && (
           <div className="absolute left-1/2 -translate-x-1/2 bg-blue-100 text-blue-800 px-3 py-1 rounded text-xs font-sans hidden sm:block">
-            Select second thinker for connection (Shift+Option+Click or Escape to cancel)
+            Select second thinker for connection (Shift+Click or Escape to cancel)
           </div>
         )}
 
@@ -1327,8 +1321,8 @@ export default function Home() {
           )}
         </div>
 
-        {/* Repopulate button - only show when a timeline is selected */}
-        {selectedTimelineId && (
+        {/* Repopulate button - show when not in combined view */}
+        {!selectedCombinedViewId && (
           <div className="flex items-center gap-1 flex-shrink-0 ml-2 pl-2 border-l border-timeline">
             <button
               onClick={handleRepopulate}
@@ -1338,7 +1332,10 @@ export default function Home() {
                   ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'border-green-400 text-green-700 hover:bg-green-50 hover:border-green-500'
               }`}
-              title="Auto-position all thinkers on this timeline using force-directed layout"
+              title={selectedTimelineId
+                ? "Auto-position all thinkers on this timeline using force-directed layout"
+                : "Auto-position all thinkers using force-directed layout"
+              }
             >
               {isRepopulating ? (
                 <>
