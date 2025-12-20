@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { aiApi, thinkersApi, connectionsApi, publicationsApi, quotesApi, ChatMessage, ChatCitation } from '@/lib/api'
-import { ConnectionType, PublicationType } from '@/types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { aiApi, thinkersApi, connectionsApi, publicationsApi, quotesApi, timelinesApi, ChatMessage, ChatCitation } from '@/lib/api'
+import { ConnectionType, PublicationType, Timeline } from '@/types'
 
 interface AIChatPanelProps {
   isOpen: boolean
@@ -31,6 +31,7 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
   // Summary state
   const [summaryType, setSummaryType] = useState('overview')
   const [summaryTarget, setSummaryTarget] = useState('')
+  const [summaryTimelineId, setSummaryTimelineId] = useState('')
   const [summaryLength, setSummaryLength] = useState('medium')
   const [summaryResult, setSummaryResult] = useState<{
     summary: string
@@ -38,6 +39,14 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
     key_figures: string[]
     themes: string[]
   } | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+
+  // Get timelines for the dropdown
+  const { data: timelines = [] } = useQuery({
+    queryKey: ['timelines'],
+    queryFn: timelinesApi.getAll,
+    enabled: isOpen,
+  })
 
   // NL Entry state
   const [nlInput, setNlInput] = useState('')
@@ -84,15 +93,22 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
 
   const summaryMutation = useMutation({
     mutationFn: async () => {
+      setSummaryError(null)
       return aiApi.generateSummary(
         summaryType,
-        summaryType === 'thinker' ? summaryTarget : undefined,
-        summaryType !== 'thinker' ? summaryTarget : undefined,
-        summaryLength
+        summaryType === 'thinker' ? summaryTarget : (summaryType === 'timeline' ? summaryTimelineId : undefined),
+        summaryType !== 'thinker' && summaryType !== 'timeline' ? summaryTarget : undefined,
+        summaryLength,
+        summaryType === 'timeline' ? summaryTimelineId : undefined
       )
     },
     onSuccess: (data) => {
       setSummaryResult(data)
+      setSummaryError(null)
+    },
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
+      const detail = error.response?.data?.detail || error.message || 'Failed to generate summary'
+      setSummaryError(detail)
     },
   })
 
@@ -102,6 +118,44 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
     },
     onSuccess: (data) => {
       setParsedResult(data)
+    },
+  })
+
+  // Check if parsed result has missing thinkers
+  const getMissingThinkers = () => {
+    if (!parsedResult) return []
+    const { entity_type, data } = parsedResult
+    const missing: { key: string; name: string }[] = []
+
+    if (entity_type === 'connection') {
+      if (data.from_thinker && !data.from_thinker_id) {
+        missing.push({ key: 'from_thinker', name: data.from_thinker as string })
+      }
+      if (data.to_thinker && !data.to_thinker_id) {
+        missing.push({ key: 'to_thinker', name: data.to_thinker as string })
+      }
+    } else if ((entity_type === 'publication' || entity_type === 'quote') && data.thinker && !data.thinker_id) {
+      missing.push({ key: 'thinker', name: data.thinker as string })
+    }
+
+    return missing
+  }
+
+  const missingThinkers = getMissingThinkers()
+
+  // Create a missing thinker and re-parse
+  const createMissingThinkerMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return thinkersApi.create({ name })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['thinkers'] })
+      // Re-parse the original input to get updated thinker IDs
+      if (nlInput.trim()) {
+        setTimeout(() => {
+          parseMutation.mutate(nlInput)
+        }, 500) // Small delay to ensure the new thinker is available
+      }
     },
   })
 
@@ -340,16 +394,36 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
                   <label className="block text-sm font-medium text-gray-700 mb-1">Summary Type</label>
                   <select
                     value={summaryType}
-                    onChange={(e) => setSummaryType(e.target.value)}
+                    onChange={(e) => {
+                      setSummaryType(e.target.value)
+                      setSummaryError(null)
+                    }}
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
                   >
                     <option value="overview">Database Overview</option>
+                    <option value="timeline">By Timeline</option>
                     <option value="field">By Field</option>
                     <option value="period">By Time Period</option>
                   </select>
                 </div>
 
-                {summaryType !== 'overview' && (
+                {summaryType === 'timeline' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Timeline</label>
+                    <select
+                      value={summaryTimelineId}
+                      onChange={(e) => setSummaryTimelineId(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                    >
+                      <option value="">Select a timeline...</option>
+                      {timelines.map((t: Timeline) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {(summaryType === 'field' || summaryType === 'period') && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       {summaryType === 'field' ? 'Field Name' : 'Time Period'}
@@ -379,11 +453,17 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
 
                 <button
                   onClick={() => summaryMutation.mutate()}
-                  disabled={summaryMutation.isPending}
+                  disabled={summaryMutation.isPending || (summaryType === 'timeline' && !summaryTimelineId)}
                   className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50"
                 >
                   {summaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
                 </button>
+
+                {summaryError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                    {summaryError}
+                  </div>
+                )}
               </div>
 
               {summaryResult && (
@@ -494,11 +574,38 @@ export function AIChatPanel({ isOpen, onClose, onThinkerSelect }: AIChatPanelPro
                     </div>
                   )}
 
+                  {/* Show option to create missing thinkers */}
+                  {missingThinkers.length > 0 && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-xs font-medium text-blue-800 mb-2">
+                        Missing thinker{missingThinkers.length > 1 ? 's' : ''} in database:
+                      </p>
+                      <div className="space-y-2">
+                        {missingThinkers.map((mt) => (
+                          <div key={mt.key} className="flex items-center gap-2">
+                            <span className="text-sm text-blue-700">{mt.name}</span>
+                            <button
+                              onClick={() => createMissingThinkerMutation.mutate(mt.name)}
+                              disabled={createMissingThinkerMutation.isPending}
+                              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {createMissingThinkerMutation.isPending ? 'Creating...' : `Add "${mt.name}" to database`}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-blue-600 mt-2">
+                        After adding, the entry will be re-parsed automatically.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => createFromParsedMutation.mutate()}
-                      disabled={createFromParsedMutation.isPending}
+                      disabled={createFromParsedMutation.isPending || missingThinkers.length > 0}
                       className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                      title={missingThinkers.length > 0 ? 'Add missing thinkers first' : ''}
                     >
                       {createFromParsedMutation.isPending ? 'Creating...' : 'Create Entry'}
                     </button>

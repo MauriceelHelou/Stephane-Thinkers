@@ -605,7 +605,7 @@ FOLLOW_UP: ["Question 1?", "Question 2?", "Question 3?"]"""})
 
 
 async def generate_summary(
-    summary_type: str,  # "timeline", "thinker", "field", "period"
+    summary_type: str,  # "timeline", "thinker", "field", "period", "overview"
     target_id: Optional[str],
     target_name: Optional[str],
     thinkers: List[Dict[str, Any]],
@@ -617,10 +617,17 @@ async def generate_summary(
     Generate summaries of various aspects of the database.
     """
     if not is_ai_enabled():
-        return None
+        raise AIServiceError("AI features not enabled", "DEEPSEEK_API_KEY environment variable is not set")
 
     # Filter relevant data based on summary type
-    if summary_type == "thinker" and target_id:
+    if summary_type == "timeline":
+        # Data is already filtered by timeline in the endpoint
+        relevant_thinkers = thinkers
+        thinker_map = {t['id']: t['name'] for t in thinkers}
+        relevant_connections = connections
+        relevant_pubs = publications
+        context_desc = f"this timeline with {len(thinkers)} thinkers"
+    elif summary_type == "thinker" and target_id:
         relevant_thinkers = [t for t in thinkers if t['id'] == target_id]
         thinker_map = {t['id']: t['name'] for t in thinkers}
         relevant_connections = [c for c in connections
@@ -643,6 +650,7 @@ async def generate_summary(
         relevant_pubs = publications
         context_desc = f"the period {target_name}"
     else:
+        # overview or fallback
         relevant_thinkers = thinkers[:50]
         thinker_map = {t['id']: t['name'] for t in thinkers}
         relevant_connections = connections[:50]

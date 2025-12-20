@@ -50,6 +50,7 @@ export interface Thinker {
   position_x?: number | null
   position_y?: number | null
   anchor_year?: number | null  // Year the thinker is pinned to on timeline
+  is_manually_positioned?: boolean  // True if user manually dragged this thinker
   timeline_id?: string | null
   created_at: string
   updated_at: string
@@ -71,6 +72,7 @@ export interface ThinkerCreate {
   position_x?: number | null
   position_y?: number | null
   anchor_year?: number | null  // Year the thinker is pinned to on timeline
+  is_manually_positioned?: boolean  // True if user manually dragged this thinker
   timeline_id?: string | null
 }
 
@@ -84,6 +86,7 @@ export interface ThinkerUpdate {
   position_x?: number | null
   position_y?: number | null
   anchor_year?: number | null  // Year the thinker is pinned to on timeline
+  is_manually_positioned?: boolean  // True if user manually dragged this thinker
   timeline_id?: string | null
   tag_ids?: string[]
 }

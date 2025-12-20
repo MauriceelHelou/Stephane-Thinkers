@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, Text, TIMESTAMP, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -19,6 +19,7 @@ class Thinker(Base):
     position_x = Column(Float, nullable=True)
     position_y = Column(Float, nullable=True)
     anchor_year = Column(Integer, nullable=True)  # Year the thinker is pinned to on timeline
+    is_manually_positioned = Column(Boolean, default=False, nullable=False)  # True if user manually dragged this thinker
     timeline_id = Column(GUID, ForeignKey("timelines.id"), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

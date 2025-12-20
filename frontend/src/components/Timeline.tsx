@@ -448,15 +448,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     // Draw quarter dashes when zoomed in (show sub-intervals)
-    // Show quarter marks at lower zoom threshold for all timelines
-    if (interval >= 1 && scale >= 1) {
+    // Show quarter marks between main intervals for finer granularity
+    if (scale >= 1) {
       const quarterInterval = interval / 4
       ctx.strokeStyle = '#DDDDDD'
       ctx.lineWidth = 0.5
 
       for (let year = Math.ceil(startYear / quarterInterval) * quarterInterval; year <= endYear; year += quarterInterval) {
-        // Skip if this is a main interval marker
-        if (year % interval === 0) continue
+        // Skip if this is a main interval marker (use tolerance for floating point)
+        if (Math.abs(year % interval) < 0.0001 || Math.abs(year % interval - interval) < 0.0001) continue
 
         const x = yearToX(year, width, scale)
         ctx.beginPath()
@@ -467,14 +467,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     // Draw even finer marks (twelfths/months) at higher zoom
-    if (interval >= 1 && scale >= 4) {
+    if (scale >= 4) {
       const monthInterval = interval / 12
       ctx.strokeStyle = '#EEEEEE'
       ctx.lineWidth = 0.5
 
       for (let year = Math.ceil(startYear / monthInterval) * monthInterval; year <= endYear; year += monthInterval) {
-        // Skip if this is a main interval or quarter marker
-        if (year % (interval / 4) === 0) continue
+        // Skip if this is a main interval or quarter marker (use tolerance for floating point)
+        const quarterRemainder = year % (interval / 4)
+        if (Math.abs(quarterRemainder) < 0.0001 || Math.abs(quarterRemainder - interval / 4) < 0.0001) continue
 
         const x = yearToX(year, width, scale)
         ctx.beginPath()

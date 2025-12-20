@@ -99,7 +99,8 @@ def calculate_anchor_year(thinker: Thinker) -> Optional[int]:
 def run_force_simulation(
     thinkers: List[Thinker],
     connections: List[Connection],
-    config: RepopulateConfig
+    config: RepopulateConfig,
+    fixed_ids: set = None
 ) -> dict:
     """
     Run force-directed layout simulation to calculate optimal Y positions.
@@ -112,11 +113,17 @@ def run_force_simulation(
        - Calculate attraction forces between same-field nodes
        - Apply gravity toward center (y=0)
        - Update velocities with damping
-       - Update positions
+       - Update positions (except for fixed_ids which keep their positions)
     3. Return final positions
+
+    Args:
+        fixed_ids: Set of thinker IDs that should not have their positions changed
     """
     if len(thinkers) == 0:
         return {}
+
+    if fixed_ids is None:
+        fixed_ids = set()
 
     # Initialize positions and velocities
     positions = {}  # thinker_id -> y_position
@@ -210,9 +217,13 @@ def run_force_simulation(
         for tid in thinker_ids:
             forces[tid] -= positions[tid] * config.center_gravity
 
-        # 5. Update velocities and positions
+        # 5. Update velocities and positions (skip fixed thinkers)
         max_velocity = 0.0
         for tid in thinker_ids:
+            # Skip fixed thinkers - they keep their original positions
+            if tid in fixed_ids:
+                continue
+
             velocities[tid] = (velocities[tid] + forces[tid]) * config.damping
             positions[tid] += velocities[tid]
 
@@ -273,34 +284,40 @@ def repopulate_timeline(
         Connection.to_thinker_id.in_(thinker_ids)
     ).all()
 
-    # Calculate anchor years for all thinkers
+    # Identify manually positioned thinkers (they keep their positions)
+    manually_positioned_ids = {str(t.id) for t in thinkers if t.is_manually_positioned}
+
+    # Calculate anchor years only for non-manually positioned thinkers
     anchor_years = {}
     for thinker in thinkers:
-        anchor_year = calculate_anchor_year(thinker)
-        if anchor_year is not None:
-            anchor_years[str(thinker.id)] = anchor_year
+        tid = str(thinker.id)
+        if tid not in manually_positioned_ids:
+            anchor_year = calculate_anchor_year(thinker)
+            if anchor_year is not None:
+                anchor_years[tid] = anchor_year
 
-    # Run force simulation to get optimal Y positions
-    y_positions = run_force_simulation(thinkers, connections, config)
+    # Run force simulation to get optimal Y positions (fixed thinkers keep their positions)
+    y_positions = run_force_simulation(thinkers, connections, config, fixed_ids=manually_positioned_ids)
 
     # Update thinker positions in database
     updated_positions = []
     for thinker in thinkers:
         tid = str(thinker.id)
 
-        # Update anchor_year if calculated
+        # Only update anchor_year for non-manually positioned thinkers
         if tid in anchor_years:
             thinker.anchor_year = anchor_years[tid]
 
-        # Update Y position from simulation
-        if tid in y_positions:
+        # Only update Y position for non-manually positioned thinkers
+        if tid in y_positions and tid not in manually_positioned_ids:
             thinker.position_y = y_positions[tid]
 
         updated_positions.append({
             "id": tid,
             "name": thinker.name,
             "anchor_year": thinker.anchor_year,
-            "position_y": thinker.position_y
+            "position_y": thinker.position_y,
+            "is_manually_positioned": thinker.is_manually_positioned
         })
 
     db.commit()
@@ -346,34 +363,40 @@ def repopulate_all_thinkers(
     # Get ALL connections
     connections = db.query(Connection).all()
 
-    # Calculate anchor years for all thinkers
+    # Identify manually positioned thinkers (they keep their positions)
+    manually_positioned_ids = {str(t.id) for t in thinkers if t.is_manually_positioned}
+
+    # Calculate anchor years only for non-manually positioned thinkers
     anchor_years = {}
     for thinker in thinkers:
-        anchor_year = calculate_anchor_year(thinker)
-        if anchor_year is not None:
-            anchor_years[str(thinker.id)] = anchor_year
+        tid = str(thinker.id)
+        if tid not in manually_positioned_ids:
+            anchor_year = calculate_anchor_year(thinker)
+            if anchor_year is not None:
+                anchor_years[tid] = anchor_year
 
-    # Run force simulation to get optimal Y positions
-    y_positions = run_force_simulation(thinkers, connections, config)
+    # Run force simulation to get optimal Y positions (fixed thinkers keep their positions)
+    y_positions = run_force_simulation(thinkers, connections, config, fixed_ids=manually_positioned_ids)
 
     # Update thinker positions in database
     updated_positions = []
     for thinker in thinkers:
         tid = str(thinker.id)
 
-        # Update anchor_year if calculated
+        # Only update anchor_year for non-manually positioned thinkers
         if tid in anchor_years:
             thinker.anchor_year = anchor_years[tid]
 
-        # Update Y position from simulation
-        if tid in y_positions:
+        # Only update Y position for non-manually positioned thinkers
+        if tid in y_positions and tid not in manually_positioned_ids:
             thinker.position_y = y_positions[tid]
 
         updated_positions.append({
             "id": tid,
             "name": thinker.name,
             "anchor_year": thinker.anchor_year,
-            "position_y": thinker.position_y
+            "position_y": thinker.position_y,
+            "is_manually_positioned": thinker.is_manually_positioned
         })
 
     db.commit()

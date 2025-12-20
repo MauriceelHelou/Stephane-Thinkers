@@ -286,6 +286,7 @@ class SummaryRequest(BaseModel):
     summary_type: str  # "timeline", "thinker", "field", "period", "overview"
     target_id: Optional[str] = None
     target_name: Optional[str] = None
+    timeline_id: Optional[str] = None  # Filter by timeline
     length: str = "medium"  # "short", "medium", "detailed"
 
 
@@ -399,6 +400,7 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
 
     Types:
     - "overview": Overview of the entire database
+    - "timeline": Summary of a specific timeline (requires timeline_id)
     - "thinker": Summary of a specific thinker (requires target_id)
     - "field": Summary of a field (requires target_name, e.g., "Philosophy")
     - "period": Summary of a time period (requires target_name, e.g., "1700-1800")
@@ -406,10 +408,33 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
-    # Get data from database
-    thinkers = db.query(Thinker).all()
+    # Get data from database - optionally filter by timeline
+    thinker_query = db.query(Thinker)
+
+    # For "timeline" summary type, or when timeline_id is provided, filter thinkers
+    timeline_filter_id = request.timeline_id
+    if request.summary_type == "timeline" and request.target_id:
+        timeline_filter_id = request.target_id
+
+    if timeline_filter_id:
+        thinker_query = thinker_query.filter(Thinker.timeline_id == timeline_filter_id)
+
+    thinkers = thinker_query.all()
+
+    if not thinkers:
+        raise HTTPException(status_code=400, detail="No thinkers found for the selected criteria")
+
+    # Get thinker IDs for filtering connections and publications
+    thinker_ids = {str(t.id) for t in thinkers}
+
+    # Get connections between these thinkers
     connections = db.query(Connection).all()
+    filtered_connections = [c for c in connections
+                           if str(c.from_thinker_id) in thinker_ids or str(c.to_thinker_id) in thinker_ids]
+
+    # Get publications for these thinkers
     publications = db.query(Publication).all()
+    filtered_publications = [p for p in publications if str(p.thinker_id) in thinker_ids]
 
     thinker_dicts = [
         {
@@ -429,7 +454,7 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
             "to_thinker_id": str(c.to_thinker_id),
             "connection_type": c.connection_type,
         }
-        for c in connections
+        for c in filtered_connections
     ]
 
     pub_dicts = [
@@ -438,29 +463,32 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
             "title": p.title,
             "year": p.year,
         }
-        for p in publications
+        for p in filtered_publications
     ]
 
-    result = await generate_summary(
-        request.summary_type,
-        request.target_id,
-        request.target_name,
-        thinker_dicts,
-        connection_dicts,
-        pub_dicts,
-        request.length,
-    )
+    try:
+        result = await generate_summary(
+            request.summary_type,
+            request.target_id,
+            request.target_name,
+            thinker_dicts,
+            connection_dicts,
+            pub_dicts,
+            request.length,
+        )
 
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to generate summary")
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to generate summary - AI returned no result")
 
-    return SummaryResponse(
-        summary=result.summary,
-        key_points=result.key_points,
-        key_figures=result.key_figures,
-        themes=result.themes,
-        length=result.length,
-    )
+        return SummaryResponse(
+            summary=result.summary,
+            key_points=result.key_points,
+            key_figures=result.key_figures,
+            themes=result.themes,
+            length=result.length,
+        )
+    except AIServiceError as e:
+        raise HTTPException(status_code=500, detail=f"{e.message}. {e.details or ''}")
 
 
 @router.post("/parse", response_model=ParseResponse)

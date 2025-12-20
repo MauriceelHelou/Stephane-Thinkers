@@ -18,6 +18,7 @@ class ThinkerBase(BaseModel):
     position_x: Optional[float] = None
     position_y: Optional[float] = None
     anchor_year: Optional[int] = None  # Year the thinker is pinned to on timeline
+    is_manually_positioned: Optional[bool] = False  # True if user manually dragged this thinker
     timeline_id: Optional[UUID] = None
 
     @field_validator('name')
@@ -58,6 +59,7 @@ class ThinkerUpdate(BaseModel):
     position_x: Optional[float] = None
     position_y: Optional[float] = None
     anchor_year: Optional[int] = None  # Year the thinker is pinned to on timeline
+    is_manually_positioned: Optional[bool] = None  # True if user manually dragged this thinker
     timeline_id: Optional[UUID] = None
 
     @field_validator('name')

@@ -234,9 +234,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   const simulateForces = useCallback((nodes: NodePosition[], width: number, height: number): NodePosition[] => {
     const centerX = width / 2
     const centerY = height / 2
-    const repulsionStrength = 2000
+    const repulsionStrength = 3000
     const damping = 0.85
-    const minDistance = 80
+    const minDistance = 100 // Increased to prevent label overlaps
 
     return nodes.map((node, i) => {
       if (node.isCenter) return node // Center node is fixed
@@ -387,7 +387,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       const totalConnections = pairInfo.total
 
       // Calculate perpendicular offset for parallel lines
-      const offsetStep = 15 // Pixels between parallel connections
+      const offsetStep = 12 // Pixels between parallel connections
       const totalOffset = (totalConnections - 1) * offsetStep
       const lineOffset = connectionIndex * offsetStep - totalOffset / 2
 
@@ -402,55 +402,42 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       const isHighlighted = hoveredNode === conn.from_thinker_id || hoveredNode === conn.to_thinker_id
 
       ctx.strokeStyle = isHighlighted ? style.highlightColor : style.color
-      ctx.lineWidth = isHighlighted ? 3 : 2
+      ctx.lineWidth = isHighlighted ? 2.5 : 1.5
       ctx.setLineDash(style.dashPattern)
-      ctx.globalAlpha = isHighlighted ? 1 : 0.6
+      ctx.globalAlpha = isHighlighted ? 1 : 0.5
 
-      // Draw straight line with offset for dual connections
-      const adjustedFromX = fromPos.x + perpX
-      const adjustedFromY = fromPos.y + perpY
-      const adjustedToX = toPos.x + perpX
-      const adjustedToY = toPos.y + perpY
+      // Calculate start and end points at circle edges (not centers)
+      const fromRadius = fromPos.isCenter ? 30 : 20
+      const toRadius = toPos.isCenter ? 30 : 20
+
+      const adjustedFromX = fromPos.x + perpX + (dx / length) * fromRadius
+      const adjustedFromY = fromPos.y + perpY + (dy / length) * fromRadius
+      const adjustedToX = toPos.x + perpX - (dx / length) * toRadius
+      const adjustedToY = toPos.y + perpY - (dy / length) * toRadius
 
       ctx.beginPath()
       ctx.moveTo(adjustedFromX, adjustedFromY)
       ctx.lineTo(adjustedToX, adjustedToY)
       ctx.stroke()
 
-      // Arrow - draw at the edge of the target node circle
+      // Arrow - draw at the line end (already at circle edge)
       ctx.setLineDash([])
-      ctx.globalAlpha = 1 // Full opacity for arrows
+      ctx.globalAlpha = isHighlighted ? 1 : 0.7
       const angle = Math.atan2(adjustedToY - adjustedFromY, adjustedToX - adjustedFromX)
-      const arrowSize = 12
-      // Position arrow just outside the target node (nodeRadius is 35 for non-center)
-      const nodeRadius = toPos.isCenter ? 45 : 35
-      const arrowX = adjustedToX - (nodeRadius + 5) * Math.cos(angle)
-      const arrowY = adjustedToY - (nodeRadius + 5) * Math.sin(angle)
+      const arrowSize = 8
       ctx.beginPath()
-      ctx.moveTo(arrowX, arrowY)
+      ctx.moveTo(adjustedToX, adjustedToY)
       ctx.lineTo(
-        arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
-        arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
+        adjustedToX - arrowSize * Math.cos(angle - Math.PI / 7),
+        adjustedToY - arrowSize * Math.sin(angle - Math.PI / 7)
       )
       ctx.lineTo(
-        arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
-        arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
+        adjustedToX - arrowSize * Math.cos(angle + Math.PI / 7),
+        adjustedToY - arrowSize * Math.sin(angle + Math.PI / 7)
       )
       ctx.closePath()
       ctx.fillStyle = isHighlighted ? style.highlightColor : style.color
       ctx.fill()
-
-      // Connection label at midpoint with offset
-      const midX = (adjustedFromX + adjustedToX) / 2
-      const midY = (adjustedFromY + adjustedToY) / 2
-      ctx.globalAlpha = 1
-      ctx.font = '10px Inter, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillStyle = '#FFFFFF'
-      const labelWidth = ctx.measureText(style.label).width + 8
-      ctx.fillRect(midX - labelWidth / 2, midY - 8, labelWidth, 16)
-      ctx.fillStyle = style.color
-      ctx.fillText(style.label, midX, midY + 3)
     })
 
     ctx.globalAlpha = 1
@@ -459,56 +446,46 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     // Draw nodes
     nodes.forEach((node) => {
       const isHovered = hoveredNode === node.id
-      const nodeRadius = node.isCenter ? 45 : 35
+      const nodeRadius = node.isCenter ? 30 : 20
 
-      // Node circle
+      // Node circle - simple filled circle
       ctx.beginPath()
       ctx.arc(node.x, node.y, nodeRadius, 0, Math.PI * 2)
 
       if (node.isCenter) {
         ctx.fillStyle = '#8B4513'
-        ctx.strokeStyle = '#6B3410'
       } else if (isHovered) {
-        ctx.fillStyle = '#F0E6D8'
-        ctx.strokeStyle = '#8B4513'
+        ctx.fillStyle = '#C9956C'
       } else {
-        ctx.fillStyle = '#FFFFFF'
-        ctx.strokeStyle = '#CCCCCC'
+        ctx.fillStyle = '#666666'
+      }
+      ctx.fill()
+
+      // Subtle border on hover
+      if (isHovered || node.isCenter) {
+        ctx.strokeStyle = node.isCenter ? '#5A2D0A' : '#8B4513'
+        ctx.lineWidth = 2
+        ctx.stroke()
       }
 
-      ctx.lineWidth = isHovered || node.isCenter ? 3 : 2
-      ctx.fill()
-      ctx.stroke()
-
-      // Node label
-      ctx.font = node.isCenter ? 'bold 13px Crimson Text, serif' : '12px Crimson Text, serif'
+      // Node label - outside the circle for cleaner look
+      ctx.font = node.isCenter ? 'bold 12px Inter, sans-serif' : '11px Inter, sans-serif'
       ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = node.isCenter ? '#FFFFFF' : '#1A1A1A'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = '#1A1A1A'
 
-      // Wrap text if needed
-      const maxWidth = nodeRadius * 1.8
-      const words = node.name.split(' ')
-      let line = ''
-      const lines: string[] = []
-
-      words.forEach((word) => {
-        const testLine = line + (line ? ' ' : '') + word
-        const metrics = ctx.measureText(testLine)
-        if (metrics.width > maxWidth && line) {
-          lines.push(line)
-          line = word
-        } else {
-          line = testLine
+      // Truncate long names
+      const maxLabelWidth = 80
+      let displayName = node.name
+      if (ctx.measureText(displayName).width > maxLabelWidth) {
+        while (ctx.measureText(displayName + '...').width > maxLabelWidth && displayName.length > 3) {
+          displayName = displayName.slice(0, -1)
         }
-      })
-      lines.push(line)
+        displayName += '...'
+      }
 
-      const lineHeight = 14
-      const startY = node.y - ((lines.length - 1) * lineHeight) / 2
-      lines.forEach((l, i) => {
-        ctx.fillText(l, node.x, startY + i * lineHeight)
-      })
+      // Draw label below the node
+      ctx.fillText(displayName, node.x, node.y + nodeRadius + 4)
     })
   }, [isOpen, centerThinker, networkConnections, nodes, hoveredNode, canvasSize])
 
@@ -523,9 +500,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
 
     let foundNode: string | null = null
     for (const node of nodes) {
-      const nodeRadius = node.isCenter ? 45 : 35
+      const nodeRadius = node.isCenter ? 30 : 20
       const dist = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2)
-      if (dist <= nodeRadius) {
+      if (dist <= nodeRadius + 5) { // Small buffer for easier clicking
         foundNode = node.id
         break
       }
@@ -544,9 +521,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const y = e.clientY - rect.top
 
     for (const node of nodes) {
-      const nodeRadius = node.isCenter ? 45 : 35
+      const nodeRadius = node.isCenter ? 30 : 20
       const dist = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2)
-      if (dist <= nodeRadius && node.id !== centerThinker) {
+      if (dist <= nodeRadius + 5 && node.id !== centerThinker) {
         setCenterThinker(node.id)
         break
       }

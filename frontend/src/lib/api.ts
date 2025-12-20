@@ -428,12 +428,14 @@ export const aiApi = {
     summaryType: string,
     targetId?: string,
     targetName?: string,
-    length: string = 'medium'
+    length: string = 'medium',
+    timelineId?: string
   ): Promise<SummaryResponseData> => {
     const response = await api.post('/api/ai/summary', {
       summary_type: summaryType,
       target_id: targetId,
       target_name: targetName,
+      timeline_id: timelineId,
       length,
     })
     return response.data

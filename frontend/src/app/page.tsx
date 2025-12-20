@@ -228,9 +228,10 @@ export default function Home() {
   })
 
   // Mutation for updating thinker position (anchor_year and position_y)
+  // When dragging, we set is_manually_positioned=true to preserve the position during repopulate
   const updateThinkerPositionMutation = useMutation({
     mutationFn: ({ id, anchor_year, position_y }: { id: string; anchor_year: number; position_y: number }) =>
-      thinkersApi.update(id, { anchor_year, position_y }),
+      thinkersApi.update(id, { anchor_year, position_y, is_manually_positioned: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['thinkers'] })
     },

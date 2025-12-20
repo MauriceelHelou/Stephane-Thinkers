@@ -448,39 +448,46 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
 
             <div className="border-t border-timeline pt-4">
               <h3 className="text-sm font-sans font-medium text-secondary mb-3">TAGS</h3>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {thinker.tags && thinker.tags.length > 0 ? (
-                  thinker.tags.map((tag: Tag) => (
-                    <span
-                      key={tag.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-sans text-white"
-                      style={{ backgroundColor: tag.color || '#64748b' }}
-                    >
-                      {tag.name}
-                      <button
-                        onClick={() => handleToggleTag(tag.id)}
-                        className="hover:opacity-75 ml-0.5"
-                        title="Remove tag"
+              <div className="flex flex-wrap gap-2 mb-3">
+                {/* Use selectedTagIds for optimistic updates - show tags immediately when added */}
+                {selectedTagIds.length > 0 ? (
+                  selectedTagIds.map((tagId) => {
+                    const tag = allTags.find((t: Tag) => t.id === tagId)
+                    if (!tag) return null
+                    return (
+                      <span
+                        key={tag.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-sans text-white shadow-sm"
+                        style={{ backgroundColor: tag.color || '#64748b' }}
                       >
-                        ×
-                      </button>
-                    </span>
-                  ))
+                        {tag.name}
+                        <button
+                          onClick={() => handleToggleTag(tag.id)}
+                          className="hover:bg-white/20 rounded-full w-4 h-4 flex items-center justify-center transition-colors"
+                          title="Remove tag"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    )
+                  })
                 ) : (
                   <span className="text-sm text-secondary italic">No tags</span>
                 )}
               </div>
-              <div className="relative">
+              <div className="relative inline-block">
                 <button
                   onClick={() => setShowTagDropdown(!showTagDropdown)}
-                  className="text-sm font-sans text-accent hover:underline"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-sm font-sans text-accent border border-accent/30 rounded-full hover:bg-accent/5 transition-colors"
                 >
-                  + Add Tag
+                  <span className="text-base leading-none">+</span> Add Tag
                 </button>
                 {showTagDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-timeline rounded shadow-lg z-10 max-h-48 overflow-y-auto min-w-[150px]">
+                  <div className="absolute top-full left-0 mt-2 bg-white border border-timeline rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto min-w-[180px]">
                     {allTags.length === 0 ? (
                       <p className="px-3 py-2 text-xs text-gray-500 italic">No tags available</p>
+                    ) : allTags.filter((tag: Tag) => !selectedTagIds.includes(tag.id)).length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-gray-500 italic">All tags assigned</p>
                     ) : (
                       allTags
                         .filter((tag: Tag) => !selectedTagIds.includes(tag.id))
@@ -491,18 +498,15 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
                               handleToggleTag(tag.id)
                               setShowTagDropdown(false)
                             }}
-                            className="w-full px-3 py-2 text-left text-sm font-serif hover:bg-gray-50 flex items-center gap-2"
+                            className="w-full px-3 py-2 text-left text-sm font-serif hover:bg-gray-50 flex items-center gap-2 first:rounded-t-lg last:rounded-b-lg"
                           >
                             <span
-                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm"
                               style={{ backgroundColor: tag.color || '#64748b' }}
                             />
                             {tag.name}
                           </button>
                         ))
-                    )}
-                    {allTags.length > 0 && allTags.every((tag: Tag) => selectedTagIds.includes(tag.id)) && (
-                      <p className="px-3 py-2 text-xs text-gray-500 italic">All tags assigned</p>
                     )}
                   </div>
                 )}
