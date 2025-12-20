@@ -276,21 +276,23 @@ async def generate_quiz_endpoint(
         import random
         q_type = "multiple_choice" if random.random() < params.multiple_choice_ratio else "short_answer"
 
-        # Try to find existing question
-        query = db.query(QuizQuestion).filter(
-            QuizQuestion.category.in_(params.question_categories),
-        )
-
-        if params.timeline_id:
-            query = query.filter(
-                (QuizQuestion.timeline_id == params.timeline_id) |
-                (QuizQuestion.timeline_id.is_(None))
+        existing = None
+        # Try to find existing question (unless force_fresh is True)
+        if not params.force_fresh:
+            query = db.query(QuizQuestion).filter(
+                QuizQuestion.category.in_(params.question_categories),
             )
 
-        if exclude_ids:
-            query = query.filter(~QuizQuestion.id.in_(exclude_ids))
+            if params.timeline_id:
+                query = query.filter(
+                    (QuizQuestion.timeline_id == params.timeline_id) |
+                    (QuizQuestion.timeline_id.is_(None))
+                )
 
-        existing = query.order_by(QuizQuestion.times_asked.asc()).first()
+            if exclude_ids:
+                query = query.filter(~QuizQuestion.id.in_(exclude_ids))
+
+            existing = query.order_by(QuizQuestion.times_asked.asc()).first()
 
         if existing:
             existing.times_asked = (existing.times_asked or 0) + 1

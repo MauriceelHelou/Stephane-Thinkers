@@ -32,6 +32,7 @@ import QuizHistoryPanel from '@/components/QuizHistoryPanel'
 import { SettingsModal } from '@/components/SettingsModal'
 import { LoginScreen } from '@/components/LoginScreen'
 import { StickyNoteModal } from '@/components/StickyNoteModal'
+import { OverviewPanel } from '@/components/OverviewPanel'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
 
 export default function Home() {
@@ -86,6 +87,9 @@ export default function Home() {
 
   // Settings state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+
+  // Overview panel state
+  const [isOverviewPanelOpen, setIsOverviewPanelOpen] = useState(false)
 
   // Sticky note state
   const [stickyNoteMode, setStickyNoteMode] = useState(false)
@@ -889,6 +893,13 @@ export default function Home() {
             {showMoreMenu && (
               <div className="absolute top-full right-0 mt-1 bg-white border border-timeline rounded-lg shadow-lg z-30 min-w-[180px] py-1">
                 <button
+                  onClick={() => { setIsOverviewPanelOpen(true); setShowMoreMenu(false); }}
+                  className="w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50 font-medium"
+                >
+                  Overview (All Data)
+                </button>
+                <div className="border-t border-gray-100 my-1" />
+                <button
                   onClick={() => { setIsNetworkMetricsOpen(true); setShowMoreMenu(false); }}
                   className="w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50"
                 >
@@ -1529,6 +1540,27 @@ export default function Home() {
         onClose={handleCloseStickyNoteModal}
         position={stickyNotePosition}
         editingNote={editingStickyNote}
+      />
+
+      <OverviewPanel
+        isOpen={isOverviewPanelOpen}
+        onClose={() => setIsOverviewPanelOpen(false)}
+        onSelectThinker={(id) => {
+          setSelectedThinkerId(id)
+          setIsOverviewPanelOpen(false)
+        }}
+        onEditConnection={(id) => {
+          setEditingConnectionId(id)
+          setConnectionFrom(null)
+          setConnectionTo(null)
+          setIsConnectionModalOpen(true)
+          setIsOverviewPanelOpen(false)
+        }}
+        onEditEvent={(id) => {
+          setEditingEventId(id)
+          setIsAddEventModalOpen(true)
+          setIsOverviewPanelOpen(false)
+        }}
       />
 
       <BulkActionsBar

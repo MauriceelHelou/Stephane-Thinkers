@@ -604,6 +604,7 @@ export interface QuizGenerationParams {
   difficulty: QuizDifficulty
   question_count: number
   multiple_choice_ratio: number
+  force_fresh?: boolean // If true, always generate new questions instead of using pool
 }
 
 export interface CategoryBreakdown {

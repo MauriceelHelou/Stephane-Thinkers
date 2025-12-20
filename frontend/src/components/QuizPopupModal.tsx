@@ -43,12 +43,14 @@ export default function QuizPopupModal({
 
     try {
       // First, create a session to track this popup question
+      // Use force_fresh to always get questions based on current data
       const quizSession = await quizApi.generateQuiz({
         timeline_id: selectedTimelineId || undefined,
         question_categories: ['birth_year', 'death_year', 'quote', 'publication', 'connection', 'field'],
         difficulty: 'medium',
         question_count: 1,
         multiple_choice_ratio: 0.8,
+        force_fresh: true, // Always generate fresh questions from current data
       })
 
       if (quizSession.questions.length > 0) {

@@ -186,6 +186,7 @@ class QuizGenerationParams(BaseModel):
     difficulty: DifficultyStr = "medium"
     question_count: int = 10
     multiple_choice_ratio: float = 0.7  # 0.0 to 1.0
+    force_fresh: bool = False  # If True, always generate new questions instead of using pool
 
     @field_validator('question_count')
     @classmethod
