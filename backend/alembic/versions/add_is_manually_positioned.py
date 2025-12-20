@@ -1,7 +1,7 @@
 """add is_manually_positioned to thinkers
 
 Revision ID: add_manual_pos_001
-Revises: 
+Revises: b2c3d4e5f6a7
 Create Date: 2024-01-01 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'add_manual_pos_001'
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = 'b2c3d4e5f6a7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
