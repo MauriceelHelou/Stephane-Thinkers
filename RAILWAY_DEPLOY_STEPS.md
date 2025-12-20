@@ -7,11 +7,13 @@ Railpack is Railway's zero-config builder. It auto-detects your app and builds i
 ## What Gets Deployed (and What Doesn't)
 
 ### Deployed (via GitHub)
+
 - All source code (`backend/`, `frontend/`)
 - Database migrations (`backend/alembic/versions/`)
 - Static assets
 
 ### NOT Deployed (excluded by .gitignore & .railpackignore)
+
 - `.env` files (secrets) - configure in Railway dashboard
 - `node_modules/` - installed during build
 - `venv/` - created during build
@@ -20,6 +22,7 @@ Railpack is Railway's zero-config builder. It auto-detects your app and builds i
 - `*.db` SQLite files - using PostgreSQL instead
 
 ### Database
+
 - Local SQLite → Railway PostgreSQL (automatic)
 - All tables created via Alembic migrations on first deploy
 - Data starts empty - you'll add thinkers/timelines after deploy
@@ -66,27 +69,27 @@ git push origin main
 
 Go to **Variables** tab and add:
 
-| Variable | Value |
-|----------|-------|
-| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
-| `PORT` | `8001` |
-| `ENVIRONMENT` | `production` |
-| `FRONTEND_URL` | `https://placeholder.up.railway.app` (update later) |
+| Variable              | Value                                                                      |
+| --------------------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`        | `${{Postgres.DATABASE_URL}}`                                               |
+| `PORT`                | `8001`                                                                     |
+| `ENVIRONMENT`         | `production`                                                               |
+| `FRONTEND_URL`        | `https://placeholder.up.railway.app` (update later)                        |
 | `RAILWAY_RUN_COMMAND` | `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 
 **Optional (AI features):**
 
-| Variable | Value |
-|----------|-------|
-| `OPENAI_API_KEY` | Your OpenAI key |
-| `DEEPSEEK_API_KEY` | Your DeepSeek key |
+| Variable            | Value                      |
+| ------------------- | -------------------------- |
+| `OPENAI_API_KEY`    | Your OpenAI key            |
+| `DEEPSEEK_API_KEY`  | Your DeepSeek key          |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | `deepseek-chat` |
+| `DEEPSEEK_MODEL`    | `deepseek-chat`            |
 
 ### Generate Backend Domain
 
 1. Go to **Settings** → **Networking** → **Generate Domain**
-2. Copy the URL (e.g., `https://backend-xxxx.up.railway.app`)
+2. Copy the URL (e.g., `backend-production-a8bf.up.railway.app`)
 
 ---
 
@@ -99,10 +102,10 @@ Go to **Variables** tab and add:
 
 ### Add Frontend Environment Variables
 
-| Variable | Value |
-|----------|-------|
+| Variable              | Value                                                    |
+| --------------------- | -------------------------------------------------------- |
 | `NEXT_PUBLIC_API_URL` | `https://backend-xxxx.up.railway.app` (your backend URL) |
-| `PORT` | `3000` |
+| `PORT`                | `3000`                                                   |
 
 ### Generate Frontend Domain
 
@@ -143,18 +146,22 @@ Open `https://your-frontend.up.railway.app` in browser.
 ## Troubleshooting
 
 ### Build fails
+
 - Check **Deployments** → **View Logs**
 - Railpack auto-detects, but you can override with env vars
 
 ### Backend won't start
+
 - Verify `DATABASE_URL` is set to `${{Postgres.DATABASE_URL}}`
 - Check `RAILWAY_RUN_COMMAND` includes alembic migration
 
 ### CORS errors
+
 - `FRONTEND_URL` must match exactly (include `https://`, no trailing slash)
 - Redeploy backend after updating
 
 ### Frontend shows wrong API URL
+
 - `NEXT_PUBLIC_API_URL` is baked into the build
 - Trigger redeploy after changing it
 
@@ -163,6 +170,7 @@ Open `https://your-frontend.up.railway.app` in browser.
 ## Environment Variables Summary
 
 ### Backend Service
+
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 PORT=8001
@@ -172,6 +180,7 @@ RAILWAY_RUN_COMMAND=alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 
 ```
 
 ### Frontend Service
+
 ```
 NEXT_PUBLIC_API_URL=https://your-backend.up.railway.app
 PORT=3000
@@ -191,6 +200,7 @@ PORT=3000
 ## Railpack vs Dockerfile
 
 You're using **Railpack** (zero-config). Benefits:
+
 - No Dockerfile to maintain
 - Smaller images (38-77% smaller)
 - Automatic language detection

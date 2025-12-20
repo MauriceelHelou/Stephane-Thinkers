@@ -54,6 +54,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   const [draggedThinkerId, setDraggedThinkerId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [draggedThinkerPos, setDraggedThinkerPos] = useState<{ x: number; y: number } | null>(null)
+  const [hasDragged, setHasDragged] = useState(false) // Track if actual dragging occurred (not just a click)
 
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
@@ -641,10 +642,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
   // Draw sticky notes on the canvas
   const drawStickyNotes = (ctx: CanvasRenderingContext2D, notes: Note[]) => {
-    const STICKY_WIDTH = 150
-    const STICKY_HEIGHT = 100
-    const CORNER_RADIUS = 4
-    const PADDING = 8
+    const CORNER_RADIUS = 3
+    const PADDING = 6
+    const MIN_WIDTH = 80
+    const MAX_WIDTH = 150
 
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
@@ -654,11 +655,18 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const color = (note.color as NoteColor) || 'yellow'
       const colors = STICKY_NOTE_COLORS[color] || STICKY_NOTE_COLORS.yellow
 
+      // Calculate width based on title length (auto-crop)
+      ctx.font = 'bold 10px "Inter", sans-serif'
+      const displayTitle = note.title || note.content.substring(0, 25)
+      const titleWidth = ctx.measureText(displayTitle).width
+      const STICKY_WIDTH = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + 4))
+      const STICKY_HEIGHT = note.title ? 28 : 36 // Smaller if just title
+
       // Draw shadow
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.15)'
-      ctx.shadowBlur = 8
-      ctx.shadowOffsetX = 2
-      ctx.shadowOffsetY = 2
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.12)'
+      ctx.shadowBlur = 4
+      ctx.shadowOffsetX = 1
+      ctx.shadowOffsetY = 1
 
       // Draw sticky note background with rounded corners
       ctx.fillStyle = colors.bg
@@ -683,49 +691,36 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       // Draw border
       ctx.strokeStyle = colors.border
-      ctx.lineWidth = 2
+      ctx.lineWidth = 1.5
       ctx.stroke()
 
-      // Draw title if exists
+      // Draw title or content preview
       ctx.fillStyle = colors.text
-      let textY = y + PADDING + 10
+      ctx.font = 'bold 10px "Inter", sans-serif'
+      const text = note.title || note.content.substring(0, 25) + (note.content.length > 25 ? '...' : '')
+      const truncatedText = text.length > 20 ? text.substring(0, 18) + '...' : text
+      ctx.fillText(truncatedText, x + PADDING, y + STICKY_HEIGHT / 2 + 3)
 
-      if (note.title) {
-        ctx.font = 'bold 11px "Inter", sans-serif'
-        ctx.fillText(note.title.substring(0, 20) + (note.title.length > 20 ? '...' : ''), x + PADDING, textY)
-        textY += 14
-      }
-
-      // Draw content preview
-      ctx.font = '10px "Inter", sans-serif'
-      const maxChars = stickyNotePreviewLength
-      const preview = note.content.substring(0, maxChars) + (note.content.length > maxChars ? '...' : '')
-
-      // Simple word wrap
-      const words = preview.split(' ')
-      let line = ''
-      const lineHeight = 12
-      const maxWidth = STICKY_WIDTH - PADDING * 2
-      const maxLines = 5
-
-      let lineCount = 0
-      for (const word of words) {
-        const testLine = line + (line ? ' ' : '') + word
-        const metrics = ctx.measureText(testLine)
-        if (metrics.width > maxWidth && line) {
-          ctx.fillText(line, x + PADDING, textY)
-          line = word
-          textY += lineHeight
-          lineCount++
-          if (lineCount >= maxLines) break
-        } else {
-          line = testLine
-        }
-      }
-      if (line && lineCount < maxLines) {
-        ctx.fillText(line, x + PADDING, textY)
+      // Draw small indicator if has content (and showing title)
+      if (note.title && note.content) {
+        ctx.font = '8px "Inter", sans-serif'
+        ctx.fillStyle = colors.border
+        ctx.fillText('...', x + STICKY_WIDTH - 12, y + STICKY_HEIGHT - 4)
       }
     })
+  }
+
+  // Store sticky note dimensions for click detection (needs to match drawing)
+  const getStickyNoteDimensions = (note: Note): { width: number; height: number } => {
+    const PADDING = 6
+    const MIN_WIDTH = 80
+    const MAX_WIDTH = 150
+    const displayTitle = note.title || note.content.substring(0, 25)
+    // Approximate text width (8px per character for bold 10px font)
+    const titleWidth = displayTitle.length * 6
+    const width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + 4))
+    const height = note.title ? 28 : 36
+    return { width, height }
   }
 
   const drawConnections = (ctx: CanvasRenderingContext2D, connections: Connection[], thinkers: Thinker[], canvasWidth: number, canvasHeight: number) => {
@@ -1059,18 +1054,17 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
   // Check if a click position is inside a sticky note
   const getNoteAtPosition = (x: number, y: number): Note | null => {
-    const STICKY_WIDTH = 150
-    const STICKY_HEIGHT = 100
-
     // Check in reverse order so notes drawn on top are checked first
     for (let i = canvasNotes.length - 1; i >= 0; i--) {
       const note = canvasNotes[i]
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) continue
 
-      const nx = note.position_x
-      const ny = note.position_y
+      // Apply same offset transformation as in drawStickyNotes
+      const nx = note.position_x + offsetX
+      const ny = note.position_y + offsetY
+      const { width, height } = getStickyNoteDimensions(note)
 
-      if (x >= nx && x <= nx + STICKY_WIDTH && y >= ny && y <= ny + STICKY_HEIGHT) {
+      if (x >= nx && x <= nx + width && y >= ny && y <= ny + height) {
         return note
       }
     }
@@ -1285,6 +1279,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           const thinkerPosition = calculatedPositions.get(thinker.id)
           if (thinkerPosition) {
             setDraggedThinkerId(thinker.id)
+            setHasDragged(false) // Reset - will be set true on actual movement
             // Store the offset from the click point to the thinker's center
             setDragOffset({
               x: coords.x - thinkerPosition.x,
@@ -1294,7 +1289,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           }
         }
       }
-      onThinkerClick?.(thinker.id)
+      // Don't trigger onThinkerClick here - let handleClick do it after checking for drag
     } else {
       // Check for event click
       const event = getEventAtPosition(coords.x, coords.y)
@@ -1321,10 +1316,17 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (draggedThinkerId) {
       const coords = getCanvasCoordinates(e)
       if (coords) {
-        setDraggedThinkerPos({
-          x: coords.x - dragOffset.x,
-          y: coords.y - dragOffset.y
-        })
+        const newX = coords.x - dragOffset.x
+        const newY = coords.y - dragOffset.y
+        // Only mark as dragged if there's significant movement (more than 5 pixels)
+        if (draggedThinkerPos) {
+          const dx = Math.abs(newX - draggedThinkerPos.x)
+          const dy = Math.abs(newY - draggedThinkerPos.y)
+          if (dx > 5 || dy > 5) {
+            setHasDragged(true)
+          }
+        }
+        setDraggedThinkerPos({ x: newX, y: newY })
       }
       return
     }
@@ -1370,8 +1372,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   const handleMouseUp = () => {
-    // Handle thinker drag end - save position
-    if (draggedThinkerId && draggedThinkerPos && onThinkerDrag) {
+    // Handle thinker drag end - only save position if there was actual dragging
+    if (draggedThinkerId && draggedThinkerPos && onThinkerDrag && hasDragged) {
       const canvas = canvasRef.current
       if (canvas) {
         // Convert X position to year (accounting for pan offset)
@@ -1388,6 +1390,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     setDraggedThinkerId(null)
     setDraggedThinkerPos(null)
     setDragOffset({ x: 0, y: 0 })
+    setHasDragged(false)
     setIsPanning(false)
   }
 
