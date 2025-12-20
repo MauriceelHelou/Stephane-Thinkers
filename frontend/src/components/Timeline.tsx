@@ -39,9 +39,11 @@ interface TimelineProps {
   highlightSelectedConnections?: boolean
   // Animation support
   animationYear?: number | null
+  // Sticky note mode - allows clicking anywhere to place a note
+  stickyNoteMode?: boolean
 }
 
-export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, highlightSelectedConnections = true, animationYear = null }: TimelineProps) {
+export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [scale, setScale] = useState(1)
   const [offsetX, setOffsetX] = useState(0)
@@ -1410,6 +1412,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Pass modifier key states for connection mode (shift+alt) and bulk selection (ctrl/cmd)
     if (thinker && onThinkerClick) {
       onThinkerClick(thinker.id, isShiftClick, isCtrlClick, isAltClick)
+      return
+    }
+
+    // In sticky note mode, clicking on empty space places a note
+    if (!thinker && onCanvasClick && stickyNoteMode) {
+      onCanvasClick(coords)
       return
     }
 

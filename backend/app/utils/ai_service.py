@@ -714,7 +714,7 @@ async def parse_natural_language_entry(
     - "Quote from Spinoza: 'All things excellent are as difficult as they are rare'"
     """
     if not is_ai_enabled():
-        return None
+        raise AIServiceError("AI features not enabled", "DEEPSEEK_API_KEY environment variable is not set")
 
     # Build context of existing thinkers for name matching
     thinker_names = [t['name'] for t in existing_thinkers]
@@ -733,7 +733,7 @@ Entity types:
 - publication: A work/book by a thinker
 - quote: A quotation from a thinker
 
-Respond in JSON:
+Respond ONLY with valid JSON (no markdown, no code blocks):
 {{
   "entity_type": "thinker|connection|publication|quote",
   "confidence": 0.0-1.0,
@@ -766,15 +766,25 @@ Respond in JSON:
 }}"""
 
     response = await _call_deepseek_api([
-        {"role": "system", "content": "You are a data entry assistant. Parse natural language into structured data. Respond only in valid JSON."},
+        {"role": "system", "content": "You are a data entry assistant. Parse natural language into structured data. Respond ONLY with valid JSON, no markdown code blocks."},
         {"role": "user", "content": prompt}
     ], temperature=0.3)
 
     if not response:
-        return None
+        raise AIServiceError("AI returned empty response", "The AI service did not return any content")
+
+    # Clean up response - remove markdown code blocks if present
+    cleaned_response = response.strip()
+    if cleaned_response.startswith("```json"):
+        cleaned_response = cleaned_response[7:]
+    elif cleaned_response.startswith("```"):
+        cleaned_response = cleaned_response[3:]
+    if cleaned_response.endswith("```"):
+        cleaned_response = cleaned_response[:-3]
+    cleaned_response = cleaned_response.strip()
 
     try:
-        data = json.loads(response)
+        data = json.loads(cleaned_response)
 
         # Match thinker names to IDs
         parsed_data = data.get('data', {})
@@ -793,5 +803,8 @@ Respond in JSON:
             confidence=float(data.get('confidence', 0.5)),
             needs_clarification=data.get('needs_clarification', []),
         )
-    except json.JSONDecodeError:
-        return None
+    except json.JSONDecodeError as e:
+        raise AIServiceError(
+            "Failed to parse AI response",
+            f"Invalid JSON from AI: {str(e)}. Response was: {cleaned_response[:200]}..."
+        )

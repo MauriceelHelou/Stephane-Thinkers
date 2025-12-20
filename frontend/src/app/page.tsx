@@ -1323,6 +1323,7 @@ export default function Home() {
             selectedTimeline={selectedTimeline}
             visibleConnectionTypes={visibleConnectionTypes}
             highlightSelectedConnections={true}
+            stickyNoteMode={stickyNoteMode}
           />
         )}
 

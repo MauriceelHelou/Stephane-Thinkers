@@ -671,3 +671,131 @@ def complete_session_endpoint(
     db.commit()
 
     return {"status": "success", "session_id": str(session.id)}
+
+
+@router.post("/clear-question-pool")
+def clear_question_pool_endpoint(
+    timeline_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Clear all quiz questions from the pool.
+    Use this when thinker data has been updated and you want fresh questions.
+    """
+    # Delete spaced repetition entries first (foreign key constraint)
+    sr_query = db.query(SpacedRepetitionQueue)
+    if timeline_id:
+        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+        # Get question IDs for this timeline
+        question_ids = [q.id for q in db.query(QuizQuestion.id).filter(
+            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
+        ).all()]
+        sr_query = sr_query.filter(SpacedRepetitionQueue.question_id.in_(question_ids))
+
+    sr_deleted = sr_query.delete(synchronize_session=False)
+
+    # Delete quiz answers (foreign key constraint)
+    answer_query = db.query(QuizAnswer)
+    if timeline_id:
+        answer_query = answer_query.filter(QuizAnswer.question_id.in_(question_ids))
+    answer_deleted = answer_query.delete(synchronize_session=False)
+
+    # Delete questions
+    query = db.query(QuizQuestion)
+    if timeline_id:
+        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+        query = query.filter(
+            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
+        )
+
+    deleted_count = query.delete(synchronize_session=False)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Cleared {deleted_count} questions, {sr_deleted} spaced repetition entries, and {answer_deleted} answers from the pool",
+        "questions_deleted": deleted_count,
+        "sr_entries_deleted": sr_deleted,
+        "answers_deleted": answer_deleted,
+    }
+
+
+@router.post("/refresh-questions")
+async def refresh_questions_endpoint(
+    count: int = Query(10, ge=1, le=50),
+    timeline_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Clear the question pool and generate fresh questions from current data.
+    Use this after updating thinker information.
+    """
+    # First clear existing questions
+    sr_deleted = db.query(SpacedRepetitionQueue).delete(synchronize_session=False)
+    answer_deleted = db.query(QuizAnswer).delete(synchronize_session=False)
+
+    if timeline_id:
+        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+        deleted_count = db.query(QuizQuestion).filter(
+            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
+        ).delete(synchronize_session=False)
+    else:
+        deleted_count = db.query(QuizQuestion).delete(synchronize_session=False)
+
+    db.commit()
+
+    # Now generate fresh questions
+    thinkers = get_thinker_dicts(db, timeline_id)
+    quotes = get_quote_dicts(db)
+    publications = get_publication_dicts(db)
+    connections = get_connection_dicts(db)
+
+    if not thinkers:
+        return {
+            "status": "success",
+            "message": f"Cleared {deleted_count} questions, but no thinkers available to generate new questions",
+            "questions_cleared": deleted_count,
+            "questions_generated": 0,
+        }
+
+    categories = ["birth_year", "death_year", "quote", "publication", "connection", "field"]
+    generated_count = 0
+
+    for i in range(count):
+        generated = await generate_question(
+            thinkers=thinkers,
+            quotes=quotes,
+            publications=publications,
+            connections=connections,
+            allowed_categories=categories,
+            difficulty="medium",
+            question_type="multiple_choice",
+            timeline_id=timeline_id,
+        )
+
+        if generated:
+            new_q = QuizQuestion(
+                id=uuid.uuid4(),
+                question_text=generated.question_text,
+                question_type=generated.question_type,
+                category=generated.category,
+                correct_answer=generated.correct_answer,
+                options=generated.options,
+                difficulty=generated.difficulty,
+                explanation=generated.explanation,
+                related_thinker_ids=generated.related_thinker_ids,
+                timeline_id=uuid.UUID(timeline_id) if timeline_id else None,
+                times_asked=0,
+                times_correct=0,
+            )
+            db.add(new_q)
+            generated_count += 1
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Cleared {deleted_count} old questions and generated {generated_count} new questions",
+        "questions_cleared": deleted_count,
+        "questions_generated": generated_count,
+    }

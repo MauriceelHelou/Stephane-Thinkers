@@ -161,6 +161,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const positions: NodePosition[] = []
     const centerX = width / 2
     const centerY = height / 2
+    const margin = 80 // Keep nodes away from edges
 
     // Center node (fixed position)
     if (centeredThinkerData) {
@@ -176,7 +177,8 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     }
 
     // Group thinkers by distance from center
-    const maxDistance = Math.max(...Array.from(distanceMap.values()), 1)
+    const distances = Array.from(distanceMap.values()).filter(d => d > 0)
+    const maxDistance = Math.max(...distances, 1)
     const thinkersByDistance = new Map<number, Thinker[]>()
 
     connectedThinkers.forEach((thinker: Thinker) => {
@@ -187,26 +189,34 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       thinkersByDistance.get(distance)!.push(thinker)
     })
 
-    // Position thinkers in concentric rings based on distance
-    const maxRadius = Math.min(width, height) * 0.4
+    // Calculate available radius range
+    const minRadius = 100 // Minimum distance from center
+    const maxRadius = Math.min(width, height) / 2 - margin
 
     thinkersByDistance.forEach((thinkersAtDist, distance) => {
-      const radius = (distance / maxDistance) * maxRadius
+      // Scale radius based on distance level
+      const radiusFraction = distance / maxDistance
+      const radius = minRadius + radiusFraction * (maxRadius - minRadius)
+
+      // Distribute thinkers evenly around the ring
       const angleStep = (2 * Math.PI) / thinkersAtDist.length
-      // Use hash to add deterministic offset to starting angle
-      const startAngle = (simpleHash(String(distance)) % 100) / 100 * Math.PI * 0.5
+      // Use hash to add deterministic offset to starting angle (avoid stacking at same angle)
+      const startAngle = (simpleHash(String(distance)) % 100) / 100 * Math.PI * 2
 
       thinkersAtDist.forEach((thinker: Thinker, index: number) => {
         const info = connectedThinkersInfo.get(thinker.id)
         const angle = startAngle + index * angleStep
-        // Add small deterministic offset for variety
-        const hashOffset = (simpleHash(thinker.id) % 30) - 15
-        const adjustedRadius = radius + hashOffset
+        // Small deterministic offset for variety (max 10% of radius)
+        const hashOffset = ((simpleHash(thinker.id) % 20) - 10) * 0.05 * radius
+
+        // Calculate position and clamp to bounds
+        const x = Math.max(margin, Math.min(width - margin, centerX + Math.cos(angle) * (radius + hashOffset)))
+        const y = Math.max(margin, Math.min(height - margin, centerY + Math.sin(angle) * (radius + hashOffset)))
 
         positions.push({
           id: thinker.id,
-          x: centerX + Math.cos(angle) * adjustedRadius,
-          y: centerY + Math.sin(angle) * adjustedRadius,
+          x,
+          y,
           vx: 0,
           vy: 0,
           name: thinker.name,
@@ -407,12 +417,15 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       ctx.lineTo(adjustedToX, adjustedToY)
       ctx.stroke()
 
-      // Arrow
+      // Arrow - draw at the edge of the target node circle
       ctx.setLineDash([])
+      ctx.globalAlpha = 1 // Full opacity for arrows
       const angle = Math.atan2(adjustedToY - adjustedFromY, adjustedToX - adjustedFromX)
-      const arrowSize = 10
-      const arrowX = adjustedToX - 25 * Math.cos(angle)
-      const arrowY = adjustedToY - 25 * Math.sin(angle)
+      const arrowSize = 12
+      // Position arrow just outside the target node (nodeRadius is 35 for non-center)
+      const nodeRadius = toPos.isCenter ? 45 : 35
+      const arrowX = adjustedToX - (nodeRadius + 5) * Math.cos(angle)
+      const arrowY = adjustedToY - (nodeRadius + 5) * Math.sin(angle)
       ctx.beginPath()
       ctx.moveTo(arrowX, arrowY)
       ctx.lineTo(
