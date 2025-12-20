@@ -155,7 +155,7 @@ export function TimelineSVG({
 
     const horizontalMargin = Math.max(5, 15 / scale)
     const verticalSpacing = Math.max(4, 8 / Math.sqrt(scale))
-    const elevationOffset = -30
+    const elevationOffset = -20
 
     thinkersWithX.forEach(({ thinker, x }) => {
       const width = thinker.name.length * 8 + 16 // Approximate width

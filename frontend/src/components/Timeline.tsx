@@ -508,10 +508,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const bgWidth = metrics.width + padding * 2
       const bgHeight = 24
 
+      // position_y is stored as an offset from the timeline axis (0 = on the timeline)
+      // Positive values go below, negative values go above
+      const yOffset = thinker.position_y || 0
       thinkerData.push({
         id: thinker.id,
         x,
-        baseY: thinker.position_y || centerY,
+        baseY: centerY + yOffset,
         width: bgWidth,
         height: bgHeight
       })
@@ -527,7 +530,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const MIN_VERTICAL_GAP = 6    // Constant minimum vertical gap between labels
     const horizontalMargin = MIN_HORIZONTAL_GAP // Fixed spacing regardless of zoom
     const verticalSpacing = MIN_VERTICAL_GAP    // Fixed spacing regardless of zoom
-    const elevationOffset = -30 // Elevate thinkers slightly above the timeline
+    const elevationOffset = -20 // Elevate thinkers slightly above the timeline (closer to axis)
 
     // Second pass: resolve collisions by moving thinkers vertically
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []

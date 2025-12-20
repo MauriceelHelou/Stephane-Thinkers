@@ -154,10 +154,12 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
       const bgWidth = metrics.width + padding * 2
       const bgHeight = 24
 
+      // position_y is stored as an offset from the timeline axis (0 = on the timeline)
+      const yOffset = thinker.position_y || 0
       thinkerData.push({
         id: thinker.id,
         x,
-        baseY: thinker.position_y || centerY,
+        baseY: centerY + yOffset,
         width: bgWidth,
         height: bgHeight,
       })
@@ -167,7 +169,7 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
 
     const horizontalMargin = 15
     const verticalSpacing = 8
-    const elevationOffset = -30
+    const elevationOffset = -20
 
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 
