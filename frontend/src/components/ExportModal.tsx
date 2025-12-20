@@ -118,11 +118,12 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
   }
 
   const getThinkerYear = (thinker: Thinker): number | null => {
-    if (thinker.death_year) return thinker.death_year
-    if (thinker.birth_year) {
-      const currentYear = new Date().getFullYear()
-      return Math.floor((thinker.birth_year + currentYear) / 2)
+    // If both birth and death years are available, use the midpoint
+    if (thinker.birth_year && thinker.death_year) {
+      return Math.round((thinker.birth_year + thinker.death_year) / 2)
     }
+    if (thinker.death_year) return thinker.death_year
+    if (thinker.birth_year) return thinker.birth_year
     return null
   }
 
@@ -166,7 +167,7 @@ export function ExportModal({ isOpen, onClose, selectedTimelineId, selectedTimel
 
     const horizontalMargin = 15
     const verticalSpacing = 8
-    const elevationOffset = -60
+    const elevationOffset = -30
 
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 

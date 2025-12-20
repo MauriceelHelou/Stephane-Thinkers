@@ -44,42 +44,119 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     enabled: isOpen,
   })
 
-  // Update center when prop changes
+  // Update center when prop changes and reset when modal closes
   useEffect(() => {
     if (centeredThinkerId) {
       setCenterThinker(centeredThinkerId)
     }
   }, [centeredThinkerId])
 
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      lastCenterRef.current = null
+      setNodes([])
+    }
+  }, [isOpen])
+
   const centeredThinkerData = thinkers.find((t: Thinker) => t.id === centerThinker)
 
-  // Get connections involving the centered thinker
-  const relevantConnections = connections.filter(
+  // Build full network using BFS - find all thinkers connected (directly or indirectly)
+  const buildFullNetwork = useCallback(() => {
+    if (!centerThinker) return { networkThinkerIds: new Set<string>(), networkConnections: [] as Connection[] }
+
+    const visited = new Set<string>()
+    const queue: string[] = [centerThinker]
+    visited.add(centerThinker)
+
+    // BFS to find all connected thinkers
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      connections.forEach((c: Connection) => {
+        let neighbor: string | null = null
+        if (c.from_thinker_id === current && !visited.has(c.to_thinker_id)) {
+          neighbor = c.to_thinker_id
+        } else if (c.to_thinker_id === current && !visited.has(c.from_thinker_id)) {
+          neighbor = c.from_thinker_id
+        }
+        if (neighbor) {
+          visited.add(neighbor)
+          queue.push(neighbor)
+        }
+      })
+    }
+
+    // Get all connections within the network
+    const networkConnections = connections.filter(
+      (c: Connection) => visited.has(c.from_thinker_id) && visited.has(c.to_thinker_id)
+    )
+
+    return { networkThinkerIds: visited, networkConnections }
+  }, [centerThinker, connections])
+
+  const { networkThinkerIds, networkConnections } = buildFullNetwork()
+  const networkThinkers = thinkers.filter((t: Thinker) => networkThinkerIds.has(t.id) && t.id !== centerThinker)
+
+  // Get direct connections for layout purposes (to determine relative positions)
+  const directConnections = connections.filter(
     (c: Connection) => c.from_thinker_id === centerThinker || c.to_thinker_id === centerThinker
   )
 
-  // Get unique connected thinker IDs with their relationship info
-  const connectedThinkersInfo = new Map<string, { isInfluencer: boolean; connectionType: ConnectionStyleType }>()
-  relevantConnections.forEach((c: Connection) => {
+  // Track which thinkers have direct relationship with center
+  const connectedThinkersInfo = new Map<string, { isInfluencer: boolean; connectionType: ConnectionStyleType; distance: number }>()
+
+  // BFS to track distance from center
+  const distanceMap = new Map<string, number>()
+  distanceMap.set(centerThinker || '', 0)
+  const distQueue: string[] = [centerThinker || '']
+  while (distQueue.length > 0) {
+    const current = distQueue.shift()!
+    const currentDist = distanceMap.get(current) || 0
+    connections.forEach((c: Connection) => {
+      let neighbor: string | null = null
+      if (c.from_thinker_id === current && !distanceMap.has(c.to_thinker_id)) {
+        neighbor = c.to_thinker_id
+      } else if (c.to_thinker_id === current && !distanceMap.has(c.from_thinker_id)) {
+        neighbor = c.from_thinker_id
+      }
+      if (neighbor && networkThinkerIds.has(neighbor)) {
+        distanceMap.set(neighbor, currentDist + 1)
+        distQueue.push(neighbor)
+      }
+    })
+  }
+
+  directConnections.forEach((c: Connection) => {
     if (c.from_thinker_id !== centerThinker) {
-      // This thinker influenced the center (from -> center)
       connectedThinkersInfo.set(c.from_thinker_id, {
         isInfluencer: true,
-        connectionType: c.connection_type as ConnectionStyleType
+        connectionType: c.connection_type as ConnectionStyleType,
+        distance: 1
       })
     }
     if (c.to_thinker_id !== centerThinker) {
-      // Center influenced this thinker (center -> to)
       connectedThinkersInfo.set(c.to_thinker_id, {
         isInfluencer: false,
-        connectionType: c.connection_type as ConnectionStyleType
+        connectionType: c.connection_type as ConnectionStyleType,
+        distance: 1
       })
     }
   })
 
-  const connectedThinkers = thinkers.filter((t: Thinker) => connectedThinkersInfo.has(t.id))
+  const connectedThinkers = networkThinkers
 
-  // Initialize nodes with force-directed layout
+  // Simple hash function for deterministic positioning
+  const simpleHash = (str: string): number => {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash)
+  }
+
+  // Initialize nodes with radial layout based on distance from center
   const initializeNodes = useCallback((width: number, height: number): NodePosition[] => {
     const positions: NodePosition[] = []
     const centerX = width / 2
@@ -98,61 +175,58 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       })
     }
 
-    // Separate influencers (left) from influenced (right)
-    const influencers = connectedThinkers.filter((t: Thinker) => connectedThinkersInfo.get(t.id)?.isInfluencer)
-    const influenced = connectedThinkers.filter((t: Thinker) => !connectedThinkersInfo.get(t.id)?.isInfluencer)
+    // Group thinkers by distance from center
+    const maxDistance = Math.max(...Array.from(distanceMap.values()), 1)
+    const thinkersByDistance = new Map<number, Thinker[]>()
 
-    // Position influencers on the left
-    influencers.forEach((thinker: Thinker, index: number) => {
-      const info = connectedThinkersInfo.get(thinker.id)
-      const spreadY = height * 0.7
-      const startY = (height - spreadY) / 2
-      const y = influencers.length === 1 ? centerY : startY + (index / (influencers.length - 1)) * spreadY
-
-      positions.push({
-        id: thinker.id,
-        x: width * 0.15 + Math.random() * 50,
-        y: y + (Math.random() - 0.5) * 30,
-        vx: 0,
-        vy: 0,
-        name: thinker.name,
-        isCenter: false,
-        connectionType: info?.connectionType,
-        isInfluencer: true,
-      })
+    connectedThinkers.forEach((thinker: Thinker) => {
+      const distance = distanceMap.get(thinker.id) || 1
+      if (!thinkersByDistance.has(distance)) {
+        thinkersByDistance.set(distance, [])
+      }
+      thinkersByDistance.get(distance)!.push(thinker)
     })
 
-    // Position influenced on the right
-    influenced.forEach((thinker: Thinker, index: number) => {
-      const info = connectedThinkersInfo.get(thinker.id)
-      const spreadY = height * 0.7
-      const startY = (height - spreadY) / 2
-      const y = influenced.length === 1 ? centerY : startY + (index / (influenced.length - 1)) * spreadY
+    // Position thinkers in concentric rings based on distance
+    const maxRadius = Math.min(width, height) * 0.4
 
-      positions.push({
-        id: thinker.id,
-        x: width * 0.85 + (Math.random() - 0.5) * 50,
-        y: y + (Math.random() - 0.5) * 30,
-        vx: 0,
-        vy: 0,
-        name: thinker.name,
-        isCenter: false,
-        connectionType: info?.connectionType,
-        isInfluencer: false,
+    thinkersByDistance.forEach((thinkersAtDist, distance) => {
+      const radius = (distance / maxDistance) * maxRadius
+      const angleStep = (2 * Math.PI) / thinkersAtDist.length
+      // Use hash to add deterministic offset to starting angle
+      const startAngle = (simpleHash(String(distance)) % 100) / 100 * Math.PI * 0.5
+
+      thinkersAtDist.forEach((thinker: Thinker, index: number) => {
+        const info = connectedThinkersInfo.get(thinker.id)
+        const angle = startAngle + index * angleStep
+        // Add small deterministic offset for variety
+        const hashOffset = (simpleHash(thinker.id) % 30) - 15
+        const adjustedRadius = radius + hashOffset
+
+        positions.push({
+          id: thinker.id,
+          x: centerX + Math.cos(angle) * adjustedRadius,
+          y: centerY + Math.sin(angle) * adjustedRadius,
+          vx: 0,
+          vy: 0,
+          name: thinker.name,
+          isCenter: false,
+          connectionType: info?.connectionType,
+          isInfluencer: info?.isInfluencer,
+        })
       })
     })
 
     return positions
-  }, [centeredThinkerData, connectedThinkers, connectedThinkersInfo])
+  }, [centeredThinkerData, connectedThinkers, connectedThinkersInfo, distanceMap])
 
-  // Force simulation
+  // Force simulation (adapted for radial layout)
   const simulateForces = useCallback((nodes: NodePosition[], width: number, height: number): NodePosition[] => {
     const centerX = width / 2
     const centerY = height / 2
-    const repulsionStrength = 3000
-    const attractionStrength = 0.01
+    const repulsionStrength = 2000
     const damping = 0.85
-    const minDistance = 100
+    const minDistance = 80
 
     return nodes.map((node, i) => {
       if (node.isCenter) return node // Center node is fixed
@@ -166,26 +240,19 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         const dx = node.x - other.x
         const dy = node.y - other.y
         const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-        if (dist < minDistance * 2) {
+        if (dist < minDistance * 2.5) {
           const force = repulsionStrength / (dist * dist)
           fx += (dx / dist) * force
           fy += (dy / dist) * force
         }
       })
 
-      // Attraction to horizontal zones (left for influencers, right for influenced)
-      const targetX = node.isInfluencer ? width * 0.2 : width * 0.8
-      fx += (targetX - node.x) * attractionStrength * 2
-
-      // Weak attraction to vertical center
-      fy += (centerY - node.y) * attractionStrength * 0.5
-
       // Boundary forces
-      const margin = 80
-      if (node.x < margin) fx += (margin - node.x) * 0.1
-      if (node.x > width - margin) fx -= (node.x - (width - margin)) * 0.1
-      if (node.y < margin) fy += (margin - node.y) * 0.1
-      if (node.y > height - margin) fy -= (node.y - (height - margin)) * 0.1
+      const margin = 60
+      if (node.x < margin) fx += (margin - node.x) * 0.15
+      if (node.x > width - margin) fx -= (node.x - (width - margin)) * 0.15
+      if (node.y < margin) fy += (margin - node.y) * 0.15
+      if (node.y > height - margin) fy -= (node.y - (height - margin)) * 0.15
 
       const newVx = (node.vx + fx) * damping
       const newVy = (node.vy + fy) * damping
@@ -200,41 +267,52 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     })
   }, [])
 
-  // Initialize and run force simulation
+  // Track if we need to reinitialize
+  const lastCenterRef = useRef<string | null>(null)
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
+
+  // Handle resize
   useEffect(() => {
-    if (!isOpen || !centerThinker || !canvasRef.current) return
+    if (!isOpen || !canvasRef.current) return
 
     const canvas = canvasRef.current
-    const rect = canvas.getBoundingClientRect()
-    const width = rect.width
-    const height = rect.height
-
-    // Initialize nodes
-    const initialNodes = initializeNodes(width, height)
-    setNodes(initialNodes)
-
-    // Run simulation for a few iterations
-    let simulationNodes = initialNodes
-    let iterations = 0
-    const maxIterations = 100
-
-    const runSimulation = () => {
-      if (iterations < maxIterations) {
-        simulationNodes = simulateForces(simulationNodes, width, height)
-        setNodes([...simulationNodes])
-        iterations++
-        animationRef.current = requestAnimationFrame(runSimulation)
+    const updateSize = () => {
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        setCanvasSize({ width: rect.width, height: rect.height })
       }
     }
 
-    animationRef.current = requestAnimationFrame(runSimulation)
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [isOpen])
+
+  // Initialize and run force simulation only when center thinker changes
+  useEffect(() => {
+    if (!isOpen || !centerThinker) return
+    if (canvasSize.width === 0 || canvasSize.height === 0) return
+
+    // Only reinitialize if the center thinker changed
+    if (lastCenterRef.current === centerThinker && nodes.length > 0) return
+    lastCenterRef.current = centerThinker
+
+    // Initialize nodes
+    const initialNodes = initializeNodes(canvasSize.width, canvasSize.height)
+
+    // Run simulation synchronously for a fixed number of iterations (no animation)
+    let simulationNodes = initialNodes
+    for (let i = 0; i < 80; i++) {
+      simulationNodes = simulateForces(simulationNodes, canvasSize.width, canvasSize.height)
+    }
+    setNodes(simulationNodes)
 
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
       }
     }
-  }, [isOpen, centerThinker, initializeNodes, simulateForces, connectedThinkers.length])
+  }, [isOpen, centerThinker, canvasSize, initializeNodes, simulateForces])
 
   // Calculate positions for hit detection
   const calculatePositions = useCallback((width: number, height: number): NodePosition[] => {
@@ -245,45 +323,70 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !isOpen || !centerThinker || nodes.length === 0) return
+    if (canvasSize.width === 0 || canvasSize.height === 0) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     const dpr = window.devicePixelRatio || 1
-    const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    canvas.width = canvasSize.width * dpr
+    canvas.height = canvasSize.height * dpr
     ctx.scale(dpr, dpr)
 
-    const width = rect.width
-    const height = rect.height
+    const width = canvasSize.width
+    const height = canvasSize.height
 
     // Clear
     ctx.fillStyle = '#FAFAF8'
     ctx.fillRect(0, 0, width, height)
 
-    // Draw zone labels
+    // Draw network info
     ctx.font = '12px Inter, sans-serif'
     ctx.fillStyle = '#999999'
-    ctx.textAlign = 'center'
-
-    const hasInfluencers = nodes.some(n => !n.isCenter && n.isInfluencer)
-    const hasInfluenced = nodes.some(n => !n.isCenter && !n.isInfluencer)
-
-    if (hasInfluencers) {
-      ctx.fillText('Influenced by', width * 0.2, 30)
-    }
-    if (hasInfluenced) {
-      ctx.fillText('Influenced', width * 0.8, 30)
-    }
+    ctx.textAlign = 'left'
+    const networkSize = nodes.length
+    const connectionCount = networkConnections.length
+    ctx.fillText(`Network: ${networkSize} thinkers, ${connectionCount} connections`, 20, 25)
 
     const positionMap = new Map(nodes.map(p => [p.id, p]))
 
-    // Draw connections
-    relevantConnections.forEach((conn: Connection) => {
+    // Group connections by thinker pair to handle dual connections
+    const pairConnectionCount = new Map<string, { total: number; current: number }>()
+    networkConnections.forEach((conn: Connection) => {
+      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
+      const pairKey = `${ids[0]}-${ids[1]}`
+      const existing = pairConnectionCount.get(pairKey)
+      if (existing) {
+        existing.total++
+      } else {
+        pairConnectionCount.set(pairKey, { total: 1, current: 0 })
+      }
+    })
+
+    // Draw all connections in the network
+    networkConnections.forEach((conn: Connection) => {
       const fromPos = positionMap.get(conn.from_thinker_id)
       const toPos = positionMap.get(conn.to_thinker_id)
       if (!fromPos || !toPos) return
+
+      // Calculate offset for dual connections
+      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
+      const pairKey = `${ids[0]}-${ids[1]}`
+      const pairInfo = pairConnectionCount.get(pairKey)!
+      const connectionIndex = pairInfo.current++
+      const totalConnections = pairInfo.total
+
+      // Calculate perpendicular offset for parallel lines
+      const offsetStep = 15 // Pixels between parallel connections
+      const totalOffset = (totalConnections - 1) * offsetStep
+      const lineOffset = connectionIndex * offsetStep - totalOffset / 2
+
+      // Calculate perpendicular vector
+      const dx = toPos.x - fromPos.x
+      const dy = toPos.y - fromPos.y
+      const length = Math.sqrt(dx * dx + dy * dy)
+      const perpX = -dy / length * lineOffset
+      const perpY = dx / length * lineOffset
 
       const style = CONNECTION_STYLES[conn.connection_type as ConnectionStyleType] || CONNECTION_STYLES.influenced
       const isHighlighted = hoveredNode === conn.from_thinker_id || hoveredNode === conn.to_thinker_id
@@ -293,18 +396,23 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       ctx.setLineDash(style.dashPattern)
       ctx.globalAlpha = isHighlighted ? 1 : 0.6
 
-      // Draw straight line for horizontal layout
+      // Draw straight line with offset for dual connections
+      const adjustedFromX = fromPos.x + perpX
+      const adjustedFromY = fromPos.y + perpY
+      const adjustedToX = toPos.x + perpX
+      const adjustedToY = toPos.y + perpY
+
       ctx.beginPath()
-      ctx.moveTo(fromPos.x, fromPos.y)
-      ctx.lineTo(toPos.x, toPos.y)
+      ctx.moveTo(adjustedFromX, adjustedFromY)
+      ctx.lineTo(adjustedToX, adjustedToY)
       ctx.stroke()
 
       // Arrow
       ctx.setLineDash([])
-      const angle = Math.atan2(toPos.y - fromPos.y, toPos.x - fromPos.x)
+      const angle = Math.atan2(adjustedToY - adjustedFromY, adjustedToX - adjustedFromX)
       const arrowSize = 10
-      const arrowX = toPos.x - 25 * Math.cos(angle)
-      const arrowY = toPos.y - 25 * Math.sin(angle)
+      const arrowX = adjustedToX - 25 * Math.cos(angle)
+      const arrowY = adjustedToY - 25 * Math.sin(angle)
       ctx.beginPath()
       ctx.moveTo(arrowX, arrowY)
       ctx.lineTo(
@@ -319,9 +427,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       ctx.fillStyle = isHighlighted ? style.highlightColor : style.color
       ctx.fill()
 
-      // Connection label at midpoint
-      const midX = (fromPos.x + toPos.x) / 2
-      const midY = (fromPos.y + toPos.y) / 2
+      // Connection label at midpoint with offset
+      const midX = (adjustedFromX + adjustedToX) / 2
+      const midY = (adjustedFromY + adjustedToY) / 2
       ctx.globalAlpha = 1
       ctx.font = '10px Inter, sans-serif'
       ctx.textAlign = 'center'
@@ -389,7 +497,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         ctx.fillText(l, node.x, startY + i * lineHeight)
       })
     })
-  }, [isOpen, centerThinker, relevantConnections, nodes, hoveredNode])
+  }, [isOpen, centerThinker, networkConnections, nodes, hoveredNode, canvasSize])
 
   // Handle mouse interactions
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -440,12 +548,14 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-timeline flex-shrink-0">
           <div>
-            <h2 className="text-lg font-serif font-semibold text-primary">Connection Map</h2>
+            <h2 className="text-lg font-serif font-semibold text-primary">Connection Network Map</h2>
             {centeredThinkerData && (
               <p className="text-sm text-secondary">
-                Viewing connections for <span className="font-medium text-accent">{centeredThinkerData.name}</span>
+                Full network centered on <span className="font-medium text-accent">{centeredThinkerData.name}</span>
                 {connectedThinkers.length > 0 && (
-                  <span className="ml-2 text-gray-400">({connectedThinkers.length} connections)</span>
+                  <span className="ml-2 text-gray-400">
+                    ({connectedThinkers.length} thinkers, {networkConnections.length} connections)
+                  </span>
                 )}
               </p>
             )}

@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi, combinedViewsApi } from '@/lib/api'
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { REFERENCE_CANVAS_WIDTH, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT } from '@/lib/constants'
-import type { Thinker, Connection, TimelineEvent, CombinedViewMember } from '@/types'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import { DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
+import type { Thinker, Connection, TimelineEvent, CombinedViewMember, Timeline } from '@/types'
 
 interface CombinedTimelineCanvasProps {
   viewId: string
@@ -14,8 +14,16 @@ interface CombinedTimelineCanvasProps {
   selectedThinkerId?: string | null
 }
 
-const LANE_LABEL_HEIGHT = 24
-const TOP_SCALE_HEIGHT = 40
+// Timeline color palette for distinguishing thinkers from different timelines
+const TIMELINE_COLORS = [
+  { bg: '#DBEAFE', border: '#3B82F6', dot: '#2563EB', name: 'blue' },    // Blue
+  { bg: '#FCE7F3', border: '#EC4899', dot: '#DB2777', name: 'pink' },    // Pink
+  { bg: '#D1FAE5', border: '#10B981', dot: '#059669', name: 'green' },   // Green
+  { bg: '#FEF3C7', border: '#F59E0B', dot: '#D97706', name: 'yellow' },  // Yellow
+  { bg: '#E9D5FF', border: '#A855F7', dot: '#9333EA', name: 'purple' },  // Purple
+  { bg: '#FFEDD5', border: '#F97316', dot: '#EA580C', name: 'orange' },  // Orange
+  { bg: '#CFFAFE', border: '#06B6D4', dot: '#0891B2', name: 'cyan' },    // Cyan
+]
 
 export function CombinedTimelineCanvas({
   viewId,
@@ -28,6 +36,7 @@ export function CombinedTimelineCanvas({
   const containerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
   const [offsetX, setOffsetX] = useState(0)
+  const [offsetY, setOffsetY] = useState(0)
   const [isPanning, setIsPanning] = useState(false)
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 })
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 600 })
@@ -37,7 +46,7 @@ export function CombinedTimelineCanvas({
     queryFn: () => combinedViewsApi.getOne(viewId),
   })
 
-  const { data: thinkers = [] } = useQuery({
+  const { data: allThinkers = [] } = useQuery({
     queryKey: ['thinkers'],
     queryFn: () => thinkersApi.getAll(),
   })
@@ -52,6 +61,31 @@ export function CombinedTimelineCanvas({
     queryFn: () => combinedViewsApi.getEvents(viewId),
     enabled: !!viewId,
   })
+
+  // Get timeline IDs and create a color map
+  const timelineColorMap = useMemo(() => {
+    if (!combinedView) return new Map<string, typeof TIMELINE_COLORS[0]>()
+    const map = new Map<string, typeof TIMELINE_COLORS[0]>()
+    combinedView.members.forEach((member: CombinedViewMember, index: number) => {
+      map.set(member.timeline_id, TIMELINE_COLORS[index % TIMELINE_COLORS.length])
+    })
+    return map
+  }, [combinedView])
+
+  // Filter thinkers to only those in the combined view's timelines
+  const filteredThinkers = useMemo(() => {
+    if (!combinedView) return []
+    const timelineIds = new Set(combinedView.members.map((m: CombinedViewMember) => m.timeline_id))
+    return allThinkers.filter(t => timelineIds.has(t.timeline_id || ''))
+  }, [allThinkers, combinedView])
+
+  // Filter connections to only those between visible thinkers
+  const filteredConnections = useMemo(() => {
+    const visibleThinkerIds = new Set(filteredThinkers.map(t => t.id))
+    return connections.filter(
+      c => visibleThinkerIds.has(c.from_thinker_id) && visibleThinkerIds.has(c.to_thinker_id)
+    )
+  }, [connections, filteredThinkers])
 
   // Resize canvas to fit container
   useEffect(() => {
@@ -72,27 +106,21 @@ export function CombinedTimelineCanvas({
   }, [])
 
   // Helper function to calculate the year to use for positioning a thinker
-  // Priority: anchor_year (if set) > death_year > birth_year > null
-  // This ensures predictable positioning based on available data
+  // Priority: anchor_year > midpoint of birth/death > death_year > birth_year
   const getThinkerYear = (thinker: Thinker): number | null => {
-    // If anchor_year is explicitly set (e.g., after user drag), use it
-    if (thinker.anchor_year) {
-      return thinker.anchor_year
+    if (thinker.anchor_year) return thinker.anchor_year
+    // If both birth and death years are available, use the midpoint
+    if (thinker.birth_year && thinker.death_year) {
+      return Math.round((thinker.birth_year + thinker.death_year) / 2)
     }
-    // Otherwise, prefer death_year as it represents the end of their productive life
-    if (thinker.death_year) {
-      return thinker.death_year
-    }
-    // If only birth_year is available, use that as the position
-    if (thinker.birth_year) {
-      return thinker.birth_year
-    }
+    if (thinker.death_year) return thinker.death_year
+    if (thinker.birth_year) return thinker.birth_year
     return null
   }
 
-  // Calculate UNIFIED date range across ALL timelines in the combined view
-  const calculateUnifiedRange = useCallback(() => {
-    if (!combinedView) return { startYear: -500, endYear: 2000 }
+  // Calculate unified year range across all timelines
+  const calculateYearRange = useCallback(() => {
+    if (!combinedView) return { startYear: DEFAULT_START_YEAR, endYear: DEFAULT_END_YEAR }
 
     let minYear = Infinity
     let maxYear = -Infinity
@@ -100,81 +128,145 @@ export function CombinedTimelineCanvas({
     // Consider all timeline bounds
     combinedView.members.forEach((member: CombinedViewMember) => {
       const timeline = member.timeline
-      if (timeline.start_year != null) {
-        minYear = Math.min(minYear, timeline.start_year)
-      }
-      if (timeline.end_year != null) {
-        maxYear = Math.max(maxYear, timeline.end_year)
-      }
+      if (timeline.start_year != null) minYear = Math.min(minYear, timeline.start_year)
+      if (timeline.end_year != null) maxYear = Math.max(maxYear, timeline.end_year)
     })
 
-    // Also consider all thinkers' years in these timelines
-    const timelineIds = new Set(combinedView.members.map((m: CombinedViewMember) => m.timeline_id))
-    thinkers.forEach((thinker) => {
-      if (timelineIds.has(thinker.timeline_id || '')) {
-        if (thinker.birth_year) minYear = Math.min(minYear, thinker.birth_year)
-        if (thinker.death_year) maxYear = Math.max(maxYear, thinker.death_year)
-      }
+    // Consider all thinkers' years
+    filteredThinkers.forEach((thinker) => {
+      if (thinker.birth_year) minYear = Math.min(minYear, thinker.birth_year)
+      if (thinker.death_year) maxYear = Math.max(maxYear, thinker.death_year)
     })
 
-    // Also consider events
+    // Consider all events
     timelineEvents.forEach((event) => {
-      if (timelineIds.has(event.timeline_id)) {
-        minYear = Math.min(minYear, event.year)
-        maxYear = Math.max(maxYear, event.year)
-      }
+      minYear = Math.min(minYear, event.year)
+      maxYear = Math.max(maxYear, event.year)
     })
 
-    // Handle edge cases
-    if (minYear === Infinity) minYear = -500
-    if (maxYear === -Infinity) maxYear = 2000
+    if (minYear === Infinity) minYear = DEFAULT_START_YEAR
+    if (maxYear === -Infinity) maxYear = DEFAULT_END_YEAR
 
     // Add padding
-    const span = maxYear - minYear
-    const padding = Math.max(50, span * 0.05)
+    const padding = Math.max(50, Math.floor((maxYear - minYear) * 0.1))
     return {
       startYear: Math.floor((minYear - padding) / 10) * 10,
       endYear: Math.ceil((maxYear + padding) / 10) * 10
     }
-  }, [combinedView, thinkers, timelineEvents])
+  }, [combinedView, filteredThinkers, timelineEvents])
 
-  // Convert year to X position using UNIFIED scale
+  // Convert year to X position
   const yearToX = useCallback((year: number, canvasWidth: number): number => {
-    const { startYear, endYear } = calculateUnifiedRange()
+    const { startYear, endYear } = calculateYearRange()
     const yearSpan = endYear - startYear
-    const contentWidth = canvasWidth * TIMELINE_CONTENT_WIDTH_PERCENT
-    const pixelsPerYear = contentWidth / yearSpan
-    return TIMELINE_PADDING + (year - startYear) * pixelsPerYear * scale + offsetX
-  }, [calculateUnifiedRange, scale, offsetX])
+    const pixelsPerYear = (canvasWidth * TIMELINE_CONTENT_WIDTH_PERCENT) / yearSpan
+    return (TIMELINE_PADDING + (year - startYear) * pixelsPerYear) * scale + offsetX
+  }, [calculateYearRange, scale, offsetX])
 
-  const getEventSymbol = (eventType: string) => {
-    switch (eventType) {
-      case 'council': return '△'
-      case 'publication': return '▢'
-      case 'war': return '◇'
-      case 'invention': return '★'
-      case 'cultural': return '●'
-      case 'political': return '■'
-      default: return '○'
-    }
-  }
+  // Convert X position back to year
+  const xToYear = useCallback((x: number, canvasWidth: number): number => {
+    const { startYear, endYear } = calculateYearRange()
+    const yearSpan = endYear - startYear
+    const pixelsPerYear = (canvasWidth * TIMELINE_CONTENT_WIDTH_PERCENT) / yearSpan
+    const baseX = (x - offsetX) / scale
+    return Math.round((baseX - TIMELINE_PADDING) / pixelsPerYear + startYear)
+  }, [calculateYearRange, scale, offsetX])
 
-  // Calculate year interval for labels based on zoom with quarter tick support
-  const getYearIntervals = useCallback((yearSpan: number, canvasWidth: number): { majorInterval: number; minorInterval: number } => {
-    const minMajorSpacing = 80
+  // Calculate year interval for labels based on zoom
+  const getYearInterval = useCallback((canvasWidth: number, yearSpan: number): number => {
+    const minPixelSpacing = 80
     const pixelsPerYear = (canvasWidth * TIMELINE_CONTENT_WIDTH_PERCENT * scale) / yearSpan
-    const minMajorInterval = minMajorSpacing / pixelsPerYear
-
-    // Support sub-year granularity
-    const majorIntervals = [0.25, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000]
-    let majorInterval = majorIntervals.find(i => i >= minMajorInterval) || 2000
-
-    // Minor ticks are quarter of major (for quarter-year granularity)
-    const minorInterval = majorInterval / 4
-
-    return { majorInterval, minorInterval }
+    const minYearInterval = minPixelSpacing / pixelsPerYear
+    const niceIntervals = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
+    return niceIntervals.find(i => i >= minYearInterval) || 5000
   }, [scale])
 
+  // Calculate thinker positions with collision detection
+  const calculateThinkerPositions = useCallback((
+    thinkers: Thinker[],
+    canvasWidth: number,
+    canvasHeight: number
+  ): Map<string, { x: number; y: number; width: number; height: number }> => {
+    const positions = new Map<string, { x: number; y: number; width: number; height: number }>()
+    const canvas = canvasRef.current
+    if (!canvas) return positions
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return positions
+
+    const centerY = canvasHeight / 2
+
+    // First pass: calculate base positions and sizes
+    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number }[] = []
+
+    thinkers.forEach((thinker) => {
+      const thinkerYear = getThinkerYear(thinker)
+      if (!thinkerYear) return
+
+      const x = yearToX(thinkerYear, canvasWidth)
+
+      ctx.font = '13px "Crimson Text", serif'
+      const metrics = ctx.measureText(thinker.name)
+      const padding = 8
+      // Add extra width for timeline indicator dot
+      const bgWidth = metrics.width + padding * 2 + 16
+      const bgHeight = 24
+
+      thinkerData.push({
+        id: thinker.id,
+        x,
+        baseY: thinker.position_y ? thinker.position_y + centerY : centerY,
+        width: bgWidth,
+        height: bgHeight
+      })
+    })
+
+    // Sort by x position for collision detection
+    thinkerData.sort((a, b) => a.x - b.x)
+
+    // Collision detection parameters
+    const MIN_HORIZONTAL_GAP = 8
+    const MIN_VERTICAL_GAP = 6
+    const elevationOffset = -30 // Start slightly above the timeline
+
+    // Second pass: resolve collisions
+    const placed: { x: number; y: number; width: number; height: number }[] = []
+
+    thinkerData.forEach((thinker) => {
+      let y = thinker.baseY + elevationOffset
+      let foundPosition = false
+      let attempts = 0
+      const maxAttempts = 30
+
+      while (!foundPosition && attempts < maxAttempts) {
+        foundPosition = true
+
+        for (const existing of placed) {
+          const horizontalOverlap = Math.abs(thinker.x - existing.x) < (thinker.width + existing.width) / 2 + MIN_HORIZONTAL_GAP
+          if (horizontalOverlap) {
+            const verticalOverlap = Math.abs(y - existing.y) < (thinker.height + existing.height) / 2 + MIN_VERTICAL_GAP
+            if (verticalOverlap) {
+              // Alternate stacking direction
+              if (attempts % 2 === 0) {
+                y = existing.y - existing.height / 2 - thinker.height / 2 - MIN_VERTICAL_GAP
+              } else {
+                y = existing.y + existing.height / 2 + thinker.height / 2 + MIN_VERTICAL_GAP
+              }
+              foundPosition = false
+              break
+            }
+          }
+        }
+        attempts++
+      }
+
+      placed.push({ x: thinker.x, y, width: thinker.width, height: thinker.height })
+      positions.set(thinker.id, { x: thinker.x, y, width: thinker.width, height: thinker.height })
+    })
+
+    return positions
+  }, [yearToX])
+
+  // Main drawing effect
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !combinedView) return
@@ -182,299 +274,256 @@ export function CombinedTimelineCanvas({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // High-DPI canvas scaling to prevent pixelation
+    // High-DPI canvas scaling
     const dpr = window.devicePixelRatio || 1
     const canvasWidth = canvasSize.width
     const canvasHeight = canvasSize.height
 
-    // Set canvas internal resolution to match device pixel ratio
     canvas.width = canvasWidth * dpr
     canvas.height = canvasHeight * dpr
-
-    // Scale the context to match
     ctx.scale(dpr, dpr)
 
-    // Clear canvas
     ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
-    const { startYear, endYear } = calculateUnifiedRange()
+    const { startYear, endYear } = calculateYearRange()
     const yearSpan = endYear - startYear
-    const { majorInterval, minorInterval } = getYearIntervals(yearSpan, canvasWidth)
-    const numLanes = combinedView.members.length
+    const centerY = canvasHeight / 2
 
-    // Calculate dynamic lane height to fill screen
-    const availableHeight = canvasHeight - TOP_SCALE_HEIGHT
-    const laneHeight = numLanes > 0 ? availableHeight / numLanes : availableHeight
-    const axisOffset = laneHeight * 0.6 // Position axis 60% down within each lane
+    // Draw grid
+    ctx.strokeStyle = '#F0F0F0'
+    ctx.lineWidth = 1
+    const gridSize = 50
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, canvasHeight)
+      ctx.stroke()
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(canvasWidth, y)
+      ctx.stroke()
+    }
 
-    // Draw unified year scale at the top with quarter ticks
-    ctx.fillStyle = '#f3f4f6'
-    ctx.fillRect(0, 0, canvasWidth, TOP_SCALE_HEIGHT)
+    // Draw main timeline axis
+    ctx.strokeStyle = '#E0E0E0'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(0, centerY)
+    ctx.lineTo(canvasWidth, centerY)
+    ctx.stroke()
 
-    // Draw minor (quarter) ticks first
-    const tickStart = Math.floor(startYear / minorInterval) * minorInterval
-    for (let year = tickStart; year <= endYear; year += minorInterval) {
+    // Draw year labels
+    const interval = getYearInterval(canvasWidth, yearSpan)
+    ctx.fillStyle = '#666666'
+    ctx.font = '12px "JetBrains Mono", monospace'
+    ctx.textAlign = 'center'
+
+    for (let year = Math.ceil(startYear / interval) * interval; year <= endYear; year += interval) {
       const x = yearToX(year, canvasWidth)
       if (x >= 0 && x <= canvasWidth) {
-        const isMajor = Math.abs(year % majorInterval) < 0.001 || Math.abs(year % majorInterval - majorInterval) < 0.001
+        ctx.fillText(year.toString(), x, centerY + 30)
 
-        if (isMajor) {
-          // Major tick - with label
-          ctx.fillStyle = '#374151'
-          ctx.font = '12px "JetBrains Mono", monospace'
-          ctx.textAlign = 'center'
-          const label = Number.isInteger(year) ? year.toString() : year.toFixed(2)
-          ctx.fillText(label, x, 28)
-
-          // Major grid line
-          ctx.strokeStyle = '#e5e7eb'
-          ctx.lineWidth = 1
-        } else {
-          // Minor tick - just a subtle grid line
-          ctx.strokeStyle = '#f3f4f6'
-          ctx.lineWidth = 0.5
-        }
-
+        ctx.strokeStyle = '#CCCCCC'
+        ctx.lineWidth = 1
         ctx.beginPath()
-        ctx.moveTo(x, TOP_SCALE_HEIGHT)
-        ctx.lineTo(x, canvasHeight)
+        ctx.moveTo(x, centerY - 10)
+        ctx.lineTo(x, centerY + 10)
         ctx.stroke()
       }
     }
 
-    // Draw each timeline lane - evenly distributed to fill screen
-    combinedView.members.forEach((member: CombinedViewMember, index: number) => {
-      const laneTop = TOP_SCALE_HEIGHT + index * laneHeight
-      const timeline = member.timeline
+    // Draw timeline events
+    timelineEvents.forEach((event: TimelineEvent) => {
+      const x = yearToX(event.year, canvasWidth)
+      if (x < 0 || x > canvasWidth) return
 
-      // Lane background - alternating colors
-      ctx.fillStyle = index % 2 === 0 ? '#fafafa' : '#f5f5f5'
-      ctx.fillRect(0, laneTop, canvasWidth, laneHeight)
+      const y = centerY - 40
+      const timelineColor = timelineColorMap.get(event.timeline_id)
 
-      // Lane border
-      ctx.strokeStyle = '#e5e7eb'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(0, laneTop + laneHeight)
-      ctx.lineTo(canvasWidth, laneTop + laneHeight)
-      ctx.stroke()
-
-      // Timeline name label (fixed on left side, in a badge)
-      ctx.fillStyle = 'rgba(255,255,255,0.9)'
-      ctx.fillRect(5, laneTop + 5, ctx.measureText(timeline.name).width + 20, 22)
-      ctx.fillStyle = '#1f2937'
-      ctx.font = 'bold 13px "Inter", sans-serif'
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(timeline.name, 15, laneTop + 16)
-
-      // Timeline axis line
-      const axisY = laneTop + axisOffset
-      ctx.strokeStyle = '#d1d5db'
+      ctx.fillStyle = timelineColor?.dot || '#8B4513'
+      ctx.strokeStyle = timelineColor?.border || '#6B3410'
       ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(0, axisY)
-      ctx.lineTo(canvasWidth, axisY)
-      ctx.stroke()
 
-      // Collect all items for this lane to stack them together
-      const laneEvents = timelineEvents.filter(e => e.timeline_id === timeline.id)
-      const laneThinkers = thinkers.filter(t => t.timeline_id === timeline.id)
+      const size = 8
+      switch (event.event_type) {
+        case 'council':
+          ctx.beginPath()
+          ctx.moveTo(x, y - size)
+          ctx.lineTo(x - size, y + size)
+          ctx.lineTo(x + size, y + size)
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+          break
+        case 'publication':
+          ctx.fillRect(x - size, y - size, size * 2, size * 2)
+          ctx.strokeRect(x - size, y - size, size * 2, size * 2)
+          break
+        default:
+          ctx.beginPath()
+          ctx.arc(x, y, size, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+      }
 
-      // Combined placement tracking for both events and thinkers
-      type PlacedItem = { x: number; y: number; width: number; height: number; type: 'event' | 'thinker' }
-      const placedItems: PlacedItem[] = []
-
-      const horizontalMargin = Math.max(5, 15 / scale)
-      const verticalSpacing = Math.max(4, 8 / Math.sqrt(scale))
-
-      // Place events first (above the axis)
-      laneEvents.forEach((event: TimelineEvent) => {
-        const x = yearToX(event.year, canvasWidth)
-        if (x < -100 || x > canvasWidth + 100) return
-
-        ctx.font = '9px "Inter", sans-serif'
-        const truncatedName = event.name.length > 18 ? event.name.substring(0, 15) + '...' : event.name
-        const labelWidth = ctx.measureText(truncatedName).width + 10
-        const itemHeight = 30
-
-        // Find non-overlapping position
-        let y = axisY - 35
-        let foundPosition = false
-        let attempts = 0
-        while (!foundPosition && attempts < 20) {
-          foundPosition = true
-          for (const placed of placedItems) {
-            const hOverlap = Math.abs(x - placed.x) < (labelWidth + placed.width) / 2 + horizontalMargin
-            const vOverlap = Math.abs(y - placed.y) < (itemHeight + placed.height) / 2 + verticalSpacing
-            if (hOverlap && vOverlap) {
-              y = placed.y - placed.height / 2 - itemHeight / 2 - verticalSpacing
-              foundPosition = false
-              break
-            }
-          }
-          attempts++
-        }
-
-        // Clamp to lane bounds
-        y = Math.max(laneTop + itemHeight / 2 + 5, y)
-
-        placedItems.push({ x, y, width: labelWidth, height: itemHeight, type: 'event' })
-
-        // Draw event
-        ctx.fillStyle = '#8B4513'
-        ctx.font = '16px sans-serif'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(getEventSymbol(event.event_type), x, y + 8)
-
-        ctx.fillStyle = '#4b5563'
-        ctx.font = '9px "Inter", sans-serif'
-        ctx.fillText(truncatedName, x, y - 8)
-      })
-
-      // Place thinkers
-      laneThinkers.forEach((thinker: Thinker) => {
-        const year = getThinkerYear(thinker)
-        if (!year) return
-
-        const x = yearToX(year, canvasWidth)
-        if (x < -100 || x > canvasWidth + 100) return
-
-        const isSelected = thinker.id === selectedThinkerId
-
-        ctx.font = '12px "Crimson Text", serif'
-        const textWidth = ctx.measureText(thinker.name).width
-        const boxWidth = textWidth + 16
-        const boxHeight = 24
-
-        // Find non-overlapping position
-        let y = axisY - 45
-        let foundPosition = false
-        let attempts = 0
-        while (!foundPosition && attempts < 20) {
-          foundPosition = true
-          for (const placed of placedItems) {
-            const hOverlap = Math.abs(x - placed.x) < (boxWidth + placed.width) / 2 + horizontalMargin
-            const vOverlap = Math.abs(y - placed.y) < (boxHeight + placed.height) / 2 + verticalSpacing
-            if (hOverlap && vOverlap) {
-              y = placed.y - placed.height / 2 - boxHeight / 2 - verticalSpacing
-              foundPosition = false
-              break
-            }
-          }
-          attempts++
-        }
-
-        // Clamp to lane bounds
-        y = Math.max(laneTop + boxHeight / 2 + 25, y)
-
-        placedItems.push({ x, y, width: boxWidth, height: boxHeight, type: 'thinker' })
-
-        // Draw thinker box
-        ctx.fillStyle = isSelected ? '#8B4513' : '#ffffff'
-        ctx.strokeStyle = isSelected ? '#6B3410' : '#d1d5db'
-        ctx.lineWidth = isSelected ? 2 : 1
-
-        ctx.fillRect(x - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight)
-        ctx.strokeRect(x - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight)
-
-        // Draw thinker name
-        ctx.fillStyle = isSelected ? '#ffffff' : '#1f2937'
-        ctx.font = '12px "Crimson Text", serif'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(thinker.name, x, y)
-      })
+      ctx.fillStyle = '#333333'
+      ctx.font = '10px "JetBrains Mono", monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText(event.name, x, y - size - 5)
     })
 
-    // Calculate lane positions for connection drawing
-    const getLaneAxisY = (laneIndex: number) => TOP_SCALE_HEIGHT + laneIndex * laneHeight + axisOffset
+    // Calculate thinker positions
+    const positions = calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight)
 
-    // Draw connections ACROSS all lanes (for cross-timeline connections)
-    const timelineIds = new Set(combinedView.members.map((m: CombinedViewMember) => m.timeline_id))
-    const relevantConnections = connections.filter(c => {
-      const from = thinkers.find(t => t.id === c.from_thinker_id)
-      const to = thinkers.find(t => t.id === c.to_thinker_id)
-      return from && to && timelineIds.has(from.timeline_id || '') && timelineIds.has(to.timeline_id || '')
-    })
-
-    relevantConnections.forEach((conn: Connection) => {
-      const fromThinker = thinkers.find(t => t.id === conn.from_thinker_id)
-      const toThinker = thinkers.find(t => t.id === conn.to_thinker_id)
+    // Draw connections
+    filteredConnections.forEach((conn: Connection) => {
+      const fromThinker = filteredThinkers.find(t => t.id === conn.from_thinker_id)
+      const toThinker = filteredThinkers.find(t => t.id === conn.to_thinker_id)
       if (!fromThinker || !toThinker) return
 
-      const fromYear = getThinkerYear(fromThinker)
-      const toYear = getThinkerYear(toThinker)
-      if (!fromYear || !toYear) return
+      const fromPos = positions.get(fromThinker.id)
+      const toPos = positions.get(toThinker.id)
+      if (!fromPos || !toPos) return
 
-      // Find lane indices for both thinkers
-      const fromLaneIndex = combinedView.members.findIndex((m: CombinedViewMember) => m.timeline_id === fromThinker.timeline_id)
-      const toLaneIndex = combinedView.members.findIndex((m: CombinedViewMember) => m.timeline_id === toThinker.timeline_id)
-      if (fromLaneIndex === -1 || toLaneIndex === -1) return
+      const connType = conn.connection_type as ConnectionStyleType
+      const style = CONNECTION_STYLES[connType] || CONNECTION_STYLES.influenced
+      const isHighlighted = selectedThinkerId &&
+        (conn.from_thinker_id === selectedThinkerId || conn.to_thinker_id === selectedThinkerId)
 
-      const fromX = yearToX(fromYear, canvasWidth)
-      const toX = yearToX(toYear, canvasWidth)
+      const baseLineWidth = getConnectionLineWidth(conn.strength)
+      ctx.strokeStyle = isHighlighted ? style.highlightColor : style.color
+      ctx.lineWidth = isHighlighted ? baseLineWidth + 1 : baseLineWidth
+      ctx.globalAlpha = isHighlighted ? 1.0 : 0.5
+      ctx.setLineDash(style.dashPattern)
 
-      const fromY = getLaneAxisY(fromLaneIndex) - 45
-      const toY = getLaneAxisY(toLaneIndex) - 45
+      const fromX = fromPos.x
+      const fromY = fromPos.y + fromPos.height / 2
+      const toX = toPos.x
+      const toY = toPos.y + toPos.height / 2
 
-      // Draw thin connection line with bezier curve
-      ctx.strokeStyle = 'rgba(100, 100, 100, 0.5)'
-      ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(fromX, fromY + 12)
-
-      // Curve control points - go below the connection if same lane, between lanes otherwise
-      const sameLane = fromLaneIndex === toLaneIndex
-      const midY = sameLane
-        ? Math.max(fromY, toY) + 40  // Below both thinkers
-        : (getLaneAxisY(fromLaneIndex) + getLaneAxisY(toLaneIndex)) / 2
-
-      ctx.bezierCurveTo(fromX, midY, toX, midY, toX, toY + 12)
+      ctx.moveTo(fromX, fromY)
+      const midY = Math.max(fromY, toY) + 30
+      ctx.bezierCurveTo(fromX, midY, toX, midY, toX, toY)
       ctx.stroke()
 
-      // Arrow at destination
-      const arrowSize = 5
+      // Arrow
+      ctx.setLineDash([])
+      const arrowSize = 6 + ctx.lineWidth
+      const angle = Math.atan2(toY - midY, toX - toX)
       ctx.beginPath()
-      ctx.moveTo(toX, toY + 12)
-      ctx.lineTo(toX - arrowSize, toY + 12 - arrowSize)
-      ctx.lineTo(toX + arrowSize, toY + 12 - arrowSize)
+      ctx.moveTo(toX, toY)
+      ctx.lineTo(toX - arrowSize, toY + arrowSize)
+      ctx.lineTo(toX + arrowSize, toY + arrowSize)
       ctx.closePath()
-      ctx.fillStyle = 'rgba(100, 100, 100, 0.5)'
+      ctx.fillStyle = isHighlighted ? style.highlightColor : style.color
       ctx.fill()
 
-      // Connection label if exists
-      if (conn.name) {
-        const labelX = (fromX + toX) / 2
-        const labelY = midY - 5
-        ctx.font = '9px "Inter", sans-serif'
-        ctx.fillStyle = '#666666'
-        ctx.textAlign = 'center'
-        ctx.fillText(conn.name, labelX, labelY)
-      }
+      ctx.globalAlpha = 1.0
     })
 
-  }, [combinedView, thinkers, connections, timelineEvents, scale, offsetX, selectedThinkerId, canvasSize, calculateUnifiedRange, yearToX, getYearIntervals])
+    // Draw thinkers
+    filteredThinkers.forEach((thinker) => {
+      const pos = positions.get(thinker.id)
+      if (!pos) return
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsPanning(true)
-    setLastMousePos({ x: e.clientX, y: e.clientY })
-  }
+      const { x, y, width: bgWidth, height: bgHeight } = pos
+      const isSelected = thinker.id === selectedThinkerId
+      const timelineColor = timelineColorMap.get(thinker.timeline_id || '')
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isPanning) return
+      // Draw background rectangle with timeline color tint
+      if (isSelected) {
+        ctx.fillStyle = '#8B4513'
+        ctx.strokeStyle = '#6B3410'
+        ctx.lineWidth = 2
+      } else {
+        ctx.fillStyle = timelineColor?.bg || '#FFFFFF'
+        ctx.strokeStyle = timelineColor?.border || '#CCCCCC'
+        ctx.lineWidth = 1
+      }
 
-    const dx = e.clientX - lastMousePos.x
-    setOffsetX(prev => prev + dx)
-    setLastMousePos({ x: e.clientX, y: e.clientY })
-  }
+      // Rounded rectangle
+      const radius = 4
+      ctx.beginPath()
+      ctx.moveTo(x - bgWidth / 2 + radius, y - bgHeight / 2)
+      ctx.lineTo(x + bgWidth / 2 - radius, y - bgHeight / 2)
+      ctx.quadraticCurveTo(x + bgWidth / 2, y - bgHeight / 2, x + bgWidth / 2, y - bgHeight / 2 + radius)
+      ctx.lineTo(x + bgWidth / 2, y + bgHeight / 2 - radius)
+      ctx.quadraticCurveTo(x + bgWidth / 2, y + bgHeight / 2, x + bgWidth / 2 - radius, y + bgHeight / 2)
+      ctx.lineTo(x - bgWidth / 2 + radius, y + bgHeight / 2)
+      ctx.quadraticCurveTo(x - bgWidth / 2, y + bgHeight / 2, x - bgWidth / 2, y + bgHeight / 2 - radius)
+      ctx.lineTo(x - bgWidth / 2, y - bgHeight / 2 + radius)
+      ctx.quadraticCurveTo(x - bgWidth / 2, y - bgHeight / 2, x - bgWidth / 2 + radius, y - bgHeight / 2)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
 
-  const handleMouseUp = () => {
-    setIsPanning(false)
-  }
+      // Draw timeline indicator dot
+      const dotRadius = 5
+      const dotX = x - bgWidth / 2 + 10
+      ctx.beginPath()
+      ctx.arc(dotX, y, dotRadius, 0, Math.PI * 2)
+      ctx.fillStyle = timelineColor?.dot || '#666666'
+      ctx.fill()
 
-  // Use native event listener for wheel to enable passive: false
+      // Draw name
+      ctx.fillStyle = isSelected ? '#FFFFFF' : '#1A1A1A'
+      ctx.font = '13px "Crimson Text", serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(thinker.name, x + 6, y)
+    })
+
+    // Draw legend for timeline colors (top-right corner)
+    if (combinedView && combinedView.members.length > 0) {
+      const legendX = canvasWidth - 20
+      const legendY = 20
+      const legendItemHeight = 22
+      const legendPadding = 10
+
+      // Calculate legend width based on longest timeline name
+      ctx.font = '11px "Inter", sans-serif'
+      let maxNameWidth = 0
+      combinedView.members.forEach((member: CombinedViewMember) => {
+        const width = ctx.measureText(member.timeline.name).width
+        if (width > maxNameWidth) maxNameWidth = width
+      })
+
+      const legendWidth = maxNameWidth + 35 + legendPadding * 2
+      const legendHeight = combinedView.members.length * legendItemHeight + legendPadding * 2
+
+      // Draw legend background
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
+      ctx.strokeStyle = '#E5E7EB'
+      ctx.lineWidth = 1
+      ctx.fillRect(legendX - legendWidth, legendY, legendWidth, legendHeight)
+      ctx.strokeRect(legendX - legendWidth, legendY, legendWidth, legendHeight)
+
+      // Draw legend items
+      combinedView.members.forEach((member: CombinedViewMember, index: number) => {
+        const color = timelineColorMap.get(member.timeline_id)
+        const itemY = legendY + legendPadding + index * legendItemHeight + 10
+
+        // Color dot
+        ctx.beginPath()
+        ctx.arc(legendX - legendWidth + legendPadding + 8, itemY, 6, 0, Math.PI * 2)
+        ctx.fillStyle = color?.dot || '#666666'
+        ctx.fill()
+
+        // Timeline name
+        ctx.fillStyle = '#374151'
+        ctx.font = '11px "Inter", sans-serif'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(member.timeline.name, legendX - legendWidth + legendPadding + 22, itemY)
+      })
+    }
+
+  }, [combinedView, filteredThinkers, filteredConnections, timelineEvents, scale, offsetX, offsetY, selectedThinkerId, canvasSize, calculateYearRange, yearToX, getYearInterval, calculateThinkerPositions, timelineColorMap])
+
+  // Handle wheel for zoom/pan
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -485,48 +534,77 @@ export function CombinedTimelineCanvas({
       const rect = canvas.getBoundingClientRect()
 
       // INVERTED: Regular scroll = zoom, Cmd/Ctrl+scroll = pan
-      // Pinch-to-zoom on trackpad sends ctrlKey=true (still zooms)
       const isPan = e.ctrlKey || e.metaKey
-      const isPinchZoom = Math.abs(e.deltaY) < 10 && e.ctrlKey // Trackpad pinch gesture
+      const isPinchZoom = Math.abs(e.deltaY) < 10 && e.ctrlKey
 
       if (!isPan || isPinchZoom) {
-        // ZOOM: Regular scroll wheel or pinch gesture
+        // ZOOM
         const mouseX = e.clientX - rect.left
         const oldScale = scale
 
-        // Adaptive zoom sensitivity
         const zoomSensitivity = Math.abs(e.deltaY) < 10 ? 0.03 : 0.001
         const delta = 1 - e.deltaY * zoomSensitivity
         const newScale = Math.max(0.1, Math.min(50, oldScale * delta))
 
         // Zoom toward mouse position
-        const { startYear, endYear } = calculateUnifiedRange()
+        const { startYear, endYear } = calculateYearRange()
         const yearSpan = endYear - startYear
-        const contentWidth = rect.width * TIMELINE_CONTENT_WIDTH_PERCENT
-        const pixelsPerYear = contentWidth / yearSpan
+        const pixelsPerYear = (rect.width * TIMELINE_CONTENT_WIDTH_PERCENT) / yearSpan
 
-        const mouseXBeforeZoom = (mouseX - offsetX - TIMELINE_PADDING) / (pixelsPerYear * oldScale)
+        const mouseXBeforeZoom = (mouseX - offsetX - TIMELINE_PADDING * oldScale) / (pixelsPerYear * oldScale)
         const mouseXAfterZoom = mouseXBeforeZoom * pixelsPerYear * newScale
-        const newOffsetX = mouseX - TIMELINE_PADDING - mouseXAfterZoom
+        const newOffsetX = mouseX - TIMELINE_PADDING * newScale - mouseXAfterZoom
 
         setScale(newScale)
         setOffsetX(newOffsetX)
       } else {
-        // PAN: Cmd/Ctrl + scroll
+        // PAN
         const panMultiplier = 1.5
-        // Use deltaY for vertical scroll to pan horizontally
-        const dx = -e.deltaY * panMultiplier
-        setOffsetX(prev => prev + dx)
+        setOffsetX(prev => prev - e.deltaY * panMultiplier)
+        setOffsetY(prev => prev - e.deltaX * panMultiplier)
       }
     }
 
     canvas.addEventListener('wheel', handleWheelNative, { passive: false })
     return () => canvas.removeEventListener('wheel', handleWheelNative)
-  }, [scale, offsetX, calculateUnifiedRange])
+  }, [scale, offsetX, offsetY, calculateYearRange])
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsPanning(true)
+    setLastMousePos({ x: e.clientX, y: e.clientY })
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning) return
+
+    const dx = e.clientX - lastMousePos.x
+    const dy = e.clientY - lastMousePos.y
+    setOffsetX(prev => prev + dx)
+    setOffsetY(prev => prev + dy)
+    setLastMousePos({ x: e.clientX, y: e.clientY })
+  }
+
+  const handleMouseUp = () => {
+    setIsPanning(false)
+  }
+
+  const getThinkerAtPosition = (clickX: number, clickY: number): Thinker | null => {
+    const positions = calculateThinkerPositions(filteredThinkers, canvasSize.width, canvasSize.height)
+
+    for (const thinker of filteredThinkers) {
+      const pos = positions.get(thinker.id)
+      if (!pos) continue
+
+      const { x, y, width: bgWidth, height: bgHeight } = pos
+      if (clickX >= x - bgWidth / 2 && clickX <= x + bgWidth / 2 &&
+          clickY >= y - bgHeight / 2 && clickY <= y + bgHeight / 2) {
+        return thinker
+      }
+    }
+    return null
+  }
 
   const handleClick = (e: React.MouseEvent) => {
-    if (!combinedView) return
-
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -535,46 +613,9 @@ export function CombinedTimelineCanvas({
     const clickY = e.clientY - rect.top
     const isShiftClick = e.shiftKey
 
-    // Calculate dynamic lane height (same as in draw)
-    const numLanes = combinedView.members.length
-    const availableHeight = canvasSize.height - TOP_SCALE_HEIGHT
-    const laneHeight = numLanes > 0 ? availableHeight / numLanes : availableHeight
-    const axisOffset = laneHeight * 0.6
-
-    // Check for thinker clicks
-    const timelineIds = new Set(combinedView.members.map((m: CombinedViewMember) => m.timeline_id))
-
-    for (const thinker of thinkers) {
-      if (!timelineIds.has(thinker.timeline_id || '')) continue
-
-      const year = getThinkerYear(thinker)
-      if (!year) continue
-
-      // Use CSS dimensions (canvasSize) not DPR-scaled canvas dimensions
-      const x = yearToX(year, canvasSize.width)
-      const laneIndex = combinedView.members.findIndex((m: CombinedViewMember) => m.timeline_id === thinker.timeline_id)
-      if (laneIndex === -1) continue
-
-      const laneTop = TOP_SCALE_HEIGHT + laneIndex * laneHeight
-      const axisY = laneTop + axisOffset
-      // Approximate thinker Y position (slightly above axis)
-      const y = axisY - 45
-
-      // Measure text width for hit detection
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.font = '12px "Crimson Text", serif'
-        const textWidth = ctx.measureText(thinker.name).width
-        const boxWidth = textWidth + 16
-        const boxHeight = 24
-
-        // Expand hit area slightly for better UX
-        if (clickX >= x - boxWidth / 2 - 5 && clickX <= x + boxWidth / 2 + 5 &&
-            clickY >= y - boxHeight / 2 - 20 && clickY <= axisY + 10) {
-          onThinkerClick?.(thinker.id, isShiftClick)
-          return
-        }
-      }
+    const thinker = getThinkerAtPosition(clickX, clickY)
+    if (thinker) {
+      onThinkerClick?.(thinker.id, isShiftClick)
     }
   }
 
@@ -617,7 +658,7 @@ export function CombinedTimelineCanvas({
           −
         </button>
         <button
-          onClick={() => { setScale(1); setOffsetX(0) }}
+          onClick={() => { setScale(1); setOffsetX(0); setOffsetY(0) }}
           className="px-3 py-2 bg-white border border-gray-200 rounded shadow-sm hover:bg-gray-50 text-sm"
           data-testid="reset-view-button"
         >

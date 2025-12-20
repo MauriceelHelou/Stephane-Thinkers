@@ -15,7 +15,7 @@ const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; border: string; text: 
 }
 
 interface TimelineProps {
-  onThinkerClick?: (thinkerId: string, isShiftClick?: boolean, isCtrlClick?: boolean) => void
+  onThinkerClick?: (thinkerId: string, isShiftClick?: boolean, isCtrlClick?: boolean, isAltClick?: boolean) => void
   onCanvasClick?: (position: { x: number; y: number }) => void
   onConnectionClick?: (connectionId: string) => void
   onEventClick?: (eventId: string) => void
@@ -77,19 +77,21 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   })
 
   // Helper function to calculate the year to use for positioning a thinker
-  // Priority: anchor_year (if set) > death_year > birth_year > null
-  // This ensures predictable positioning based on available data
+  // Priority: anchor_year (if set) > midpoint of birth/death > death_year > birth_year > null
   const getThinkerYear = (thinker: Thinker): number | null => {
     // If anchor_year is explicitly set (e.g., after user drag), use it
     if (thinker.anchor_year) {
       return thinker.anchor_year
     }
-    // Otherwise, prefer death_year as it represents the end of their productive life
+    // If both birth and death years are available, use the midpoint
+    if (thinker.birth_year && thinker.death_year) {
+      return Math.round((thinker.birth_year + thinker.death_year) / 2)
+    }
+    // If only death_year is available, use that
     if (thinker.death_year) {
       return thinker.death_year
     }
     // If only birth_year is available, use that as the position
-    // (previous logic calculated midpoint which was confusing)
     if (thinker.birth_year) {
       return thinker.birth_year
     }
@@ -523,7 +525,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const MIN_VERTICAL_GAP = 6    // Constant minimum vertical gap between labels
     const horizontalMargin = MIN_HORIZONTAL_GAP // Fixed spacing regardless of zoom
     const verticalSpacing = MIN_VERTICAL_GAP    // Fixed spacing regardless of zoom
-    const elevationOffset = -60 // Elevate thinkers above the timeline by default
+    const elevationOffset = -30 // Elevate thinkers slightly above the timeline
 
     // Second pass: resolve collisions by moving thinkers vertically
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
@@ -749,6 +751,20 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Draw non-highlighted connections first, then highlighted ones on top
     const allConns = [...nonHighlighted, ...highlighted]
 
+    // Group connections by thinker pair to handle dual connections
+    const pairConnectionCount = new Map<string, { total: number; current: number }>()
+    allConns.forEach((conn) => {
+      // Create a consistent key for the pair (sorted IDs)
+      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
+      const pairKey = `${ids[0]}-${ids[1]}`
+      const existing = pairConnectionCount.get(pairKey)
+      if (existing) {
+        existing.total++
+      } else {
+        pairConnectionCount.set(pairKey, { total: 1, current: 0 })
+      }
+    })
+
     allConns.forEach((conn) => {
       const fromThinker = thinkers.find((t) => t.id === conn.from_thinker_id)
       const toThinker = thinkers.find((t) => t.id === conn.to_thinker_id)
@@ -759,6 +775,18 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const fromPos = positions.get(fromThinker.id)
       const toPos = positions.get(toThinker.id)
       if (!fromPos || !toPos) return
+
+      // Calculate offset for dual connections
+      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
+      const pairKey = `${ids[0]}-${ids[1]}`
+      const pairInfo = pairConnectionCount.get(pairKey)!
+      const connectionIndex = pairInfo.current++
+      const totalConnections = pairInfo.total
+
+      // Calculate offset: spread connections evenly
+      const offsetStep = 25 // Pixels between parallel connections
+      const totalOffset = (totalConnections - 1) * offsetStep
+      const curveOffset = connectionIndex * offsetStep - totalOffset / 2
 
       const fromX = fromPos.x
       const fromY = fromPos.y + fromPos.height / 2 // Bottom of the box
@@ -792,8 +820,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.beginPath()
       ctx.moveTo(fromX, fromY)
 
-      // More elegant curved connection
-      const midY = Math.max(fromY, toY) + 30 // Curve dips below
+      // More elegant curved connection with offset for dual connections
+      const midY = Math.max(fromY, toY) + 30 + curveOffset // Curve dips below, offset for parallels
       const controlX1 = fromX
       const controlY1 = midY
       const controlX2 = toX
@@ -1362,6 +1390,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Don't block Ctrl+Click even if panning
     const isCtrlClick = e.metaKey || e.ctrlKey
     const isShiftClick = e.shiftKey
+    const isAltClick = e.altKey
 
     if (isPanning && !isCtrlClick) return
 
@@ -1378,9 +1407,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const thinker = getThinkerAtPosition(coords.x, coords.y)
 
     // Single click on a thinker triggers onThinkerClick
-    // Pass modifier key states for connection mode (shift) and bulk selection (ctrl/cmd)
+    // Pass modifier key states for connection mode (shift+alt) and bulk selection (ctrl/cmd)
     if (thinker && onThinkerClick) {
-      onThinkerClick(thinker.id, isShiftClick, isCtrlClick)
+      onThinkerClick(thinker.id, isShiftClick, isCtrlClick, isAltClick)
       return
     }
 

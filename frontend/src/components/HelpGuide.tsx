@@ -8,8 +8,8 @@ interface HelpGuideProps {
 }
 
 export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
-  const modKey = isMac ? '⌘' : 'Ctrl+'
+  // Always use Ctrl+ for shortcuts (consistent across platforms)
+  const modKey = 'Ctrl+'
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Help & Keyboard Shortcuts" maxWidth="lg">
@@ -32,9 +32,20 @@ export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
             <div><span className="font-mono bg-gray-100 px-1">{modKey}K</span> — Add Connection</div>
             <div><span className="font-mono bg-gray-100 px-1">{modKey}E</span> — Add Event</div>
             <div><span className="font-mono bg-gray-100 px-1">{modKey}N</span> — New Timeline</div>
+            <div><span className="font-mono bg-gray-100 px-1">{modKey}S</span> — Add Sticky Note</div>
             <div><span className="font-mono bg-gray-100 px-1">?</span> — Open this help</div>
             <div><span className="font-mono bg-gray-100 px-1">Esc</span> — Close panel/cancel</div>
           </div>
+        </section>
+
+        <section>
+          <h3 className="font-semibold text-primary mb-2">Sticky Notes</h3>
+          <ul className="space-y-1 text-gray-700">
+            <li><span className="font-mono bg-gray-100 px-1">{modKey}S</span> — Enter sticky note mode</li>
+            <li>Click on canvas to place note at that position</li>
+            <li>Choose from 4 colors: yellow, pink, blue, green</li>
+            <li>Click existing note to edit or delete it</li>
+          </ul>
         </section>
 
         <section>
@@ -50,7 +61,7 @@ export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
         <section>
           <h3 className="font-semibold text-primary mb-2">Creating Connections</h3>
           <ul className="space-y-1 text-gray-700">
-            <li><span className="font-mono bg-gray-100 px-1">Shift+Click</span> first thinker → <span className="font-mono bg-gray-100 px-1">Shift+Click</span> second — Quick connect</li>
+            <li><span className="font-mono bg-gray-100 px-1">Shift+Option+Click</span> first thinker → <span className="font-mono bg-gray-100 px-1">Shift+Option+Click</span> second — Quick connect</li>
             <li><span className="font-mono bg-gray-100 px-1">{modKey}K</span> — Open Connection modal with dropdowns</li>
             <li>Click on a connection line to edit or delete it</li>
             <li>Connections show influence direction with arrows</li>

@@ -22,12 +22,30 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'xl' }: Mod
   const modalRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
-  // Focus trap and keyboard handling
+  const hasInitiallyFocused = useRef(false)
+
+  // Focus first input when modal opens (not the close button)
+  useEffect(() => {
+    if (!isOpen) {
+      hasInitiallyFocused.current = false
+      return
+    }
+
+    // Only focus on initial open, not on every re-render
+    if (!hasInitiallyFocused.current && modalRef.current) {
+      hasInitiallyFocused.current = true
+      // Focus the first input element, or fall back to the modal itself
+      const firstInput = modalRef.current.querySelector('input, select, textarea') as HTMLElement
+      if (firstInput) {
+        // Small delay to ensure DOM is ready
+        setTimeout(() => firstInput.focus(), 10)
+      }
+    }
+  }, [isOpen])
+
+  // Keyboard handling - separate effect to avoid re-running on onClose change
   useEffect(() => {
     if (!isOpen) return
-
-    // Focus the close button when modal opens
-    closeButtonRef.current?.focus()
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Close on Escape
@@ -36,7 +54,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'xl' }: Mod
         return
       }
 
-      // Trap focus within modal
+      // Only handle Tab key for focus trap, ignore Shift alone
       if (e.key === 'Tab' && modalRef.current) {
         const focusableElements = modalRef.current.querySelectorAll(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'

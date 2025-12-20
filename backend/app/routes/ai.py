@@ -18,6 +18,7 @@ from app.utils.ai_service import (
     chat_with_context,
     generate_summary,
     parse_natural_language_entry,
+    AIServiceError,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -485,14 +486,17 @@ async def parse_natural_language(request: ParseRequest, db: Session = Depends(ge
         for t in thinkers
     ]
 
-    result = await parse_natural_language_entry(request.text, thinker_dicts)
+    try:
+        result = await parse_natural_language_entry(request.text, thinker_dicts)
 
-    if not result:
-        raise HTTPException(status_code=500, detail="Failed to parse input")
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to parse input - no result returned")
 
-    return ParseResponse(
-        entity_type=result.entity_type,
-        data=result.data,
-        confidence=result.confidence,
-        needs_clarification=result.needs_clarification,
-    )
+        return ParseResponse(
+            entity_type=result.entity_type,
+            data=result.data,
+            confidence=result.confidence,
+            needs_clarification=result.needs_clarification,
+        )
+    except AIServiceError as e:
+        raise HTTPException(status_code=500, detail=f"{e.message}. {e.details or ''}")

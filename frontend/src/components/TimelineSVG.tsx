@@ -73,12 +73,14 @@ export function TimelineSVG({
   }, [])
 
   // Helper to get positioning year for a thinker
+  // Priority: midpoint of birth/death > death_year > birth_year
   const getThinkerYear = useCallback((thinker: Thinker): number | null => {
-    if (thinker.death_year) return thinker.death_year
-    if (thinker.birth_year) {
-      const currentYear = new Date().getFullYear()
-      return Math.floor((thinker.birth_year + currentYear) / 2)
+    // If both birth and death years are available, use the midpoint
+    if (thinker.birth_year && thinker.death_year) {
+      return Math.round((thinker.birth_year + thinker.death_year) / 2)
     }
+    if (thinker.death_year) return thinker.death_year
+    if (thinker.birth_year) return thinker.birth_year
     return null
   }, [])
 
@@ -153,7 +155,7 @@ export function TimelineSVG({
 
     const horizontalMargin = Math.max(5, 15 / scale)
     const verticalSpacing = Math.max(4, 8 / Math.sqrt(scale))
-    const elevationOffset = -60
+    const elevationOffset = -30
 
     thinkersWithX.forEach(({ thinker, x }) => {
       const width = thinker.name.length * 8 + 16 // Approximate width

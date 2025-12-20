@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { timelinesApi, combinedViewsApi, tagsApi, thinkersApi } from '@/lib/api'
-import type { Tag } from '@/types'
+import { timelinesApi, combinedViewsApi, tagsApi, thinkersApi, notesApi } from '@/lib/api'
+import type { Tag, Note } from '@/types'
 import { Timeline } from '@/components/Timeline'
 import { CombinedTimelineCanvas } from '@/components/CombinedTimelineCanvas'
 import { AddThinkerModal } from '@/components/AddThinkerModal'
@@ -31,6 +31,7 @@ import QuizModal from '@/components/QuizModal'
 import QuizHistoryPanel from '@/components/QuizHistoryPanel'
 import { SettingsModal } from '@/components/SettingsModal'
 import { LoginScreen } from '@/components/LoginScreen'
+import { StickyNoteModal } from '@/components/StickyNoteModal'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
 
 export default function Home() {
@@ -56,6 +57,7 @@ export default function Home() {
   const [editingTimelineId, setEditingTimelineId] = useState<string | null>(null)
   const [editingCombinedViewId, setEditingCombinedViewId] = useState<string | null>(null)
   const [shiftHeld, setShiftHeld] = useState(false)
+  const [altHeld, setAltHeld] = useState(false)
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
   const [bulkSelectMode, setBulkSelectMode] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -85,6 +87,12 @@ export default function Home() {
   // Settings state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
+  // Sticky note state
+  const [stickyNoteMode, setStickyNoteMode] = useState(false)
+  const [stickyNotePosition, setStickyNotePosition] = useState<{ x: number; y: number } | null>(null)
+  const [isStickyNoteModalOpen, setIsStickyNoteModalOpen] = useState(false)
+  const [editingStickyNote, setEditingStickyNote] = useState<Note | null>(null)
+
   // Tab scroll indicators
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
@@ -110,6 +118,12 @@ export default function Home() {
     queryFn: () => thinkersApi.getAll(),
   })
 
+  // Canvas notes (sticky notes)
+  const { data: canvasNotes = [] } = useQuery({
+    queryKey: ['canvas-notes'],
+    queryFn: notesApi.getCanvasNotes,
+  })
+
   // Extract unique fields from thinkers for the field filter
   const uniqueFields = Array.from(
     new Set(
@@ -123,6 +137,7 @@ export default function Home() {
   const [showTagFilterDropdown, setShowTagFilterDropdown] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const [filterField, setFilterField] = useState<string>('')
   const [filterYearStart, setFilterYearStart] = useState<string>('')
   const [filterYearEnd, setFilterYearEnd] = useState<string>('')
@@ -141,6 +156,15 @@ export default function Home() {
     }, 300)
     return () => clearTimeout(timer)
   }, [searchQuery])
+
+  // Compute search results for dropdown
+  const searchResults = searchQuery.trim()
+    ? allThinkers
+        .filter((t: { name: string }) =>
+          t.name.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .slice(0, 8) // Limit to 8 results
+    : []
 
   const handleToggleFilterTag = (tagId: string) => {
     setFilterTagIds(prev =>
@@ -216,7 +240,7 @@ export default function Home() {
   // Track any open modal to prevent keyboard shortcuts when typing
   const isAnyModalOpen = isAddModalOpen || isConnectionModalOpen || isAddTimelineModalOpen ||
     isAddEventModalOpen || isCreateCombinedViewModalOpen || isTagManagementOpen || isExportModalOpen ||
-    isHelpOpen || isNotesPanelOpen || isResearchQuestionsOpen || isInstitutionsModalOpen
+    isHelpOpen || isNotesPanelOpen || isResearchQuestionsOpen || isInstitutionsModalOpen || isStickyNoteModalOpen
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -271,9 +295,12 @@ export default function Home() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Track shift key for connection mode
+      // Track shift and alt keys for connection mode (Shift+Option+Click)
       if (e.key === 'Shift') {
         setShiftHeld(true)
+      }
+      if (e.key === 'Alt') {
+        setAltHeld(true)
       }
 
       // Don't trigger shortcuts when typing in inputs or when modals are open
@@ -282,12 +309,14 @@ export default function Home() {
         return
       }
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-      const modifier = isMac ? e.metaKey : e.ctrlKey
+      // Always use Ctrl for shortcuts (not Cmd on Mac)
+      const modifier = e.ctrlKey
 
-      // Escape - close panel or cancel connection mode
+      // Escape - close panel, cancel connection mode, or cancel sticky note mode
       if (e.key === 'Escape') {
-        if (selectedThinkerId) {
+        if (stickyNoteMode) {
+          setStickyNoteMode(false)
+        } else if (selectedThinkerId) {
           setSelectedThinkerId(null)
         } else if (connectionFrom) {
           setConnectionFrom(null)
@@ -328,11 +357,20 @@ export default function Home() {
         e.preventDefault()
         setIsHelpOpen(true)
       }
+
+      // Ctrl+S - Toggle sticky note mode
+      if (modifier && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        setStickyNoteMode(prev => !prev)
+      }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         setShiftHeld(false)
+      }
+      if (e.key === 'Alt') {
+        setAltHeld(false)
       }
     }
 
@@ -342,20 +380,46 @@ export default function Home() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isAnyModalOpen, selectedThinkerId, connectionFrom])
+  }, [isAnyModalOpen, selectedThinkerId, connectionFrom, stickyNoteMode])
 
   const handleCanvasClick = (position: { x: number; y: number }) => {
     if (connectionMode) return
+
+    // If in sticky note mode, create a sticky note at this position
+    if (stickyNoteMode) {
+      setStickyNotePosition(position)
+      setEditingStickyNote(null)
+      setIsStickyNoteModalOpen(true)
+      setStickyNoteMode(false) // Exit sticky note mode after placing
+      return
+    }
+
     setClickPosition(position)
     setIsAddModalOpen(true)
   }
 
-  // Handle thinker click with Shift support for connections and Ctrl/Cmd for bulk selection
-  const handleThinkerClick = useCallback((thinkerId: string, isShiftClick?: boolean, isCtrlClick?: boolean) => {
-    const useShift = isShiftClick ?? shiftHeld
+  // Handle sticky note click (for editing)
+  const handleNoteClick = useCallback((noteId: string) => {
+    const note = canvasNotes.find((n: Note) => n.id === noteId)
+    if (note) {
+      setEditingStickyNote(note)
+      setStickyNotePosition(null)
+      setIsStickyNoteModalOpen(true)
+    }
+  }, [canvasNotes])
 
-    // Ctrl/Cmd+Click toggles bulk selection
-    if (isCtrlClick && !useShift) {
+  const handleCloseStickyNoteModal = () => {
+    setIsStickyNoteModalOpen(false)
+    setEditingStickyNote(null)
+    setStickyNotePosition(null)
+  }
+
+  // Handle thinker click with Shift+Option for connections and Ctrl/Cmd for bulk selection
+  const handleThinkerClick = useCallback((thinkerId: string, isShiftClick?: boolean, isCtrlClick?: boolean, isAltClick?: boolean) => {
+    const useShiftAlt = (isShiftClick ?? shiftHeld) && (isAltClick ?? altHeld)
+
+    // Ctrl/Cmd+Click toggles bulk selection (without Shift+Alt)
+    if (isCtrlClick && !useShiftAlt) {
       setBulkSelectedIds(prev =>
         prev.includes(thinkerId)
           ? prev.filter(id => id !== thinkerId)
@@ -364,7 +428,8 @@ export default function Home() {
       return
     }
 
-    if (connectionMode || useShift) {
+    // Shift+Option+Click for connection mode
+    if (connectionMode || useShiftAlt) {
       if (!connectionFrom) {
         setConnectionFrom(thinkerId)
       } else if (connectionFrom !== thinkerId) {
@@ -379,7 +444,7 @@ export default function Home() {
       }
       setSelectedThinkerId(thinkerId)
     }
-  }, [shiftHeld, connectionMode, connectionFrom, bulkSelectedIds])
+  }, [shiftHeld, altHeld, connectionMode, connectionFrom, bulkSelectedIds])
 
   const handleCloseDetailPanel = () => {
     setSelectedThinkerId(null)
@@ -487,12 +552,8 @@ export default function Home() {
     setSelectedTimelineId(null)
   }
 
-  // Detect Mac vs Windows for shortcut display (client-side only to avoid hydration mismatch)
-  const [modKey, setModKey] = useState('Ctrl+')
-  useEffect(() => {
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-    setModKey(isMac ? '⌘' : 'Ctrl+')
-  }, [])
+  // Always show Ctrl+ for shortcuts (consistent across platforms)
+  const modKey = 'Ctrl+'
 
   // Show quiz popup on page load (once per browser session)
   useEffect(() => {
@@ -607,7 +668,15 @@ export default function Home() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                setShowSearchDropdown(true)
+              }}
+              onFocus={() => setShowSearchDropdown(true)}
+              onBlur={() => {
+                // Delay to allow click on dropdown items
+                setTimeout(() => setShowSearchDropdown(false), 200)
+              }}
               placeholder="Search thinkers..."
               className="w-48 px-3 py-1.5 font-sans text-xs border border-timeline rounded focus:outline-none focus:ring-2 focus:ring-accent pl-8"
             />
@@ -626,11 +695,47 @@ export default function Home() {
             </svg>
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('')
+                  setShowSearchDropdown(false)
+                }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
                 ×
               </button>
+            )}
+            {/* Search results dropdown */}
+            {showSearchDropdown && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-timeline rounded shadow-lg z-50 max-h-64 overflow-y-auto">
+                {searchResults.map((thinker: { id: string; name: string; birth_year?: number | null; death_year?: number | null; field?: string | null }) => (
+                  <button
+                    key={thinker.id}
+                    onClick={() => {
+                      setSelectedThinkerId(thinker.id)
+                      setSearchQuery('')
+                      setShowSearchDropdown(false)
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                  >
+                    <div className="font-medium text-primary">{thinker.name}</div>
+                    <div className="text-gray-500 text-[10px]">
+                      {thinker.birth_year && thinker.death_year
+                        ? `${thinker.birth_year}–${thinker.death_year}`
+                        : thinker.birth_year
+                        ? `b. ${thinker.birth_year}`
+                        : thinker.death_year
+                        ? `d. ${thinker.death_year}`
+                        : ''}
+                      {thinker.field && <span className="ml-2">{thinker.field}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {showSearchDropdown && searchQuery.trim() && searchResults.length === 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-timeline rounded shadow-lg z-50 px-3 py-2 text-xs text-gray-500">
+                No thinkers found
+              </div>
             )}
           </div>
           <button
@@ -872,7 +977,14 @@ export default function Home() {
         {/* Connection mode indicator */}
         {connectionFrom && (
           <div className="absolute left-1/2 -translate-x-1/2 bg-blue-100 text-blue-800 px-3 py-1 rounded text-xs font-sans hidden sm:block">
-            Select second thinker for connection (Shift+Click or Escape to cancel)
+            Select second thinker for connection (Shift+Option+Click or Escape to cancel)
+          </div>
+        )}
+
+        {/* Sticky note mode indicator */}
+        {stickyNoteMode && (
+          <div className="absolute left-1/2 -translate-x-1/2 bg-yellow-100 text-yellow-800 px-3 py-1 rounded text-xs font-sans hidden sm:block">
+            Click on canvas to place sticky note (Press Ctrl+S or Escape to cancel)
           </div>
         )}
 
@@ -885,7 +997,11 @@ export default function Home() {
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    setShowSearchDropdown(true)
+                  }}
+                  onFocus={() => setShowSearchDropdown(true)}
                   placeholder="Search thinkers..."
                   className="w-full px-3 py-2 font-sans text-sm border border-timeline rounded focus:outline-none focus:ring-2 focus:ring-accent pl-9"
                 />
@@ -897,6 +1013,51 @@ export default function Home() {
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('')
+                      setShowSearchDropdown(false)
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    ×
+                  </button>
+                )}
+                {/* Mobile search results dropdown */}
+                {showSearchDropdown && searchResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-timeline rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {searchResults.map((thinker: { id: string; name: string; birth_year?: number | null; death_year?: number | null; field?: string | null }) => (
+                      <button
+                        key={thinker.id}
+                        onClick={() => {
+                          setSelectedThinkerId(thinker.id)
+                          setSearchQuery('')
+                          setShowSearchDropdown(false)
+                          setIsMobileMenuOpen(false)
+                        }}
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                      >
+                        <div className="font-medium text-primary">{thinker.name}</div>
+                        <div className="text-gray-500 text-xs">
+                          {thinker.birth_year && thinker.death_year
+                            ? `${thinker.birth_year}–${thinker.death_year}`
+                            : thinker.birth_year
+                            ? `b. ${thinker.birth_year}`
+                            : thinker.death_year
+                            ? `d. ${thinker.death_year}`
+                            : ''}
+                          {thinker.field && <span className="ml-2">{thinker.field}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showSearchDropdown && searchQuery.trim() && searchResults.length === 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-timeline rounded shadow-lg z-50 px-3 py-2 text-sm text-gray-500">
+                    No thinkers found
+                  </div>
+                )}
               </div>
 
               {/* Primary Actions */}
@@ -1149,6 +1310,8 @@ export default function Home() {
             onConnectionClick={handleConnectionClick}
             onEventClick={handleEventClick}
             onThinkerDrag={handleThinkerDrag}
+            canvasNotes={canvasNotes}
+            onNoteClick={handleNoteClick}
             selectedThinkerId={selectedThinkerId}
             bulkSelectedIds={bulkSelectedIds}
             filterByTimelineId={selectedTimelineId}
@@ -1359,6 +1522,13 @@ export default function Home() {
       <HelpGuide isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
 
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      <StickyNoteModal
+        isOpen={isStickyNoteModalOpen}
+        onClose={handleCloseStickyNoteModal}
+        position={stickyNotePosition}
+        editingNote={editingStickyNote}
+      />
 
       <BulkActionsBar
         selectedIds={bulkSelectedIds}

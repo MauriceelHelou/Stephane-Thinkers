@@ -86,6 +86,14 @@ def is_ai_enabled() -> bool:
     return bool(DEEPSEEK_API_KEY)
 
 
+class AIServiceError(Exception):
+    """Exception for AI service errors with useful messages."""
+    def __init__(self, message: str, details: str = None):
+        self.message = message
+        self.details = details
+        super().__init__(self.message)
+
+
 async def _call_deepseek_api(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
@@ -93,10 +101,10 @@ async def _call_deepseek_api(
 ) -> Optional[str]:
     """Call the DeepSeek API for text generation."""
     if not is_ai_enabled():
-        return None
+        raise AIServiceError("AI features not enabled", "DEEPSEEK_API_KEY environment variable is not set")
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{DEEPSEEK_BASE_URL}/chat/completions",
                 headers={
@@ -113,9 +121,19 @@ async def _call_deepseek_api(
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
+    except httpx.TimeoutException:
+        raise AIServiceError("AI request timed out", "The request to DeepSeek API took too long (>60s)")
+    except httpx.HTTPStatusError as e:
+        error_detail = f"Status {e.response.status_code}"
+        try:
+            error_body = e.response.json()
+            error_detail += f": {error_body.get('error', {}).get('message', str(error_body))}"
+        except:
+            error_detail += f": {e.response.text[:200]}"
+        raise AIServiceError(f"DeepSeek API error: {error_detail}", str(e))
     except Exception as e:
         print(f"DeepSeek API error: {e}")
-        return None
+        raise AIServiceError(f"AI service error: {str(e)[:100]}", str(e))
 
 
 async def suggest_connections(
