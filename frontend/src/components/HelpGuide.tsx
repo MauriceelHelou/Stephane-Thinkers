@@ -1,6 +1,8 @@
 'use client'
 
+import { useState } from 'react'
 import { Modal } from '@/components/Modal'
+import { PugEasterEgg } from '@/components/PugEasterEgg'
 
 interface HelpGuideProps {
   isOpen: boolean
@@ -10,6 +12,7 @@ interface HelpGuideProps {
 export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
   // Always use Ctrl+ for shortcuts (consistent across platforms)
   const modKey = 'Ctrl+'
+  const [showEasterEgg, setShowEasterEgg] = useState(false)
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Help & Keyboard Shortcuts" maxWidth="lg">
@@ -172,9 +175,19 @@ export function HelpGuide({ isOpen, onClose }: HelpGuideProps) {
         </section>
 
         <div className="pt-3 border-t border-timeline text-xs text-gray-500 text-center">
-          Press <span className="font-mono bg-gray-100 px-1">?</span> anytime to open this help
+          Press <span className="font-mono bg-gray-100 px-1">?</span> anytime to open this{' '}
+          <button
+            onClick={() => setShowEasterEgg(true)}
+            className="text-gray-500 hover:text-gray-400 cursor-default transition-colors duration-300"
+            title=""
+          >
+            help
+          </button>
         </div>
       </div>
+
+      {/* Secret Easter Egg */}
+      <PugEasterEgg isOpen={showEasterEgg} onClose={() => setShowEasterEgg(false)} />
     </Modal>
   )
 }
