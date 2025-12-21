@@ -196,17 +196,25 @@ export default function Home() {
 
   // Connection type visibility handlers
   const handleToggleConnectionType = (type: ConnectionStyleType) => {
-    setVisibleConnectionTypes(prev =>
-      prev.includes(type)
+    setVisibleConnectionTypes(prev => {
+      const newTypes = prev.includes(type)
         ? prev.filter(t => t !== type)
         : [...prev, type]
-    )
+
+      console.log(`Toggle ${type}: was ${prev.includes(type) ? 'visible' : 'hidden'}, now ${!prev.includes(type) ? 'visible' : 'hidden'}`)
+      console.log('New visible types:', newTypes)
+
+      return newTypes
+    })
   }
 
   const handleToggleAllConnectionTypes = (visible: boolean) => {
     if (visible) {
-      setVisibleConnectionTypes(Object.keys(CONNECTION_STYLES) as ConnectionStyleType[])
+      const allTypes = Object.keys(CONNECTION_STYLES) as ConnectionStyleType[]
+      console.log('Showing all connection types:', allTypes)
+      setVisibleConnectionTypes(allTypes)
     } else {
+      console.log('Hiding all connection types')
       setVisibleConnectionTypes([])
     }
   }
@@ -1490,9 +1498,9 @@ export default function Home() {
           />
         )}
 
-        {/* Canvas Controls - positioned in bottom-right corner */}
+        {/* Canvas Controls - positioned in bottom-left corner */}
         {!selectedCombinedViewId && (
-          <div className="absolute bottom-4 right-4 z-10">
+          <div className="absolute bottom-4 left-4 z-10">
             {showConnectionLegend ? (
               <div className="relative">
                 <button

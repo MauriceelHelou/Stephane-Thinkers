@@ -46,6 +46,11 @@ interface TimelineProps {
 export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [scale, setScale] = useState(1)
+
+  // Debug: Log when visibleConnectionTypes changes
+  useEffect(() => {
+    console.log('Timeline received visibleConnectionTypes:', visibleConnectionTypes)
+  }, [visibleConnectionTypes])
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
   const [isPanning, setIsPanning] = useState(false)
@@ -816,12 +821,25 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Get calculated positions for proper connection endpoints
     const positions = calculateThinkerPositions(thinkers, canvasWidth, canvasHeight)
 
-    // Filter connections by visible types if specified
-    // If visibleConnectionTypes is provided, filter based on it (even if empty array)
-    // Otherwise, show all connections
-    const filteredConns = visibleConnectionTypes !== undefined
-      ? connections.filter(conn => visibleConnectionTypes.includes(conn.connection_type as ConnectionStyleType))
-      : connections
+    // Filter connections by visible types
+    let filteredConns = connections
+
+    if (visibleConnectionTypes !== undefined && Array.isArray(visibleConnectionTypes)) {
+      // Only show connections whose type is in the visibleConnectionTypes array
+      filteredConns = connections.filter(conn => {
+        const connType = conn.connection_type as ConnectionStyleType
+        const isVisible = visibleConnectionTypes.includes(connType)
+
+        // Debug logging (remove after fixing)
+        if (!isVisible) {
+          console.log(`Filtering out connection: ${connType}, visible types:`, visibleConnectionTypes)
+        }
+
+        return isVisible
+      })
+
+      console.log(`Total connections: ${connections.length}, Filtered to: ${filteredConns.length}, Visible types:`, visibleConnectionTypes)
+    }
 
     // Separate connections into two groups: non-highlighted first, then highlighted
     // This ensures highlighted connections are drawn on top
