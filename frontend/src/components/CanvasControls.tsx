@@ -27,109 +27,85 @@ export function CanvasControls({
   onToggleStickyNoteMode,
 }: CanvasControlsProps) {
   const allVisible = visibleConnectionTypes.length === Object.keys(CONNECTION_STYLES).length
-  const noneVisible = visibleConnectionTypes.length === 0
 
   return (
-    <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 max-w-sm">
+    <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-2 w-32">
       {/* Connection Types Section */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-700">Connections</h3>
+      <div className="mb-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <h3 className="text-xs font-semibold text-gray-700">Lines</h3>
           <button
             onClick={() => onToggleAllConnectionTypes(!allVisible)}
-            className="px-2 py-0.5 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
-            title={allVisible ? 'Hide all connection types' : 'Show all connection types'}
+            className="text-[10px] text-gray-500 hover:text-gray-900"
+            title={allVisible ? 'Hide all' : 'Show all'}
           >
-            {allVisible ? 'Hide All' : 'Show All'}
+            {allVisible ? 'none' : 'all'}
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-1">
+        <div className="space-y-1">
           {(Object.entries(CONNECTION_STYLES) as [ConnectionStyleType, typeof CONNECTION_STYLES[ConnectionStyleType]][]).map(([type, style]) => {
             const isVisible = visibleConnectionTypes.includes(type)
             return (
               <button
                 key={type}
                 onClick={() => onToggleConnectionType(type)}
-                className={`px-2 py-1 text-xs rounded-full transition-all flex items-center gap-1.5 ${
+                className={`w-full px-1.5 py-1 text-[10px] rounded flex items-center gap-1.5 transition-all ${
                   isVisible
-                    ? 'bg-white border shadow-sm'
-                    : 'bg-gray-100 border border-transparent opacity-50'
+                    ? 'bg-white border'
+                    : 'bg-gray-50 border border-transparent opacity-40'
                 }`}
                 style={{
                   borderColor: isVisible ? style.color : 'transparent',
                 }}
-                title={`${isVisible ? 'Hide' : 'Show'} ${style.label} connections`}
+                title={`${isVisible ? 'Hide' : 'Show'} ${style.label}`}
               >
-                {isVisible && (
-                  <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 12 12" fill="none">
-                    <path
-                      d="M2 6L5 9L10 3"
-                      stroke={style.color}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
                 <span
-                  className="w-3 h-0.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: isVisible ? style.color : '#9CA3AF' }}
+                  className="w-2.5 h-0.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: style.color }}
                 />
-                <span className={isVisible ? 'text-gray-700' : 'text-gray-400'}>
+                <span className={`truncate ${isVisible ? 'text-gray-700' : 'text-gray-400'}`}>
                   {style.label}
                 </span>
               </button>
             )
           })}
         </div>
-
-        <p className="text-xs text-gray-500 mt-2">
-          Click thinkers to highlight connections. Line thickness shows strength.
-        </p>
       </div>
 
       {/* Sticky Notes Section */}
-      <div className="pt-3 border-t border-gray-100">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Sticky Notes</h3>
+      <div className="pt-2 border-t border-gray-100">
+        <h3 className="text-xs font-semibold text-gray-700 mb-1.5">Notes</h3>
 
-        <div className="flex items-center gap-2">
+        <div className="space-y-1">
           <button
             onClick={onToggleStickyNotes}
-            className={`flex-1 px-3 py-1.5 text-sm rounded transition-all flex items-center justify-center gap-2 ${
+            className={`w-full px-1.5 py-1 text-[10px] rounded flex items-center gap-1.5 ${
               showStickyNotes
                 ? 'bg-yellow-50 border border-yellow-300 text-yellow-800'
-                : 'bg-gray-100 border border-gray-300 text-gray-500'
+                : 'bg-gray-50 border border-gray-200 text-gray-500'
             }`}
-            title={showStickyNotes ? 'Hide sticky notes' : 'Show sticky notes'}
+            title={showStickyNotes ? 'Hide notes' : 'Show notes'}
           >
-            <span className="text-base">{showStickyNotes ? '👁' : '👁'}</span>
-            <span>{showStickyNotes ? 'Visible' : 'Hidden'}</span>
+            <span className="text-xs">{showStickyNotes ? '👁' : '⊗'}</span>
+            <span className="truncate">{showStickyNotes ? 'Visible' : 'Hidden'}</span>
             {stickyNoteCount > 0 && (
-              <span className={`text-xs ${showStickyNotes ? 'text-yellow-600' : 'text-gray-400'}`}>
-                ({stickyNoteCount})
-              </span>
+              <span className="ml-auto text-[9px]">({stickyNoteCount})</span>
             )}
           </button>
 
           <button
             onClick={onToggleStickyNoteMode}
-            className={`px-3 py-1.5 text-sm rounded transition-all font-medium ${
+            className={`w-full px-1.5 py-1 text-[10px] rounded ${
               stickyNoteMode
-                ? 'bg-yellow-400 text-yellow-900 shadow-sm'
-                : 'bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200'
+                ? 'bg-yellow-400 text-yellow-900'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
-            title={stickyNoteMode ? 'Exit sticky note mode (Ctrl+S)' : 'Add sticky note (Ctrl+S)'}
+            title="Add note (Ctrl+S)"
           >
             {stickyNoteMode ? '✓ Adding' : '+ Add'}
           </button>
         </div>
-
-        {stickyNoteMode && (
-          <p className="text-xs text-yellow-700 mt-2 bg-yellow-50 px-2 py-1 rounded">
-            Click anywhere on canvas to place a note
-          </p>
-        )}
       </div>
     </div>
   )

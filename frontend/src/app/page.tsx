@@ -956,21 +956,6 @@ export default function Home() {
                   Research Notes
                 </button>
                 <button
-                  onClick={() => { setStickyNoteMode(prev => !prev); setShowMoreMenu(false); }}
-                  className={`w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50 ${stickyNoteMode ? 'bg-accent/10 text-accent' : ''}`}
-                >
-                  {stickyNoteMode ? '✓ ' : ''}Add Sticky Note (Ctrl+S)
-                </button>
-                <button
-                  onClick={() => setShowStickyNotes(prev => !prev)}
-                  className={`w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50 flex items-center justify-between ${!showStickyNotes ? 'text-gray-400' : ''}`}
-                >
-                  <span>{showStickyNotes ? '👁 ' : ''}Show Sticky Notes</span>
-                  {canvasNotes.length > 0 && (
-                    <span className="text-gray-400 text-xs">({canvasNotes.length})</span>
-                  )}
-                </button>
-                <button
                   onClick={() => { setIsResearchQuestionsOpen(true); setShowMoreMenu(false); }}
                   className="w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50"
                 >

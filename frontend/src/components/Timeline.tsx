@@ -817,9 +817,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const positions = calculateThinkerPositions(thinkers, canvasWidth, canvasHeight)
 
     // Filter connections by visible types if specified
-    // If visibleConnectionTypes is defined and is an array, use it to filter
+    // If visibleConnectionTypes is provided, filter based on it (even if empty array)
     // Otherwise, show all connections
-    const filteredConns = visibleConnectionTypes && visibleConnectionTypes.length >= 0
+    const filteredConns = visibleConnectionTypes !== undefined
       ? connections.filter(conn => visibleConnectionTypes.includes(conn.connection_type as ConnectionStyleType))
       : connections
 
