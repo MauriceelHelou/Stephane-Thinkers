@@ -6,12 +6,12 @@ import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { REFERENCE_CANVAS_WIDTH, DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
 
-// Sticky note color palette
-const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; border: string; text: string }> = {
-  yellow: { bg: '#FEF3C7', border: '#F59E0B', text: '#78350F' },
-  pink: { bg: '#FCE7F3', border: '#EC4899', text: '#831843' },
-  blue: { bg: '#DBEAFE', border: '#3B82F6', text: '#1E3A8A' },
-  green: { bg: '#D1FAE5', border: '#10B981', text: '#064E3B' },
+// Sticky note color palette - more realistic sticky note colors with shadow and fold
+const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; fold: string; border: string; text: string; shadow: string }> = {
+  yellow: { bg: '#FFFBCC', fold: '#F5E79E', border: '#E6D56C', text: '#5C4813', shadow: 'rgba(0,0,0,0.15)' },
+  pink: { bg: '#FFECF0', fold: '#F8C8D4', border: '#F0A0B8', text: '#7A2D42', shadow: 'rgba(0,0,0,0.12)' },
+  blue: { bg: '#E8F4FD', fold: '#C4DCF0', border: '#9CC4E4', text: '#1E4A6D', shadow: 'rgba(0,0,0,0.12)' },
+  green: { bg: '#E8F8E8', fold: '#C0E8C0', border: '#90D090', text: '#1D4A1D', shadow: 'rgba(0,0,0,0.12)' },
 }
 
 interface TimelineProps {
@@ -657,10 +657,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     dragNoteId?: string | null,
     dragNotePos?: { x: number; y: number } | null
   ) => {
-    const CORNER_RADIUS = 3
-    const PADDING = 6
-    const MIN_WIDTH = 80
-    const MAX_WIDTH = 150
+    const PADDING = 10
+    const MIN_WIDTH = 100
+    const MAX_WIDTH = 160
+    const FOLD_SIZE = 14 // Size of the folded corner
+    const LINE_HEIGHT = 14
 
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
@@ -675,31 +676,31 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const color = (note.color as NoteColor) || 'yellow'
       const colors = STICKY_NOTE_COLORS[color] || STICKY_NOTE_COLORS.yellow
 
-      // Calculate width based on title length (auto-crop)
-      ctx.font = 'bold 10px "Inter", sans-serif'
-      const displayTitle = note.title || note.content.substring(0, 25)
+      // Calculate dimensions
+      ctx.font = 'bold 11px "Inter", sans-serif'
+      const displayTitle = note.title || 'Note'
       const titleWidth = ctx.measureText(displayTitle).width
-      const STICKY_WIDTH = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + 4))
-      const STICKY_HEIGHT = note.title ? 28 : 36 // Smaller if just title
+      const STICKY_WIDTH = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + FOLD_SIZE))
 
-      // Draw shadow
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.12)'
-      ctx.shadowBlur = 4
-      ctx.shadowOffsetX = 1
-      ctx.shadowOffsetY = 1
+      // Calculate height based on content
+      const hasContent = note.content && note.content.length > 0
+      const showPreview = hasContent && note.title // Only show preview if there's both title and content
+      const STICKY_HEIGHT = showPreview ? 56 : 40
 
-      // Draw sticky note background with rounded corners
+      // Draw shadow (offset slightly for 3D effect)
+      ctx.shadowColor = colors.shadow
+      ctx.shadowBlur = 6
+      ctx.shadowOffsetX = 2
+      ctx.shadowOffsetY = 3
+
+      // Draw main sticky note body (with cut corner for fold)
       ctx.fillStyle = colors.bg
       ctx.beginPath()
-      ctx.moveTo(x + CORNER_RADIUS, y)
-      ctx.lineTo(x + STICKY_WIDTH - CORNER_RADIUS, y)
-      ctx.quadraticCurveTo(x + STICKY_WIDTH, y, x + STICKY_WIDTH, y + CORNER_RADIUS)
-      ctx.lineTo(x + STICKY_WIDTH, y + STICKY_HEIGHT - CORNER_RADIUS)
-      ctx.quadraticCurveTo(x + STICKY_WIDTH, y + STICKY_HEIGHT, x + STICKY_WIDTH - CORNER_RADIUS, y + STICKY_HEIGHT)
-      ctx.lineTo(x + CORNER_RADIUS, y + STICKY_HEIGHT)
-      ctx.quadraticCurveTo(x, y + STICKY_HEIGHT, x, y + STICKY_HEIGHT - CORNER_RADIUS)
-      ctx.lineTo(x, y + CORNER_RADIUS)
-      ctx.quadraticCurveTo(x, y, x + CORNER_RADIUS, y)
+      ctx.moveTo(x, y)
+      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y)
+      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
+      ctx.lineTo(x + STICKY_WIDTH, y + STICKY_HEIGHT)
+      ctx.lineTo(x, y + STICKY_HEIGHT)
       ctx.closePath()
       ctx.fill()
 
@@ -709,37 +710,99 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.shadowOffsetX = 0
       ctx.shadowOffsetY = 0
 
-      // Draw border
+      // Draw the folded corner triangle
+      ctx.fillStyle = colors.fold
+      ctx.beginPath()
+      ctx.moveTo(x + STICKY_WIDTH - FOLD_SIZE, y)
+      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y + FOLD_SIZE)
+      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
+      ctx.closePath()
+      ctx.fill()
+
+      // Draw fold crease line
       ctx.strokeStyle = colors.border
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = 0.5
+      ctx.beginPath()
+      ctx.moveTo(x + STICKY_WIDTH - FOLD_SIZE, y)
+      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y + FOLD_SIZE)
+      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
       ctx.stroke()
 
-      // Draw title or content preview
-      ctx.fillStyle = colors.text
-      ctx.font = 'bold 10px "Inter", sans-serif'
-      const text = note.title || note.content.substring(0, 25) + (note.content.length > 25 ? '...' : '')
-      const truncatedText = text.length > 20 ? text.substring(0, 18) + '...' : text
-      ctx.fillText(truncatedText, x + PADDING, y + STICKY_HEIGHT / 2 + 3)
+      // Draw subtle border on main note
+      ctx.strokeStyle = colors.border
+      ctx.lineWidth = 0.8
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y)
+      ctx.moveTo(x + STICKY_WIDTH, y + FOLD_SIZE)
+      ctx.lineTo(x + STICKY_WIDTH, y + STICKY_HEIGHT)
+      ctx.lineTo(x, y + STICKY_HEIGHT)
+      ctx.lineTo(x, y)
+      ctx.stroke()
 
-      // Draw small indicator if has content (and showing title)
-      if (note.title && note.content) {
-        ctx.font = '8px "Inter", sans-serif'
-        ctx.fillStyle = colors.border
-        ctx.fillText('...', x + STICKY_WIDTH - 12, y + STICKY_HEIGHT - 4)
+      // Draw title text inside the note
+      ctx.fillStyle = colors.text
+      ctx.font = 'bold 11px "Inter", sans-serif'
+      ctx.textBaseline = 'top'
+      const maxTitleWidth = STICKY_WIDTH - PADDING * 2 - 4
+      let truncatedTitle = displayTitle
+      if (ctx.measureText(truncatedTitle).width > maxTitleWidth) {
+        while (ctx.measureText(truncatedTitle + '...').width > maxTitleWidth && truncatedTitle.length > 3) {
+          truncatedTitle = truncatedTitle.slice(0, -1)
+        }
+        truncatedTitle += '...'
       }
+      ctx.fillText(truncatedTitle, x + PADDING, y + PADDING)
+
+      // Draw content preview if there's content
+      if (showPreview) {
+        ctx.font = '10px "Inter", sans-serif'
+        ctx.fillStyle = colors.text
+        ctx.globalAlpha = 0.7
+        const preview = note.content.substring(0, 30) + (note.content.length > 30 ? '...' : '')
+        let truncatedPreview = preview
+        if (ctx.measureText(truncatedPreview).width > maxTitleWidth) {
+          while (ctx.measureText(truncatedPreview + '...').width > maxTitleWidth && truncatedPreview.length > 3) {
+            truncatedPreview = truncatedPreview.slice(0, -1)
+          }
+          truncatedPreview += '...'
+        }
+        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 4)
+        ctx.globalAlpha = 1
+      }
+
+      // If no title but has content, show content as main text
+      if (!note.title && hasContent) {
+        ctx.font = '10px "Inter", sans-serif'
+        ctx.fillStyle = colors.text
+        const preview = note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')
+        let truncatedPreview = preview
+        if (ctx.measureText(truncatedPreview).width > maxTitleWidth) {
+          while (ctx.measureText(truncatedPreview + '...').width > maxTitleWidth && truncatedPreview.length > 3) {
+            truncatedPreview = truncatedPreview.slice(0, -1)
+          }
+          truncatedPreview += '...'
+        }
+        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT)
+      }
+
+      ctx.textBaseline = 'alphabetic' // Reset to default
     })
   }
 
   // Store sticky note dimensions for click detection (needs to match drawing)
   const getStickyNoteDimensions = (note: Note): { width: number; height: number } => {
-    const PADDING = 6
-    const MIN_WIDTH = 80
-    const MAX_WIDTH = 150
-    const displayTitle = note.title || note.content.substring(0, 25)
-    // Approximate text width (8px per character for bold 10px font)
-    const titleWidth = displayTitle.length * 6
-    const width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + 4))
-    const height = note.title ? 28 : 36
+    const PADDING = 10
+    const MIN_WIDTH = 100
+    const MAX_WIDTH = 160
+    const FOLD_SIZE = 14
+    const displayTitle = note.title || 'Note'
+    // Approximate text width (7px per character for bold 11px font)
+    const titleWidth = displayTitle.length * 7
+    const width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + FOLD_SIZE))
+    const hasContent = note.content && note.content.length > 0
+    const showPreview = hasContent && note.title
+    const height = showPreview ? 56 : 40
     return { width, height }
   }
 

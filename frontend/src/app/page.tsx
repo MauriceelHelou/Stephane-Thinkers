@@ -95,6 +95,7 @@ export default function Home() {
   const [stickyNotePosition, setStickyNotePosition] = useState<{ x: number; y: number } | null>(null)
   const [isStickyNoteModalOpen, setIsStickyNoteModalOpen] = useState(false)
   const [editingStickyNote, setEditingStickyNote] = useState<Note | null>(null)
+  const [showStickyNotes, setShowStickyNotes] = useState(true) // Toggle visibility of sticky notes
 
   // Tab scroll indicators
   const tabsScrollRef = useRef<HTMLDivElement>(null)
@@ -954,6 +955,21 @@ export default function Home() {
                   Research Notes
                 </button>
                 <button
+                  onClick={() => { setStickyNoteMode(prev => !prev); setShowMoreMenu(false); }}
+                  className={`w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50 ${stickyNoteMode ? 'bg-accent/10 text-accent' : ''}`}
+                >
+                  {stickyNoteMode ? '✓ ' : ''}Add Sticky Note (Ctrl+S)
+                </button>
+                <button
+                  onClick={() => setShowStickyNotes(prev => !prev)}
+                  className={`w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50 flex items-center justify-between ${!showStickyNotes ? 'text-gray-400' : ''}`}
+                >
+                  <span>{showStickyNotes ? '👁 ' : ''}Show Sticky Notes</span>
+                  {canvasNotes.length > 0 && (
+                    <span className="text-gray-400 text-xs">({canvasNotes.length})</span>
+                  )}
+                </button>
+                <button
                   onClick={() => { setIsResearchQuestionsOpen(true); setShowMoreMenu(false); }}
                   className="w-full px-4 py-2 text-left text-xs font-sans hover:bg-gray-50"
                 >
@@ -1171,6 +1187,81 @@ export default function Home() {
           </div>
         )}
       </header>
+
+      {/* Quick Filters Bar - Connection Types & Notes Toggle */}
+      <div className="flex items-center justify-between px-2 sm:px-4 py-1.5 border-b border-gray-100 bg-white flex-shrink-0 z-10">
+        {/* Connection Type Toggles */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          <span className="text-xs text-gray-500 hidden sm:inline">Connections:</span>
+          <div className="flex items-center gap-0.5 sm:gap-1">
+            {(Object.entries(CONNECTION_STYLES) as [ConnectionStyleType, typeof CONNECTION_STYLES[ConnectionStyleType]][]).map(([type, style]) => {
+              const isVisible = visibleConnectionTypes.includes(type)
+              return (
+                <button
+                  key={type}
+                  onClick={() => handleToggleConnectionType(type)}
+                  className={`px-2 py-0.5 text-xs rounded-full transition-all flex items-center gap-1 ${
+                    isVisible
+                      ? 'bg-white border shadow-sm'
+                      : 'bg-gray-100 border-transparent opacity-50'
+                  }`}
+                  style={{
+                    borderColor: isVisible ? style.color : 'transparent',
+                  }}
+                  title={`${isVisible ? 'Hide' : 'Show'} ${style.label} connections`}
+                >
+                  <span
+                    className="w-3 h-0.5 rounded-full"
+                    style={{ backgroundColor: isVisible ? style.color : '#9CA3AF' }}
+                  />
+                  <span className={`hidden sm:inline ${isVisible ? 'text-gray-700' : 'text-gray-400'}`}>
+                    {style.label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <button
+            onClick={() => handleToggleAllConnectionTypes(visibleConnectionTypes.length === 0)}
+            className="px-1.5 py-0.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+            title={visibleConnectionTypes.length === 0 ? 'Show all connection types' : 'Hide all connection types'}
+          >
+            {visibleConnectionTypes.length === 0 ? 'All' : visibleConnectionTypes.length < Object.keys(CONNECTION_STYLES).length ? 'All' : 'None'}
+          </button>
+        </div>
+
+        {/* Notes Toggle */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowStickyNotes(prev => !prev)}
+            className={`px-2 py-0.5 text-xs rounded-full transition-all flex items-center gap-1.5 ${
+              showStickyNotes
+                ? 'bg-yellow-50 border border-yellow-300 text-yellow-800'
+                : 'bg-gray-100 text-gray-400'
+            }`}
+            title={showStickyNotes ? 'Hide sticky notes' : 'Show sticky notes'}
+          >
+            <span className="text-sm">{showStickyNotes ? '📝' : '📝'}</span>
+            <span className="hidden sm:inline">Notes</span>
+            {canvasNotes.length > 0 && (
+              <span className={`text-xs ${showStickyNotes ? 'text-yellow-600' : 'text-gray-400'}`}>
+                ({canvasNotes.length})
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setStickyNoteMode(prev => !prev)}
+            className={`px-2 py-0.5 text-xs rounded transition-all ${
+              stickyNoteMode
+                ? 'bg-yellow-200 text-yellow-900 font-medium'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+            }`}
+            title="Add sticky note (Ctrl+S)"
+          >
+            +
+          </button>
+        </div>
+      </div>
 
       {/* Timeline Tabs */}
       <div className="flex items-center px-2 sm:px-4 py-2 sm:py-3 border-b border-timeline bg-gray-50 flex-shrink-0 z-10 relative">
@@ -1392,7 +1483,7 @@ export default function Home() {
             onConnectionClick={handleConnectionClick}
             onEventClick={handleEventClick}
             onThinkerDrag={handleThinkerDrag}
-            canvasNotes={canvasNotes}
+            canvasNotes={showStickyNotes ? canvasNotes : []}
             onNoteClick={handleNoteClick}
             onNoteDrag={handleNoteDrag}
             selectedThinkerId={selectedThinkerId}
