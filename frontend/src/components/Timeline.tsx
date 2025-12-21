@@ -36,6 +36,7 @@ interface TimelineProps {
   selectedTimeline?: TimelineType | null
   // Connection visualization options
   visibleConnectionTypes?: ConnectionStyleType[]
+  showConnectionLabels?: boolean
   highlightSelectedConnections?: boolean
   // Animation support
   animationYear?: number | null
@@ -43,7 +44,7 @@ interface TimelineProps {
   stickyNoteMode?: boolean
 }
 
-export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
+export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, showConnectionLabels = true, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [scale, setScale] = useState(1)
 
@@ -355,7 +356,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     ctx.restore()
-  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, visibleConnectionTypes])
+  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, visibleConnectionTypes, showConnectionLabels])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#F0F0F0'
@@ -959,75 +960,77 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.fillStyle = color
       ctx.fill()
 
-      // Draw connection name or type label
-      const labelText = conn.name || style.label
+      // Draw connection name or type label (only if showConnectionLabels is true)
+      if (showConnectionLabels) {
+        const labelText = conn.name || style.label
 
-      // Calculate the midpoint of the bezier curve (t=0.5)
-      const t = 0.5
-      const curveX =
-        Math.pow(1 - t, 3) * fromX +
-        3 * Math.pow(1 - t, 2) * t * controlX1 +
-        3 * (1 - t) * Math.pow(t, 2) * controlX2 +
-        Math.pow(t, 3) * toX
+        // Calculate the midpoint of the bezier curve (t=0.5)
+        const t = 0.5
+        const curveX =
+          Math.pow(1 - t, 3) * fromX +
+          3 * Math.pow(1 - t, 2) * t * controlX1 +
+          3 * (1 - t) * Math.pow(t, 2) * controlX2 +
+          Math.pow(t, 3) * toX
 
-      const curveY =
-        Math.pow(1 - t, 3) * fromY +
-        3 * Math.pow(1 - t, 2) * t * controlY1 +
-        3 * (1 - t) * Math.pow(t, 2) * controlY2 +
-        Math.pow(t, 3) * toY
+        const curveY =
+          Math.pow(1 - t, 3) * fromY +
+          3 * Math.pow(1 - t, 2) * t * controlY1 +
+          3 * (1 - t) * Math.pow(t, 2) * controlY2 +
+          Math.pow(t, 3) * toY
 
-      // Draw label with background
-      ctx.font = isHighlighted ? 'bold 10px "Inter", sans-serif' : '10px "Inter", sans-serif'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
+        // Draw label with background
+        ctx.font = isHighlighted ? 'bold 10px "Inter", sans-serif' : '10px "Inter", sans-serif'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
 
-      const metrics = ctx.measureText(labelText)
-      const padding = 4
-      const bgWidth = metrics.width + padding * 2
-      const bgHeight = 14
+        const metrics = ctx.measureText(labelText)
+        const padding = 4
+        const bgWidth = metrics.width + padding * 2
+        const bgHeight = 14
 
-      // Position label above the curve, with collision avoidance
-      let labelY = curveY - 8
-      const MIN_LABEL_GAP = 4 // Minimum gap between labels
+        // Position label above the curve, with collision avoidance
+        let labelY = curveY - 8
+        const MIN_LABEL_GAP = 4 // Minimum gap between labels
 
-      // Check for collisions with thinker labels and nudge if necessary
-      let hasCollision = true
-      let nudgeAttempts = 0
-      const maxNudgeAttempts = 10
-      const nudgeStep = 15 // How much to move the label each attempt
+        // Check for collisions with thinker labels and nudge if necessary
+        let hasCollision = true
+        let nudgeAttempts = 0
+        const maxNudgeAttempts = 10
+        const nudgeStep = 15 // How much to move the label each attempt
 
-      while (hasCollision && nudgeAttempts < maxNudgeAttempts) {
-        hasCollision = false
+        while (hasCollision && nudgeAttempts < maxNudgeAttempts) {
+          hasCollision = false
 
-        // Check against all thinker positions
-        for (const [, pos] of positions) {
-          const horizontalOverlap = Math.abs(curveX - pos.x) < (bgWidth + pos.width) / 2 + MIN_LABEL_GAP
-          const verticalOverlap = Math.abs(labelY - pos.y) < (bgHeight + pos.height) / 2 + MIN_LABEL_GAP
+          // Check against all thinker positions
+          for (const [, pos] of positions) {
+            const horizontalOverlap = Math.abs(curveX - pos.x) < (bgWidth + pos.width) / 2 + MIN_LABEL_GAP
+            const verticalOverlap = Math.abs(labelY - pos.y) < (bgHeight + pos.height) / 2 + MIN_LABEL_GAP
 
-          if (horizontalOverlap && verticalOverlap) {
-            hasCollision = true
-            // Nudge label down (away from thinker labels which are above timeline)
-            labelY += nudgeStep
-            break
+            if (horizontalOverlap && verticalOverlap) {
+              hasCollision = true
+              // Nudge label down (away from thinker labels which are above timeline)
+              labelY += nudgeStep
+              break
+            }
           }
+          nudgeAttempts++
         }
-        nudgeAttempts++
+
+        // Draw background rectangle with connection color tint
+        ctx.globalAlpha = 0.95
+        ctx.fillStyle = isHighlighted ? '#FFFFFF' : 'rgba(255, 255, 255, 0.9)'
+        ctx.fillRect(curveX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight)
+
+        // Draw border in connection color
+        ctx.strokeStyle = color
+        ctx.lineWidth = 1
+        ctx.strokeRect(curveX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight)
+
+        // Draw text in connection color
+        ctx.globalAlpha = 1.0
+        ctx.fillStyle = color
+        ctx.fillText(labelText, curveX, labelY)
       }
-
-      // Draw background rectangle with connection color tint
-      ctx.globalAlpha = 0.95
-      ctx.fillStyle = isHighlighted ? '#FFFFFF' : 'rgba(255, 255, 255, 0.9)'
-      ctx.fillRect(curveX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight)
-
-      // Draw border in connection color
-      ctx.strokeStyle = color
-      ctx.lineWidth = 1
-      ctx.strokeRect(curveX - bgWidth / 2, labelY - bgHeight / 2, bgWidth, bgHeight)
-
-      // Draw text in connection color
-      ctx.globalAlpha = 1.0
-      ctx.fillStyle = color
-      ctx.fillText(labelText, curveX, labelY)
     })
 
     // Reset global alpha

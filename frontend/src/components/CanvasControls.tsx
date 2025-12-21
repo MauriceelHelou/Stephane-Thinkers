@@ -7,6 +7,8 @@ interface CanvasControlsProps {
   visibleConnectionTypes: ConnectionStyleType[]
   onToggleConnectionType: (type: ConnectionStyleType) => void
   onToggleAllConnectionTypes: (visible: boolean) => void
+  showConnectionLabels: boolean
+  onToggleConnectionLabels: () => void
 
   // Sticky notes
   showStickyNotes: boolean
@@ -20,6 +22,8 @@ export function CanvasControls({
   visibleConnectionTypes,
   onToggleConnectionType,
   onToggleAllConnectionTypes,
+  showConnectionLabels,
+  onToggleConnectionLabels,
   showStickyNotes,
   onToggleStickyNotes,
   stickyNoteCount,
@@ -34,13 +38,23 @@ export function CanvasControls({
       <div className="mb-2">
         <div className="flex items-center justify-between mb-1.5">
           <h3 className="text-xs font-semibold text-gray-700">Lines</h3>
-          <button
-            onClick={() => onToggleAllConnectionTypes(!allVisible)}
-            className="text-[10px] text-gray-500 hover:text-gray-900"
-            title={allVisible ? 'Hide all' : 'Show all'}
-          >
-            {allVisible ? 'none' : 'all'}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onToggleConnectionLabels}
+              className={`text-[10px] hover:text-gray-900 ${showConnectionLabels ? 'text-gray-700' : 'text-gray-400'}`}
+              title={showConnectionLabels ? 'Hide labels' : 'Show labels'}
+            >
+              labels
+            </button>
+            <span className="text-gray-300">|</span>
+            <button
+              onClick={() => onToggleAllConnectionTypes(!allVisible)}
+              className="text-[10px] text-gray-500 hover:text-gray-900"
+              title={allVisible ? 'Hide all' : 'Show all'}
+            >
+              {allVisible ? 'none' : 'all'}
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1">

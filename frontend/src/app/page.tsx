@@ -65,6 +65,7 @@ export default function Home() {
   const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<ConnectionStyleType[]>(
     Object.keys(CONNECTION_STYLES) as ConnectionStyleType[]
   )
+  const [showConnectionLabels, setShowConnectionLabels] = useState(true)
   const [showConnectionLegend, setShowConnectionLegend] = useState(true)
   const [isNetworkMetricsOpen, setIsNetworkMetricsOpen] = useState(false)
   const [isComparisonViewOpen, setIsComparisonViewOpen] = useState(false)
@@ -124,9 +125,13 @@ export default function Home() {
   })
 
   // Canvas notes (sticky notes)
+  // Reduce polling frequency to prevent laggy network calls
   const { data: canvasNotes = [] } = useQuery({
     queryKey: ['canvas-notes'],
     queryFn: notesApi.getCanvasNotes,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchInterval: false, // Disable automatic polling
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   })
 
   // Extract unique fields from thinkers for the field filter
@@ -1493,6 +1498,7 @@ export default function Home() {
             filterByYearEnd={filterYearEnd ? parseInt(filterYearEnd, 10) : null}
             selectedTimeline={selectedTimeline}
             visibleConnectionTypes={visibleConnectionTypes}
+            showConnectionLabels={showConnectionLabels}
             highlightSelectedConnections={true}
             stickyNoteMode={stickyNoteMode}
           />
@@ -1514,6 +1520,8 @@ export default function Home() {
                   visibleConnectionTypes={visibleConnectionTypes}
                   onToggleConnectionType={handleToggleConnectionType}
                   onToggleAllConnectionTypes={handleToggleAllConnectionTypes}
+                  showConnectionLabels={showConnectionLabels}
+                  onToggleConnectionLabels={() => setShowConnectionLabels(prev => !prev)}
                   showStickyNotes={showStickyNotes}
                   onToggleStickyNotes={() => setShowStickyNotes(prev => !prev)}
                   stickyNoteCount={canvasNotes.length}
