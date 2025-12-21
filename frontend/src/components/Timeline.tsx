@@ -744,6 +744,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.fillStyle = colors.text
       ctx.font = 'bold 11px "Inter", sans-serif'
       ctx.textBaseline = 'top'
+      ctx.textAlign = 'left'
       const maxTitleWidth = STICKY_WIDTH - PADDING * 2 - 4
       let truncatedTitle = displayTitle
       if (ctx.measureText(truncatedTitle).width > maxTitleWidth) {
@@ -752,12 +753,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         }
         truncatedTitle += '...'
       }
-      ctx.fillText(truncatedTitle, x + PADDING, y + PADDING)
+      ctx.fillText(truncatedTitle, x + PADDING, y + PADDING + 1)
 
       // Draw content preview if there's content
       if (showPreview) {
         ctx.font = '10px "Inter", sans-serif'
         ctx.fillStyle = colors.text
+        ctx.textBaseline = 'top'
+        ctx.textAlign = 'left'
         ctx.globalAlpha = 0.7
         const preview = note.content.substring(0, 30) + (note.content.length > 30 ? '...' : '')
         let truncatedPreview = preview
@@ -767,7 +770,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           }
           truncatedPreview += '...'
         }
-        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 4)
+        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 5)
         ctx.globalAlpha = 1
       }
 
@@ -775,6 +778,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       if (!note.title && hasContent) {
         ctx.font = '10px "Inter", sans-serif'
         ctx.fillStyle = colors.text
+        ctx.textBaseline = 'top'
+        ctx.textAlign = 'left'
         const preview = note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')
         let truncatedPreview = preview
         if (ctx.measureText(truncatedPreview).width > maxTitleWidth) {
@@ -783,10 +788,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           }
           truncatedPreview += '...'
         }
-        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT)
+        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 1)
       }
 
       ctx.textBaseline = 'alphabetic' // Reset to default
+      ctx.textAlign = 'center' // Reset to default
     })
   }
 
@@ -811,7 +817,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const positions = calculateThinkerPositions(thinkers, canvasWidth, canvasHeight)
 
     // Filter connections by visible types if specified
-    const filteredConns = visibleConnectionTypes
+    // If visibleConnectionTypes is defined and is an array, use it to filter
+    // Otherwise, show all connections
+    const filteredConns = visibleConnectionTypes && visibleConnectionTypes.length >= 0
       ? connections.filter(conn => visibleConnectionTypes.includes(conn.connection_type as ConnectionStyleType))
       : connections
 
@@ -1357,11 +1365,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       // Start dragging the note
       setDraggedNoteId(note.id)
       setHasNoteDragged(false)
-      const noteX = note.position_x || 0
-      const noteY = note.position_y || 0
+      const noteX = Math.round(note.position_x || 0)
+      const noteY = Math.round(note.position_y || 0)
       setNoteDragOffset({
-        x: coords.x - noteX,
-        y: coords.y - noteY
+        x: Math.round(coords.x - noteX),
+        y: Math.round(coords.y - noteY)
       })
       setDraggedNotePos({ x: noteX, y: noteY })
       return
@@ -1434,13 +1442,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (draggedNoteId) {
       const coords = getCanvasCoordinates(e)
       if (coords) {
-        const newX = coords.x - noteDragOffset.x
-        const newY = coords.y - noteDragOffset.y
-        // Only mark as dragged if there's significant movement (more than 5 pixels)
+        // Round to integers to avoid sub-pixel jittering
+        const newX = Math.round(coords.x - noteDragOffset.x)
+        const newY = Math.round(coords.y - noteDragOffset.y)
+        // Only mark as dragged if there's significant movement (more than 2 pixels)
         if (draggedNotePos) {
           const dx = Math.abs(newX - draggedNotePos.x)
           const dy = Math.abs(newY - draggedNotePos.y)
-          if (dx > 5 || dy > 5) {
+          if (dx > 2 || dy > 2) {
             setHasNoteDragged(true)
           }
         }
@@ -1514,11 +1523,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Handle note drag end - only save position if there was actual dragging
     if (draggedNoteId && draggedNotePos && onNoteDrag && hasNoteDragged) {
-      // draggedNotePos is already in canvas-space
-      onNoteDrag(draggedNoteId, draggedNotePos.x, draggedNotePos.y)
+      // Round positions to integers before saving to avoid sub-pixel values
+      const finalX = Math.round(draggedNotePos.x)
+      const finalY = Math.round(draggedNotePos.y)
+      onNoteDrag(draggedNoteId, finalX, finalY)
       // Mark that we just dragged to prevent click from firing
       justDraggedRef.current = true
-      setTimeout(() => { justDraggedRef.current = false }, 50)
+      setTimeout(() => { justDraggedRef.current = false }, 100)
     }
     // Reset note drag state
     setDraggedNoteId(null)
