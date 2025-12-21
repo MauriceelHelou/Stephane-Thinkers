@@ -355,7 +355,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     ctx.restore()
-  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos])
+  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, visibleConnectionTypes])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#F0F0F0'
