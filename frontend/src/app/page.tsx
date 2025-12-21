@@ -237,6 +237,15 @@ export default function Home() {
     },
   })
 
+  // Mutation for updating note position
+  const updateNotePositionMutation = useMutation({
+    mutationFn: ({ id, position_x, position_y }: { id: string; position_x: number; position_y: number }) =>
+      notesApi.update(id, { position_x, position_y }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['canvas-notes'] })
+    },
+  })
+
   // Mutation for repopulating thinker positions
   const [isRepopulating, setIsRepopulating] = useState(false)
   const repopulateMutation = useMutation({
@@ -479,6 +488,15 @@ export default function Home() {
       position_y: positionY,
     })
   }, [updateThinkerPositionMutation])
+
+  // Handle note drag - save the new position_x and position_y
+  const handleNoteDrag = useCallback((noteId: string, positionX: number, positionY: number) => {
+    updateNotePositionMutation.mutate({
+      id: noteId,
+      position_x: positionX,
+      position_y: positionY,
+    })
+  }, [updateNotePositionMutation])
 
   const handleOpenConnectionMap = (thinkerId: string) => {
     setConnectionMapThinkerId(thinkerId)
@@ -1376,6 +1394,7 @@ export default function Home() {
             onThinkerDrag={handleThinkerDrag}
             canvasNotes={canvasNotes}
             onNoteClick={handleNoteClick}
+            onNoteDrag={handleNoteDrag}
             selectedThinkerId={selectedThinkerId}
             bulkSelectedIds={bulkSelectedIds}
             filterByTimelineId={selectedTimelineId}

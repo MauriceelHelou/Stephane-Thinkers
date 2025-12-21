@@ -694,10 +694,20 @@ Respond in JSON:
     ], max_tokens=1500)
 
     if not response:
-        return None
+        raise AIServiceError("No response from AI", "The AI service returned an empty response")
 
     try:
-        data = json.loads(response)
+        # Clean response - sometimes AI returns markdown code blocks
+        clean_response = response.strip()
+        if clean_response.startswith('```json'):
+            clean_response = clean_response[7:]
+        if clean_response.startswith('```'):
+            clean_response = clean_response[3:]
+        if clean_response.endswith('```'):
+            clean_response = clean_response[:-3]
+        clean_response = clean_response.strip()
+
+        data = json.loads(clean_response)
         return SummaryResponse(
             summary=data.get('summary', ''),
             key_points=data.get('key_points', []),
@@ -705,8 +715,8 @@ Respond in JSON:
             themes=data.get('themes', []),
             length=length,
         )
-    except json.JSONDecodeError:
-        return None
+    except json.JSONDecodeError as e:
+        raise AIServiceError("Failed to parse AI response", f"JSON parse error: {str(e)}. Response: {response[:200]}")
 
 
 async def parse_natural_language_entry(

@@ -489,6 +489,8 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
         )
     except AIServiceError as e:
         raise HTTPException(status_code=500, detail=f"{e.message}. {e.details or ''}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error generating summary: {str(e)[:200]}")
 
 
 @router.post("/parse", response_model=ParseResponse)

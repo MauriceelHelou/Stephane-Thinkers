@@ -56,6 +56,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   const [draggedThinkerPos, setDraggedThinkerPos] = useState<{ x: number; y: number } | null>(null)
   const [hasDragged, setHasDragged] = useState(false) // Track if actual dragging occurred (not just a click)
 
+  // Note dragging state
+  const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null)
+  const [draggedNotePos, setDraggedNotePos] = useState<{ x: number; y: number } | null>(null)
+  const [noteDragOffset, setNoteDragOffset] = useState({ x: 0, y: 0 })
+  const [hasNoteDragged, setHasNoteDragged] = useState(false)
+
+  // Ref to track if we just completed a drag (to prevent click after drag)
+  const justDraggedRef = useRef(false)
+
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
     queryFn: async () => {
@@ -337,11 +346,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Draw sticky notes on top of everything
     if (canvasNotes.length > 0) {
-      drawStickyNotes(ctx, canvasNotes)
+      drawStickyNotes(ctx, canvasNotes, draggedNoteId, draggedNotePos)
     }
 
     ctx.restore()
-  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength])
+  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#F0F0F0'
@@ -642,7 +651,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Draw sticky notes on the canvas
-  const drawStickyNotes = (ctx: CanvasRenderingContext2D, notes: Note[]) => {
+  const drawStickyNotes = (
+    ctx: CanvasRenderingContext2D,
+    notes: Note[],
+    dragNoteId?: string | null,
+    dragNotePos?: { x: number; y: number } | null
+  ) => {
     const CORNER_RADIUS = 3
     const PADDING = 6
     const MIN_WIDTH = 80
@@ -651,9 +665,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
 
-      // Don't add offset here - ctx.translate already handles it
-      const x = note.position_x
-      const y = note.position_y
+      // Use dragged position if this note is being dragged
+      let x = note.position_x
+      let y = note.position_y
+      if (dragNoteId === note.id && dragNotePos) {
+        x = dragNotePos.x
+        y = dragNotePos.y
+      }
       const color = (note.color as NoteColor) || 'yellow'
       const colors = STICKY_NOTE_COLORS[color] || STICKY_NOTE_COLORS.yellow
 
@@ -1270,6 +1288,22 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const thinker = getThinkerAtPosition(coords.x, coords.y)
 
+    // Check for sticky note click first (they're drawn on top)
+    const note = getNoteAtPosition(coords.x, coords.y)
+    if (note && onNoteDrag) {
+      // Start dragging the note
+      setDraggedNoteId(note.id)
+      setHasNoteDragged(false)
+      const noteX = note.position_x || 0
+      const noteY = note.position_y || 0
+      setNoteDragOffset({
+        x: coords.x - noteX,
+        y: coords.y - noteY
+      })
+      setDraggedNotePos({ x: noteX, y: noteY })
+      return
+    }
+
     if (thinker) {
       // Start dragging the thinker if onThinkerDrag callback is provided
       if (onThinkerDrag) {
@@ -1333,6 +1367,25 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       return
     }
 
+    // Handle note dragging
+    if (draggedNoteId) {
+      const coords = getCanvasCoordinates(e)
+      if (coords) {
+        const newX = coords.x - noteDragOffset.x
+        const newY = coords.y - noteDragOffset.y
+        // Only mark as dragged if there's significant movement (more than 5 pixels)
+        if (draggedNotePos) {
+          const dx = Math.abs(newX - draggedNotePos.x)
+          const dy = Math.abs(newY - draggedNotePos.y)
+          if (dx > 5 || dy > 5) {
+            setHasNoteDragged(true)
+          }
+        }
+        setDraggedNotePos({ x: newX, y: newY })
+      }
+      return
+    }
+
     if (!isPanning) return
 
     const canvas = canvasRef.current
@@ -1390,15 +1443,39 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         onThinkerDrag(draggedThinkerId, anchorYear, positionY)
       }
     }
-    // Reset drag state
+    // Reset thinker drag state
     setDraggedThinkerId(null)
     setDraggedThinkerPos(null)
     setDragOffset({ x: 0, y: 0 })
     setHasDragged(false)
+
+    // Handle note drag end - only save position if there was actual dragging
+    if (draggedNoteId && draggedNotePos && onNoteDrag && hasNoteDragged) {
+      // draggedNotePos is already in canvas-space
+      onNoteDrag(draggedNoteId, draggedNotePos.x, draggedNotePos.y)
+      // Mark that we just dragged to prevent click from firing
+      justDraggedRef.current = true
+      setTimeout(() => { justDraggedRef.current = false }, 50)
+    }
+    // Reset note drag state
+    setDraggedNoteId(null)
+    setDraggedNotePos(null)
+    setNoteDragOffset({ x: 0, y: 0 })
+    setHasNoteDragged(false)
+
+    // Also mark if thinker was dragged
+    if (hasDragged) {
+      justDraggedRef.current = true
+      setTimeout(() => { justDraggedRef.current = false }, 50)
+    }
+
     setIsPanning(false)
   }
 
   const handleClick = (e: React.MouseEvent) => {
+    // Don't trigger click if we just finished dragging
+    if (justDraggedRef.current) return
+
     // Don't block Ctrl+Click even if panning
     const isCtrlClick = e.metaKey || e.ctrlKey
     const isShiftClick = e.shiftKey

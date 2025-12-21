@@ -100,7 +100,8 @@ def run_force_simulation(
     thinkers: List[Thinker],
     connections: List[Connection],
     config: RepopulateConfig,
-    fixed_ids: set = None
+    fixed_ids: set = None,
+    anchor_years: dict = None
 ) -> dict:
     """
     Run force-directed layout simulation to calculate optimal Y positions.
@@ -108,7 +109,7 @@ def run_force_simulation(
     Algorithm:
     1. Initialize Y positions (spread out or use existing)
     2. For each iteration:
-       - Calculate repulsion forces between all node pairs
+       - Calculate repulsion forces between all node pairs (considering X distance)
        - Calculate attraction forces between connected nodes
        - Calculate attraction forces between same-field nodes
        - Apply gravity toward center (y=0)
@@ -118,6 +119,7 @@ def run_force_simulation(
 
     Args:
         fixed_ids: Set of thinker IDs that should not have their positions changed
+        anchor_years: Dict mapping thinker ID to anchor year (X position) for distance calculation
     """
     if len(thinkers) == 0:
         return {}
@@ -125,12 +127,31 @@ def run_force_simulation(
     if fixed_ids is None:
         fixed_ids = set()
 
+    if anchor_years is None:
+        anchor_years = {}
+
     # Initialize positions and velocities
     positions = {}  # thinker_id -> y_position
     velocities = {}  # thinker_id -> velocity
+    x_positions = {}  # thinker_id -> x_position (year) for distance calculation
 
     # Build lookup for thinker fields and existing positions
     thinker_map = {str(t.id): t for t in thinkers}
+
+    # Calculate year range for normalizing X distances
+    all_years = []
+    for thinker in thinkers:
+        tid = str(thinker.id)
+        year = anchor_years.get(tid) or calculate_anchor_year(thinker)
+        if year is not None:
+            all_years.append(year)
+            x_positions[tid] = year
+        else:
+            x_positions[tid] = 0  # Default if no year available
+
+    year_span = max(all_years) - min(all_years) if len(all_years) > 1 else 100
+    # Convert year span to a normalized scale (100 years = ~200 pixels of separation)
+    year_to_pixels = 200.0 / max(100, year_span)
 
     # Initialize positions - use existing or distribute evenly
     for i, thinker in enumerate(thinkers):
@@ -171,18 +192,30 @@ def run_force_simulation(
     for iteration in range(config.max_iterations):
         forces = {tid: 0.0 for tid in thinker_ids}
 
-        # 1. Repulsion force between all pairs
+        # 1. Repulsion force between all pairs (considering 2D distance)
         for i, id1 in enumerate(thinker_ids):
             for id2 in thinker_ids[i+1:]:
                 y1, y2 = positions[id1], positions[id2]
-                dy = y2 - y1
-                distance = abs(dy) + 0.1  # Avoid division by zero
+                x1, x2 = x_positions.get(id1, 0), x_positions.get(id2, 0)
 
-                # Stronger repulsion when very close
-                if distance < config.min_node_distance:
-                    force = config.repulsion_strength / (distance * distance)
+                dy = y2 - y1
+                # Convert year difference to pixel-like distance for calculation
+                dx = (x2 - x1) * year_to_pixels
+
+                # Use 2D distance for repulsion - thinkers far apart in time don't need much vertical separation
+                distance_2d = math.sqrt(dx * dx + dy * dy) + 0.1  # Avoid division by zero
+                distance_y = abs(dy) + 0.1
+
+                # Repulsion is based on 2D distance but only affects Y position
+                # Thinkers close in time (small dx) repel more
+                # Thinkers far apart in time (large dx) repel less
+                if distance_2d < config.min_node_distance:
+                    # Very close - strong repulsion
+                    force = config.repulsion_strength / (distance_y * distance_y)
                 else:
-                    force = config.repulsion_strength / (distance * distance)
+                    # Normal repulsion scaled by 2D distance
+                    # The further apart in X, the less vertical repulsion needed
+                    force = config.repulsion_strength / (distance_2d * distance_2d)
 
                 if dy > 0:
                     forces[id1] -= force
@@ -296,8 +329,21 @@ def repopulate_timeline(
             if anchor_year is not None:
                 anchor_years[tid] = anchor_year
 
+    # Build complete anchor_years dict including existing ones for manually positioned
+    all_anchor_years = dict(anchor_years)
+    for thinker in thinkers:
+        tid = str(thinker.id)
+        if tid not in all_anchor_years:
+            year = calculate_anchor_year(thinker)
+            if year is not None:
+                all_anchor_years[tid] = year
+
     # Run force simulation to get optimal Y positions (fixed thinkers keep their positions)
-    y_positions = run_force_simulation(thinkers, connections, config, fixed_ids=manually_positioned_ids)
+    y_positions = run_force_simulation(
+        thinkers, connections, config,
+        fixed_ids=manually_positioned_ids,
+        anchor_years=all_anchor_years
+    )
 
     # Update thinker positions in database
     updated_positions = []
@@ -375,8 +421,21 @@ def repopulate_all_thinkers(
             if anchor_year is not None:
                 anchor_years[tid] = anchor_year
 
+    # Build complete anchor_years dict including existing ones for manually positioned
+    all_anchor_years = dict(anchor_years)
+    for thinker in thinkers:
+        tid = str(thinker.id)
+        if tid not in all_anchor_years:
+            year = calculate_anchor_year(thinker)
+            if year is not None:
+                all_anchor_years[tid] = year
+
     # Run force simulation to get optimal Y positions (fixed thinkers keep their positions)
-    y_positions = run_force_simulation(thinkers, connections, config, fixed_ids=manually_positioned_ids)
+    y_positions = run_force_simulation(
+        thinkers, connections, config,
+        fixed_ids=manually_positioned_ids,
+        anchor_years=all_anchor_years
+    )
 
     # Update thinker positions in database
     updated_positions = []

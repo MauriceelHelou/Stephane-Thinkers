@@ -234,9 +234,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   const simulateForces = useCallback((nodes: NodePosition[], width: number, height: number): NodePosition[] => {
     const centerX = width / 2
     const centerY = height / 2
-    const repulsionStrength = 3000
+    const repulsionStrength = 5000
     const damping = 0.85
-    const minDistance = 100 // Increased to prevent label overlaps
+    const minDistance = 130 // Increased to prevent label overlaps for rectangular nodes
 
     return nodes.map((node, i) => {
       if (node.isCenter) return node // Center node is fixed
@@ -406,14 +406,28 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       ctx.setLineDash(style.dashPattern)
       ctx.globalAlpha = isHighlighted ? 1 : 0.5
 
-      // Calculate start and end points at circle edges (not centers)
-      const fromRadius = fromPos.isCenter ? 30 : 20
-      const toRadius = toPos.isCenter ? 30 : 20
+      // Calculate start and end points at rectangle edges
+      // Use half-width and half-height based on node dimensions
+      const fromHalfWidth = 40  // Approximate half-width of label
+      const fromHalfHeight = 11
+      const toHalfWidth = 40
+      const toHalfHeight = 11
 
-      const adjustedFromX = fromPos.x + perpX + (dx / length) * fromRadius
-      const adjustedFromY = fromPos.y + perpY + (dy / length) * fromRadius
-      const adjustedToX = toPos.x + perpX - (dx / length) * toRadius
-      const adjustedToY = toPos.y + perpY - (dy / length) * toRadius
+      // Find intersection with rectangle edge
+      const getEdgePoint = (cx: number, cy: number, tx: number, ty: number, hw: number, hh: number) => {
+        const vx = tx - cx
+        const vy = ty - cy
+        const scale = Math.min(hw / Math.abs(vx || 0.01), hh / Math.abs(vy || 0.01))
+        return { x: cx + vx * scale, y: cy + vy * scale }
+      }
+
+      const fromEdge = getEdgePoint(fromPos.x, fromPos.y, toPos.x, toPos.y, fromHalfWidth, fromHalfHeight)
+      const toEdge = getEdgePoint(toPos.x, toPos.y, fromPos.x, fromPos.y, toHalfWidth, toHalfHeight)
+
+      const adjustedFromX = fromEdge.x + perpX
+      const adjustedFromY = fromEdge.y + perpY
+      const adjustedToX = toEdge.x + perpX
+      const adjustedToY = toEdge.y + perpY
 
       ctx.beginPath()
       ctx.moveTo(adjustedFromX, adjustedFromY)
@@ -443,39 +457,17 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     ctx.globalAlpha = 1
     ctx.setLineDash([])
 
-    // Draw nodes
+    // Draw nodes as labeled rectangles (names are the nodes)
     nodes.forEach((node) => {
       const isHovered = hoveredNode === node.id
-      const nodeRadius = node.isCenter ? 30 : 20
 
-      // Node circle - simple filled circle
-      ctx.beginPath()
-      ctx.arc(node.x, node.y, nodeRadius, 0, Math.PI * 2)
-
-      if (node.isCenter) {
-        ctx.fillStyle = '#8B4513'
-      } else if (isHovered) {
-        ctx.fillStyle = '#C9956C'
-      } else {
-        ctx.fillStyle = '#666666'
-      }
-      ctx.fill()
-
-      // Subtle border on hover
-      if (isHovered || node.isCenter) {
-        ctx.strokeStyle = node.isCenter ? '#5A2D0A' : '#8B4513'
-        ctx.lineWidth = 2
-        ctx.stroke()
-      }
-
-      // Node label - outside the circle for cleaner look
-      ctx.font = node.isCenter ? 'bold 12px Inter, sans-serif' : '11px Inter, sans-serif'
+      // Set font and measure text
+      ctx.font = node.isCenter ? 'bold 13px "Crimson Text", serif' : '12px "Crimson Text", serif'
       ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = '#1A1A1A'
+      ctx.textBaseline = 'middle'
 
       // Truncate long names
-      const maxLabelWidth = 80
+      const maxLabelWidth = 100
       let displayName = node.name
       if (ctx.measureText(displayName).width > maxLabelWidth) {
         while (ctx.measureText(displayName + '...').width > maxLabelWidth && displayName.length > 3) {
@@ -484,8 +476,32 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         displayName += '...'
       }
 
-      // Draw label below the node
-      ctx.fillText(displayName, node.x, node.y + nodeRadius + 4)
+      const textWidth = ctx.measureText(displayName).width
+      const padding = 8
+      const bgWidth = textWidth + padding * 2
+      const bgHeight = 22
+
+      // Draw background rectangle
+      if (node.isCenter) {
+        ctx.fillStyle = '#8B4513'
+        ctx.strokeStyle = '#6B3410'
+        ctx.lineWidth = 2
+      } else if (isHovered) {
+        ctx.fillStyle = '#FEF3C7'
+        ctx.strokeStyle = '#D97706'
+        ctx.lineWidth = 2
+      } else {
+        ctx.fillStyle = '#FFFFFF'
+        ctx.strokeStyle = '#CCCCCC'
+        ctx.lineWidth = 1
+      }
+
+      ctx.fillRect(node.x - bgWidth / 2, node.y - bgHeight / 2, bgWidth, bgHeight)
+      ctx.strokeRect(node.x - bgWidth / 2, node.y - bgHeight / 2, bgWidth, bgHeight)
+
+      // Draw text
+      ctx.fillStyle = node.isCenter ? '#FFFFFF' : '#1A1A1A'
+      ctx.fillText(displayName, node.x, node.y)
     })
   }, [isOpen, centerThinker, networkConnections, nodes, hoveredNode, canvasSize])
 
@@ -500,9 +516,10 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
 
     let foundNode: string | null = null
     for (const node of nodes) {
-      const nodeRadius = node.isCenter ? 30 : 20
-      const dist = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2)
-      if (dist <= nodeRadius + 5) { // Small buffer for easier clicking
+      // Check if point is inside rectangle (with padding for easier clicking)
+      const halfWidth = 50  // Approximate half-width including padding
+      const halfHeight = 15
+      if (Math.abs(x - node.x) <= halfWidth && Math.abs(y - node.y) <= halfHeight) {
         foundNode = node.id
         break
       }
@@ -521,9 +538,10 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const y = e.clientY - rect.top
 
     for (const node of nodes) {
-      const nodeRadius = node.isCenter ? 30 : 20
-      const dist = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2)
-      if (dist <= nodeRadius + 5 && node.id !== centerThinker) {
+      // Check if point is inside rectangle (with padding for easier clicking)
+      const halfWidth = 50  // Approximate half-width including padding
+      const halfHeight = 15
+      if (Math.abs(x - node.x) <= halfWidth && Math.abs(y - node.y) <= halfHeight && node.id !== centerThinker) {
         setCenterThinker(node.id)
         break
       }
