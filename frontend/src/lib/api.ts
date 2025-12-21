@@ -64,6 +64,28 @@ const api = axios.create({
   },
 })
 
+// Response interceptor to transform API errors into user-friendly Error objects
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Extract the error message from the API response
+    if (error.response?.data?.detail) {
+      // FastAPI returns errors in { detail: "message" } format
+      const detail = error.response.data.detail
+      // Handle validation errors (array of error objects)
+      if (Array.isArray(detail)) {
+        const messages = detail.map((e: { msg?: string; message?: string }) => e.msg || e.message || String(e)).join(', ')
+        error.message = messages
+      } else {
+        error.message = String(detail)
+      }
+    } else if (error.response?.data?.message) {
+      error.message = error.response.data.message
+    }
+    return Promise.reject(error)
+  }
+)
+
 // Generic CRUD API factory
 function createCrudApi<T, TCreate, TUpdate = Partial<TCreate>>(endpoint: string) {
   return {

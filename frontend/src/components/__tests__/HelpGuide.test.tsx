@@ -1,6 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { HelpGuide } from '../HelpGuide'
+
+// Mock the PugEasterEgg component for isolated testing
+vi.mock('../PugEasterEgg', () => ({
+  PugEasterEgg: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? (
+      <div data-testid="pug-easter-egg" onClick={onClose}>
+        Easter Egg Active
+      </div>
+    ) : null,
+}))
 
 describe('HelpGuide', () => {
   describe('Rendering', () => {
@@ -130,6 +140,121 @@ describe('HelpGuide', () => {
       fireEvent.click(closeButton)
 
       expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('Easter Egg', () => {
+    it('renders the secret "help" button at the bottom of the modal', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      // The bottom text contains the easter egg trigger
+      const helpButton = screen.getByRole('button', { name: 'help' })
+      expect(helpButton).toBeInTheDocument()
+    })
+
+    it('easter egg trigger is styled to look like normal text', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      const helpButton = screen.getByRole('button', { name: 'help' })
+
+      // Should have subtle styling (looks like text, not a button)
+      expect(helpButton).toHaveClass('text-gray-500')
+      expect(helpButton).toHaveClass('cursor-default')
+    })
+
+    it('does not show easter egg initially', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      expect(screen.queryByTestId('pug-easter-egg')).not.toBeInTheDocument()
+    })
+
+    it('clicking the "help" button triggers the easter egg', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      // Easter egg should not be visible initially
+      expect(screen.queryByTestId('pug-easter-egg')).not.toBeInTheDocument()
+
+      // Click the secret trigger
+      const helpButton = screen.getByRole('button', { name: 'help' })
+      fireEvent.click(helpButton)
+
+      // Easter egg should now be visible
+      expect(screen.getByTestId('pug-easter-egg')).toBeInTheDocument()
+    })
+
+    it('clicking the easter egg closes it', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      // Open easter egg
+      const helpButton = screen.getByRole('button', { name: 'help' })
+      fireEvent.click(helpButton)
+      expect(screen.getByTestId('pug-easter-egg')).toBeInTheDocument()
+
+      // Close by clicking
+      fireEvent.click(screen.getByTestId('pug-easter-egg'))
+
+      // Should be closed
+      expect(screen.queryByTestId('pug-easter-egg')).not.toBeInTheDocument()
+    })
+
+    it('help modal stays open while easter egg plays', () => {
+      const onClose = vi.fn()
+      render(<HelpGuide isOpen={true} onClose={onClose} />)
+
+      // Open easter egg
+      const helpButton = screen.getByRole('button', { name: 'help' })
+      fireEvent.click(helpButton)
+
+      // Help modal should still be visible (title still there)
+      expect(screen.getByText('Help & Keyboard Shortcuts')).toBeInTheDocument()
+
+      // Modal onClose should NOT have been called
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('easter egg can be triggered multiple times', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      const helpButton = screen.getByRole('button', { name: 'help' })
+
+      // First trigger
+      fireEvent.click(helpButton)
+      expect(screen.getByTestId('pug-easter-egg')).toBeInTheDocument()
+
+      // Close
+      fireEvent.click(screen.getByTestId('pug-easter-egg'))
+      expect(screen.queryByTestId('pug-easter-egg')).not.toBeInTheDocument()
+
+      // Second trigger - should work again
+      fireEvent.click(helpButton)
+      expect(screen.getByTestId('pug-easter-egg')).toBeInTheDocument()
+    })
+
+    it('has subtle hover effect on trigger', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      const helpButton = screen.getByRole('button', { name: 'help' })
+
+      // Should have hover class for subtle indication
+      expect(helpButton).toHaveClass('hover:text-gray-400')
+    })
+
+    it('trigger button has empty title to avoid tooltip hints', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      const helpButton = screen.getByRole('button', { name: 'help' })
+
+      // Should have empty title (no tooltip to spoil the surprise)
+      expect(helpButton).toHaveAttribute('title', '')
+    })
+
+    it('easter egg trigger has smooth transition', () => {
+      render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
+
+      const helpButton = screen.getByRole('button', { name: 'help' })
+
+      // Should have transition for smooth hover effect
+      expect(helpButton).toHaveClass('transition-colors')
     })
   })
 })

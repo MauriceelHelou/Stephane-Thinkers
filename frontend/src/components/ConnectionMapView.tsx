@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi } from '@/lib/api'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
+import { ConnectionType } from '@/types'
 import type { Thinker, Connection } from '@/types'
 
 interface ConnectionMapViewProps {
@@ -23,7 +24,10 @@ interface NodePosition {
   isCenter: boolean
   connectionType?: ConnectionStyleType
   isInfluencer?: boolean // true = influenced the center, false = influenced by center
+  distance?: number // BFS distance from center
 }
+
+const ALL_CONNECTION_TYPES = Object.values(ConnectionType) as ConnectionStyleType[]
 
 export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinkerSelect }: ConnectionMapViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -31,6 +35,12 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   const [centerThinker, setCenterThinker] = useState<string | null>(centeredThinkerId)
   const [nodes, setNodes] = useState<NodePosition[]>([])
   const animationRef = useRef<number | null>(null)
+
+  // New controls: depth slider and connection type filters
+  const [maxDepth, setMaxDepth] = useState<number>(10) // 10 = unlimited for practical purposes
+  const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<Set<ConnectionStyleType>>(
+    new Set(ALL_CONNECTION_TYPES)
+  )
 
   const { data: thinkers = [] } = useQuery({
     queryKey: ['thinkers'],
@@ -61,18 +71,32 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
 
   const centeredThinkerData = thinkers.find((t: Thinker) => t.id === centerThinker)
 
+  // Filter connections by visible types
+  const filteredConnections = useMemo(() => {
+    return connections.filter((c: Connection) =>
+      visibleConnectionTypes.has(c.connection_type as ConnectionStyleType)
+    )
+  }, [connections, visibleConnectionTypes])
+
   // Build full network using BFS - find all thinkers connected (directly or indirectly)
+  // Now respects maxDepth and only uses visible connection types
   const buildFullNetwork = useCallback(() => {
-    if (!centerThinker) return { networkThinkerIds: new Set<string>(), networkConnections: [] as Connection[] }
+    if (!centerThinker) return { networkThinkerIds: new Set<string>(), networkConnections: [] as Connection[], distanceMap: new Map<string, number>() }
 
     const visited = new Set<string>()
-    const queue: string[] = [centerThinker]
+    const distanceMap = new Map<string, number>()
+    const queue: { id: string; depth: number }[] = [{ id: centerThinker, depth: 0 }]
     visited.add(centerThinker)
+    distanceMap.set(centerThinker, 0)
 
-    // BFS to find all connected thinkers
+    // BFS to find all connected thinkers within maxDepth
     while (queue.length > 0) {
-      const current = queue.shift()!
-      connections.forEach((c: Connection) => {
+      const { id: current, depth } = queue.shift()!
+
+      // Stop expanding if we've reached maxDepth
+      if (depth >= maxDepth) continue
+
+      filteredConnections.forEach((c: Connection) => {
         let neighbor: string | null = null
         if (c.from_thinker_id === current && !visited.has(c.to_thinker_id)) {
           neighbor = c.to_thinker_id
@@ -81,50 +105,36 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         }
         if (neighbor) {
           visited.add(neighbor)
-          queue.push(neighbor)
+          distanceMap.set(neighbor, depth + 1)
+          queue.push({ id: neighbor, depth: depth + 1 })
         }
       })
     }
 
-    // Get all connections within the network
-    const networkConnections = connections.filter(
+    // Get all connections within the network (only visible types between visited nodes)
+    const networkConnections = filteredConnections.filter(
       (c: Connection) => visited.has(c.from_thinker_id) && visited.has(c.to_thinker_id)
     )
 
-    return { networkThinkerIds: visited, networkConnections }
-  }, [centerThinker, connections])
+    return { networkThinkerIds: visited, networkConnections, distanceMap }
+  }, [centerThinker, filteredConnections, maxDepth])
 
-  const { networkThinkerIds, networkConnections } = buildFullNetwork()
+  const { networkThinkerIds, networkConnections, distanceMap } = buildFullNetwork()
   const networkThinkers = thinkers.filter((t: Thinker) => networkThinkerIds.has(t.id) && t.id !== centerThinker)
 
+  // Compute max actual depth in the current network for slider reference
+  const actualMaxDepth = useMemo(() => {
+    if (distanceMap.size === 0) return 0
+    return Math.max(...Array.from(distanceMap.values()))
+  }, [distanceMap])
+
   // Get direct connections for layout purposes (to determine relative positions)
-  const directConnections = connections.filter(
+  const directConnections = filteredConnections.filter(
     (c: Connection) => c.from_thinker_id === centerThinker || c.to_thinker_id === centerThinker
   )
 
   // Track which thinkers have direct relationship with center
   const connectedThinkersInfo = new Map<string, { isInfluencer: boolean; connectionType: ConnectionStyleType; distance: number }>()
-
-  // BFS to track distance from center
-  const distanceMap = new Map<string, number>()
-  distanceMap.set(centerThinker || '', 0)
-  const distQueue: string[] = [centerThinker || '']
-  while (distQueue.length > 0) {
-    const current = distQueue.shift()!
-    const currentDist = distanceMap.get(current) || 0
-    connections.forEach((c: Connection) => {
-      let neighbor: string | null = null
-      if (c.from_thinker_id === current && !distanceMap.has(c.to_thinker_id)) {
-        neighbor = c.to_thinker_id
-      } else if (c.to_thinker_id === current && !distanceMap.has(c.from_thinker_id)) {
-        neighbor = c.from_thinker_id
-      }
-      if (neighbor && networkThinkerIds.has(neighbor)) {
-        distanceMap.set(neighbor, currentDist + 1)
-        distQueue.push(neighbor)
-      }
-    })
-  }
 
   directConnections.forEach((c: Connection) => {
     if (c.from_thinker_id !== centerThinker) {
@@ -144,6 +154,22 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   })
 
   const connectedThinkers = networkThinkers
+
+  // Toggle a connection type visibility
+  const toggleConnectionType = useCallback((type: ConnectionStyleType) => {
+    setVisibleConnectionTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) {
+        // Don't allow hiding all types
+        if (next.size > 1) {
+          next.delete(type)
+        }
+      } else {
+        next.add(type)
+      }
+      return next
+    })
+  }, [])
 
   // Simple hash function for deterministic positioning
   const simpleHash = (str: string): number => {
@@ -298,14 +324,20 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     return () => window.removeEventListener('resize', updateSize)
   }, [isOpen])
 
-  // Initialize and run force simulation only when center thinker changes
+  // Create a network key that changes when filters change
+  const networkKey = useMemo(() => {
+    const typesKey = Array.from(visibleConnectionTypes).sort().join(',')
+    return `${centerThinker}-${maxDepth}-${typesKey}`
+  }, [centerThinker, maxDepth, visibleConnectionTypes])
+
+  // Initialize and run force simulation when center thinker or network config changes
   useEffect(() => {
     if (!isOpen || !centerThinker) return
     if (canvasSize.width === 0 || canvasSize.height === 0) return
 
-    // Only reinitialize if the center thinker changed
-    if (lastCenterRef.current === centerThinker && nodes.length > 0) return
-    lastCenterRef.current = centerThinker
+    // Only reinitialize if the network key changed
+    if (lastCenterRef.current === networkKey && nodes.length > 0) return
+    lastCenterRef.current = networkKey
 
     // Initialize nodes
     const initialNodes = initializeNodes(canvasSize.width, canvasSize.height)
@@ -322,7 +354,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
         cancelAnimationFrame(animationRef.current)
       }
     }
-  }, [isOpen, centerThinker, canvasSize, initializeNodes, simulateForces])
+  }, [isOpen, centerThinker, canvasSize, initializeNodes, simulateForces, networkKey])
 
   // Calculate positions for hit detection
   const calculatePositions = useCallback((width: number, height: number): NodePosition[] => {
@@ -554,39 +586,66 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-timeline flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-serif font-semibold text-primary">Connection Network Map</h2>
-            {centeredThinkerData && (
-              <p className="text-sm text-secondary">
-                Full network centered on <span className="font-medium text-accent">{centeredThinkerData.name}</span>
-                {connectedThinkers.length > 0 && (
-                  <span className="ml-2 text-gray-400">
-                    ({connectedThinkers.length} thinkers, {networkConnections.length} connections)
-                  </span>
-                )}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {centeredThinkerData && onThinkerSelect && (
+        <div className="px-4 py-3 border-b border-timeline flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-serif font-semibold text-primary">Connection Network Map</h2>
+              {centeredThinkerData && (
+                <p className="text-sm text-secondary">
+                  Full network centered on <span className="font-medium text-accent">{centeredThinkerData.name}</span>
+                  {connectedThinkers.length > 0 && (
+                    <span className="ml-2 text-gray-400">
+                      ({connectedThinkers.length} thinkers, {networkConnections.length} connections)
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {centeredThinkerData && onThinkerSelect && (
+                <button
+                  onClick={() => {
+                    onThinkerSelect(centeredThinkerData.id)
+                    onClose()
+                  }}
+                  className="px-3 py-1.5 text-xs font-sans border border-accent text-accent rounded hover:bg-accent/10"
+                >
+                  View Details
+                </button>
+              )}
               <button
-                onClick={() => {
-                  onThinkerSelect(centeredThinkerData.id)
-                  onClose()
-                }}
-                className="px-3 py-1.5 text-xs font-sans border border-accent text-accent rounded hover:bg-accent/10"
+                onClick={onClose}
+                className="text-secondary hover:text-primary text-2xl leading-none px-2"
               >
-                View Details
+                &times;
               </button>
-            )}
-            <button
-              onClick={onClose}
-              className="text-secondary hover:text-primary text-2xl leading-none px-2"
-            >
-              &times;
-            </button>
+            </div>
           </div>
+
+          {/* Controls: Depth slider */}
+          {centerThinker && connectedThinkers.length > 0 && (
+            <div className="mt-3 flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-600 whitespace-nowrap">Depth:</label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={maxDepth}
+                  onChange={(e) => setMaxDepth(parseInt(e.target.value))}
+                  className="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-accent"
+                />
+                <span className="text-xs font-mono text-gray-600 w-12">
+                  {maxDepth >= 10 ? 'All' : `${maxDepth} hop${maxDepth > 1 ? 's' : ''}`}
+                </span>
+              </div>
+              {actualMaxDepth > 0 && actualMaxDepth < 10 && (
+                <span className="text-xs text-gray-400">
+                  (max in network: {actualMaxDepth})
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Canvas */}
@@ -612,24 +671,42 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
           )}
         </div>
 
-        {/* Legend */}
+        {/* Legend with connection type filters */}
         <div className="px-4 py-2 border-t border-timeline bg-gray-50 flex-shrink-0">
           <div className="flex flex-wrap gap-4 justify-center text-xs">
-            {Object.entries(CONNECTION_STYLES).map(([type, style]) => (
-              <div key={type} className="flex items-center gap-1.5">
-                <div
-                  className="w-4 h-0.5"
-                  style={{
-                    backgroundColor: style.color,
-                    borderStyle: style.dashPattern.length > 0 ? 'dashed' : 'solid',
-                  }}
-                />
-                <span className="text-gray-600">{style.label}</span>
-              </div>
-            ))}
+            {Object.entries(CONNECTION_STYLES).map(([type, style]) => {
+              const isVisible = visibleConnectionTypes.has(type as ConnectionStyleType)
+              return (
+                <button
+                  key={type}
+                  onClick={() => toggleConnectionType(type as ConnectionStyleType)}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded transition-all ${
+                    isVisible
+                      ? 'bg-white border border-gray-300 shadow-sm'
+                      : 'bg-gray-100 border border-transparent opacity-50'
+                  }`}
+                  title={isVisible ? `Hide ${style.label} connections` : `Show ${style.label} connections`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isVisible}
+                    readOnly
+                    className="w-3 h-3 rounded accent-accent pointer-events-none"
+                  />
+                  <div
+                    className="w-4 h-0.5"
+                    style={{
+                      backgroundColor: style.color,
+                      borderStyle: style.dashPattern.length > 0 ? 'dashed' : 'solid',
+                    }}
+                  />
+                  <span className={isVisible ? 'text-gray-700' : 'text-gray-400'}>{style.label}</span>
+                </button>
+              )
+            })}
           </div>
           <p className="text-center text-xs text-gray-400 mt-1">
-            Click on a connected thinker to re-center the map
+            Click connection types to show/hide • Click on a thinker to re-center
           </p>
         </div>
       </div>
