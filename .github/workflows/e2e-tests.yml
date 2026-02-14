@@ -45,9 +45,13 @@ jobs:
         working-directory: frontend
         run: npm run type-check
 
-      - name: Lint tests
+      - name: Lint frontend
         working-directory: frontend
-        run: npx eslint tests/ --ext .ts --max-warnings 0
+        run: npm run lint
+
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:run
 
   test-backend:
     name: Backend Tests

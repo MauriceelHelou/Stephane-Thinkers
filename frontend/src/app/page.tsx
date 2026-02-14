@@ -104,6 +104,7 @@ export default function Home() {
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
   const [showRightArrow, setShowRightArrow] = useState(false)
+  const focusTimelineAppliedRef = useRef(false)
   const isDataQueriesEnabled = isAuthenticated === true
 
   const { data: timelines = [] } = useQuery({
@@ -140,6 +141,24 @@ export default function Home() {
     refetchInterval: false, // Disable automatic polling
     refetchOnWindowFocus: false, // Don't refetch on window focus
   })
+
+  // Allow auxiliary flows (for example text-to-timeline commit) to open the newly created timeline.
+  useEffect(() => {
+    if (!isDataQueriesEnabled || focusTimelineAppliedRef.current) return
+    if (!timelines || timelines.length === 0) return
+
+    const focusTimelineId = sessionStorage.getItem('focus_timeline_id')
+    if (focusTimelineId) {
+      const exists = timelines.some((timeline: { id: string }) => timeline.id === focusTimelineId)
+      if (exists) {
+        setSelectedTimelineId(focusTimelineId)
+        setSelectedCombinedViewId(null)
+      }
+      sessionStorage.removeItem('focus_timeline_id')
+    }
+
+    focusTimelineAppliedRef.current = true
+  }, [isDataQueriesEnabled, timelines])
 
   // Extract unique fields from thinkers for the field filter
   const uniqueFields = Array.from(

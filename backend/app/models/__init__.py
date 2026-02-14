@@ -24,6 +24,7 @@ from app.models.folder import Folder
 from app.models.critical_term import CriticalTerm, TermOccurrence
 from app.models.thinker_mention import ThinkerMention, ThinkerCoOccurrence
 from app.models.notes_ai import (
+    INGESTION_JOB_TYPES,
     SynthesisRun,
     SynthesisRunCitation,
     SynthesisSnapshot,
@@ -39,6 +40,10 @@ from app.models.notes_ai import (
     WeeklyDigest,
     IngestionJob,
     SourceArtifact,
+    TimelineBootstrapSession,
+    TimelineBootstrapCandidate,
+    TimelineBootstrapCandidateEvidence,
+    TimelineBootstrapCommitAudit,
 )
 
 __all__ = [
@@ -92,6 +97,11 @@ __all__ = [
     "NoteEmbedding",
     "PlannerRun",
     "WeeklyDigest",
+    "INGESTION_JOB_TYPES",
     "IngestionJob",
     "SourceArtifact",
+    "TimelineBootstrapSession",
+    "TimelineBootstrapCandidate",
+    "TimelineBootstrapCandidateEvidence",
+    "TimelineBootstrapCommitAudit",
 ]

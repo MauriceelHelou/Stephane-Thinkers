@@ -43,7 +43,7 @@ export function SemanticSearchPanel({ folderId, onNavigateToNote }: SemanticSear
             className="w-full text-left p-2 border border-gray-100 rounded hover:border-accent/40 hover:bg-accent/5 transition-colors"
             title="Open note"
           >
-            <p className="text-xs font-medium text-primary">{item.note_title}</p>
+            <p className="text-xs font-medium text-primary">{item.note_title && item.note_title.length > 30 ? `${item.note_title.slice(0, 30)}…` : item.note_title}</p>
             <p className="text-xs text-secondary">{item.excerpt}</p>
             <p className="text-[10px] text-gray-400 mt-1">score {item.score.toFixed(3)}</p>
           </button>

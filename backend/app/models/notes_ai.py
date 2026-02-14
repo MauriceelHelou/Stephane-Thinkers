@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     Float,
     ForeignKey,
@@ -14,6 +15,8 @@ import uuid
 
 from app.database import Base
 from app.db_types import GUID
+
+INGESTION_JOB_TYPES = ("transcript", "pdf_highlights", "text_to_timeline_preview")
 
 
 class SynthesisRun(Base):
@@ -187,9 +190,15 @@ class WeeklyDigest(Base):
 
 class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "job_type IN ('transcript', 'pdf_highlights', 'text_to_timeline_preview')",
+            name="ck_ingestion_jobs_job_type",
+        ),
+    )
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    job_type = Column(String, nullable=False, index=True)  # transcript|pdf_highlights
+    job_type = Column(String, nullable=False, index=True)  # transcript|pdf_highlights|text_to_timeline_preview
     status = Column(String, nullable=False, index=True, default="queued")  # queued|running|completed|failed
     payload_json = Column(Text, nullable=False, default="{}")
     result_json = Column(Text, nullable=True)
@@ -198,6 +207,7 @@ class IngestionJob(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, index=True)
 
     artifacts = relationship("SourceArtifact", back_populates="job", cascade="all, delete-orphan")
+    bootstrap_sessions = relationship("TimelineBootstrapSession", back_populates="ingestion_job", cascade="all, delete-orphan")
 
 
 class SourceArtifact(Base):
@@ -212,3 +222,95 @@ class SourceArtifact(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     job = relationship("IngestionJob", back_populates="artifacts")
+    bootstrap_sessions = relationship("TimelineBootstrapSession", back_populates="source_artifact")
+    candidate_evidence = relationship("TimelineBootstrapCandidateEvidence", back_populates="source_artifact")
+
+
+class TimelineBootstrapSession(Base):
+    __tablename__ = "timeline_bootstrap_sessions"
+
+    id = Column(GUID, primary_key=True, default=uuid.uuid4)
+    ingestion_job_id = Column(GUID, ForeignKey("ingestion_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_artifact_id = Column(GUID, ForeignKey("source_artifacts.id", ondelete="SET NULL"), nullable=True, index=True)
+    status = Column(
+        String,
+        nullable=False,
+        index=True,
+        default="queued",
+    )  # queued|running|ready_for_review|ready_for_review_partial|committing|committed|failed|expired
+    timeline_name_suggested = Column(String, nullable=True)
+    summary_markdown = Column(Text, nullable=True)
+    preview_json = Column(Text, nullable=False, default="{}")
+    validation_json = Column(Text, nullable=False, default="{}")
+    committed_timeline_id = Column(GUID, ForeignKey("timelines.id", ondelete="SET NULL"), nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    expires_at = Column(TIMESTAMP, nullable=True, index=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, index=True)
+
+    ingestion_job = relationship("IngestionJob", back_populates="bootstrap_sessions")
+    source_artifact = relationship("SourceArtifact", back_populates="bootstrap_sessions")
+    committed_timeline = relationship("Timeline")
+    candidates = relationship("TimelineBootstrapCandidate", back_populates="session", cascade="all, delete-orphan")
+    commit_audits = relationship("TimelineBootstrapCommitAudit", back_populates="session", cascade="all, delete-orphan")
+
+
+class TimelineBootstrapCandidate(Base):
+    __tablename__ = "timeline_bootstrap_candidates"
+    __table_args__ = (
+        UniqueConstraint("session_id", "entity_type", "candidate_id", name="uq_timeline_bootstrap_candidate_key"),
+    )
+
+    id = Column(GUID, primary_key=True, default=uuid.uuid4)
+    session_id = Column(GUID, ForeignKey("timeline_bootstrap_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type = Column(String, nullable=False, index=True)  # thinkers|events|connections|publications|quotes
+    candidate_id = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    dependency_keys_json = Column(Text, nullable=False, default="[]")
+    sort_key = Column(Integer, nullable=False, default=0, index=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False, index=True)
+
+    session = relationship("TimelineBootstrapSession", back_populates="candidates")
+    evidence_rows = relationship("TimelineBootstrapCandidateEvidence", back_populates="candidate_row", cascade="all, delete-orphan")
+
+
+class TimelineBootstrapCandidateEvidence(Base):
+    __tablename__ = "timeline_bootstrap_candidate_evidence"
+
+    id = Column(GUID, primary_key=True, default=uuid.uuid4)
+    candidate_row_id = Column(
+        GUID,
+        ForeignKey("timeline_bootstrap_candidates.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_artifact_id = Column(GUID, ForeignKey("source_artifacts.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    char_start = Column(Integer, nullable=False)
+    char_end = Column(Integer, nullable=False)
+    excerpt = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
+
+    candidate_row = relationship("TimelineBootstrapCandidate", back_populates="evidence_rows")
+    source_artifact = relationship("SourceArtifact", back_populates="candidate_evidence")
+
+
+class TimelineBootstrapCommitAudit(Base):
+    __tablename__ = "timeline_bootstrap_commit_audits"
+
+    id = Column(GUID, primary_key=True, default=uuid.uuid4)
+    session_id = Column(
+        GUID,
+        ForeignKey("timeline_bootstrap_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_counts_json = Column(Text, nullable=False, default="{}")
+    skipped_counts_json = Column(Text, nullable=False, default="{}")
+    warnings_json = Column(Text, nullable=False, default="[]")
+    id_mappings_json = Column(Text, nullable=False, default="{}")
+    committed_by = Column(String, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
+
+    session = relationship("TimelineBootstrapSession", back_populates="commit_audits")

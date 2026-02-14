@@ -10,5 +10,5 @@ export const notesAiFlags = {
   phaseD: envBool(process.env.NEXT_PUBLIC_FEATURE_NOTES_AI_PHASE_D, true),
   phaseE: envBool(process.env.NEXT_PUBLIC_FEATURE_NOTES_AI_PHASE_E, true),
   phaseF: envBool(process.env.NEXT_PUBLIC_FEATURE_NOTES_AI_PHASE_F, true),
+  timelineBootstrap: envBool(process.env.NEXT_PUBLIC_FEATURE_NOTES_AI_TIMELINE_BOOTSTRAP, true),
 }
-

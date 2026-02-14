@@ -1,5 +1,23 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { primeAuthenticatedSession } from './helpers/auth-helpers'
+
+async function waitForTimelineCanvas(page: Page) {
+  await expect(page.locator('header')).toBeVisible({ timeout: 15000 })
+
+  const loadingIndicator = page.getByText('Loading timeline...')
+  const loadingVisible = await loadingIndicator.isVisible().catch(() => false)
+  if (loadingVisible) {
+    await expect(loadingIndicator).toBeHidden({ timeout: 20000 })
+  }
+
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 })
+}
+
+async function openMoreMenu(page: Page) {
+  const moreButton = page.getByRole('button', { name: /more/i })
+  await expect(moreButton).toBeVisible()
+  await moreButton.click()
+}
 
 test.beforeEach(async ({ page }) => {
   await primeAuthenticatedSession(page)
@@ -9,6 +27,7 @@ test.describe('Application E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the app
     await page.goto('/')
+    await waitForTimelineCanvas(page)
   })
 
   test.describe('Page Loading', () => {
@@ -24,19 +43,20 @@ test.describe('Application E2E Tests', () => {
 
     test('should display the timeline canvas', async ({ page }) => {
       // Look for canvas element
-      const canvas = page.locator('canvas')
-      await expect(canvas.first()).toBeVisible()
+      await expect(page.locator('canvas').first()).toBeVisible()
     })
   })
 
   test.describe('Timeline Interactions', () => {
     test('should allow clicking on canvas', async ({ page }) => {
       const canvas = page.locator('canvas').first()
+      await expect(canvas).toBeVisible()
       await canvas.click({ position: { x: 200, y: 200 } })
     })
 
     test('should handle zoom with scroll', async ({ page }) => {
       const canvas = page.locator('canvas').first()
+      await expect(canvas).toBeVisible({ timeout: 20000 })
       await canvas.hover()
       
       // Simulate scroll for zoom
@@ -101,28 +121,27 @@ test.describe('Application E2E Tests', () => {
 
   test.describe('AI Panel', () => {
     test('should open AI panel when AI button clicked', async ({ page }) => {
-      const aiButton = page.locator('button').filter({ hasText: /ai/i }).first()
-      
-      if (await aiButton.isVisible()) {
-        await aiButton.click()
-        await page.waitForTimeout(300)
-        
-        // Check for AI panel
-        const panel = page.locator('text=AI Assistant')
-        await expect(panel).toBeVisible()
-      }
+      await openMoreMenu(page)
+      const aiSuggestionsButton = page.getByRole('button', { name: /ai suggestions/i })
+      await expect(aiSuggestionsButton).toBeVisible()
+      await aiSuggestionsButton.click()
+
+      await expect(page.getByRole('heading', { name: /ai assistant/i })).toBeVisible()
     })
 
     test('should show AI status tab', async ({ page }) => {
-      const aiButton = page.locator('button').filter({ hasText: /ai/i }).first()
-      
-      if (await aiButton.isVisible()) {
-        await aiButton.click()
-        await page.waitForTimeout(300)
-        
-        const statusTab = page.locator('button').filter({ hasText: /status/i })
-        await expect(statusTab).toBeVisible()
-      }
+      await openMoreMenu(page)
+      const aiSuggestionsButton = page.getByRole('button', { name: /ai suggestions/i })
+      await expect(aiSuggestionsButton).toBeVisible()
+      await aiSuggestionsButton.click()
+
+      const statusTab = page.getByRole('button', { name: /status/i })
+      await expect(statusTab).toBeVisible()
+      await statusTab.click()
+
+      await expect(
+        page.getByText(/Checking AI status|AI Features Enabled|AI Features Available/i).first()
+      ).toBeVisible()
     })
   })
 
@@ -187,6 +206,7 @@ test.describe('Application E2E Tests', () => {
     test('should work on mobile viewport', async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 })
       await page.goto('/')
+      await waitForTimelineCanvas(page)
       
       // Page should still load
       await expect(page.locator('canvas').first()).toBeVisible()
@@ -195,6 +215,7 @@ test.describe('Application E2E Tests', () => {
     test('should work on tablet viewport', async ({ page }) => {
       await page.setViewportSize({ width: 768, height: 1024 })
       await page.goto('/')
+      await waitForTimelineCanvas(page)
       
       // Page should still load
       await expect(page.locator('canvas').first()).toBeVisible()

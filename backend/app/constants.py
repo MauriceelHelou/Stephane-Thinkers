@@ -20,6 +20,7 @@ FEATURE_NOTES_AI_PHASE_C = _env_bool("FEATURE_NOTES_AI_PHASE_C", True)
 FEATURE_NOTES_AI_PHASE_D = _env_bool("FEATURE_NOTES_AI_PHASE_D", True)
 FEATURE_NOTES_AI_PHASE_E = _env_bool("FEATURE_NOTES_AI_PHASE_E", True)
 FEATURE_NOTES_AI_PHASE_F = _env_bool("FEATURE_NOTES_AI_PHASE_F", True)
+FEATURE_NOTES_AI_TIMELINE_BOOTSTRAP = _env_bool("FEATURE_NOTES_AI_TIMELINE_BOOTSTRAP", True)
 
 
 def notes_ai_phase_enabled(phase: str) -> bool:
@@ -33,3 +34,7 @@ def notes_ai_phase_enabled(phase: str) -> bool:
         "F": FEATURE_NOTES_AI_PHASE_F,
     }
     return mapping.get(phase_key, False)
+
+
+def notes_ai_timeline_bootstrap_enabled() -> bool:
+    return FEATURE_NOTES_AI_TIMELINE_BOOTSTRAP

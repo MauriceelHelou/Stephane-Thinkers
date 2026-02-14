@@ -78,6 +78,16 @@ import type {
   IngestionRequest,
   IngestionResponse,
   JobStatus,
+  TimelinePreviewRequest,
+  TimelinePreviewResponse,
+  TimelineBootstrapSession,
+  TimelineBootstrapEntityType,
+  TimelineBootstrapCandidatesResponse,
+  TimelineBootstrapValidationRequest,
+  TimelineBootstrapValidationResponse,
+  TimelineBootstrapCommitRequest,
+  TimelineBootstrapCommitResponse,
+  TimelineBootstrapAuditResponse,
   ResearchQuestion,
   ResearchQuestionWithRelations,
   ResearchQuestionCreate,
@@ -682,6 +692,46 @@ export const ingestionApi = {
   },
   ingestPdfHighlights: async (payload: IngestionRequest): Promise<IngestionResponse> => {
     const response = await api.post('/api/ingestion/pdf-highlights', payload)
+    return response.data
+  },
+  createTimelinePreview: async (payload: TimelinePreviewRequest): Promise<TimelinePreviewResponse> => {
+    const response = await api.post('/api/ingestion/text-to-timeline/preview', payload)
+    return response.data
+  },
+  getTimelinePreviewSession: async (sessionId: string): Promise<TimelineBootstrapSession> => {
+    const response = await api.get(`/api/ingestion/text-to-timeline/sessions/${sessionId}`)
+    return response.data
+  },
+  getTimelinePreviewCandidates: async (
+    sessionId: string,
+    params: {
+      entity_type?: TimelineBootstrapEntityType
+      limit?: number
+      cursor?: string
+      include_evidence?: boolean
+    } = {}
+  ): Promise<TimelineBootstrapCandidatesResponse> => {
+    const response = await api.get(`/api/ingestion/text-to-timeline/sessions/${sessionId}/candidates`, {
+      params,
+    })
+    return response.data
+  },
+  updateTimelinePreviewValidation: async (
+    sessionId: string,
+    payload: TimelineBootstrapValidationRequest
+  ): Promise<TimelineBootstrapValidationResponse> => {
+    const response = await api.put(`/api/ingestion/text-to-timeline/sessions/${sessionId}/validation`, payload)
+    return response.data
+  },
+  commitTimelinePreview: async (
+    sessionId: string,
+    payload: TimelineBootstrapCommitRequest = {}
+  ): Promise<TimelineBootstrapCommitResponse> => {
+    const response = await api.post(`/api/ingestion/text-to-timeline/sessions/${sessionId}/commit`, payload)
+    return response.data
+  },
+  getTimelinePreviewAudit: async (sessionId: string): Promise<TimelineBootstrapAuditResponse> => {
+    const response = await api.get(`/api/ingestion/text-to-timeline/sessions/${sessionId}/audit`)
     return response.data
   },
 }

@@ -10,5 +10,6 @@ describe('notesAiFlags', () => {
     expect(typeof notesAiFlags.phaseD).toBe('boolean')
     expect(typeof notesAiFlags.phaseE).toBe('boolean')
     expect(typeof notesAiFlags.phaseF).toBe('boolean')
+    expect(typeof notesAiFlags.timelineBootstrap).toBe('boolean')
   })
 })

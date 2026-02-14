@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -237,6 +237,132 @@ class JobStatusResponse(BaseModel):
     status: str
     result_json: Optional[str] = None
     error_message: Optional[str] = None
+
+
+class TimelinePreviewRequest(BaseModel):
+    file_name: str
+    content: str
+    timeline_name_hint: Optional[str] = None
+    start_year_hint: Optional[int] = None
+    end_year_hint: Optional[int] = None
+
+
+class TimelinePreviewResponse(BaseModel):
+    job_id: UUID
+    session_id: UUID
+    status: str
+    execution_mode: Literal["queued", "inline_dev", "inline_fallback"]
+
+
+class TimelineBootstrapSessionResponse(BaseModel):
+    session_id: UUID
+    ingestion_job_id: UUID
+    status: str
+    timeline_name_suggested: Optional[str] = None
+    summary_markdown: Optional[str] = None
+    candidate_counts: Dict[str, int] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    partial: bool = False
+    telemetry: Dict[str, Any] = Field(default_factory=dict)
+    error_message: Optional[str] = None
+    committed_timeline_id: Optional[UUID] = None
+    created_at: str
+    updated_at: str
+
+
+class TimelineBootstrapEvidence(BaseModel):
+    source_artifact_id: Optional[UUID] = None
+    chunk_index: int
+    char_start: int
+    char_end: int
+    excerpt: str
+
+
+class TimelineBootstrapCandidateItem(BaseModel):
+    candidate_id: str
+    entity_type: Literal["thinkers", "events", "connections", "publications", "quotes"]
+    confidence: float = 0.5
+    include: bool = True
+    fields: Dict[str, Any] = Field(default_factory=dict)
+    dependency_keys: List[str] = Field(default_factory=list)
+    evidence: List[TimelineBootstrapEvidence] = Field(default_factory=list)
+    match_status: Optional[str] = None
+    matched_thinker_id: Optional[UUID] = None
+    match_score: Optional[float] = None
+    match_reasons: List[str] = Field(default_factory=list)
+    metadata_delta: Dict[str, Any] = Field(default_factory=dict)
+    sort_key: Optional[int] = None
+
+
+class TimelineBootstrapCandidatesResponse(BaseModel):
+    items: List[TimelineBootstrapCandidateItem]
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    total: int = 0
+
+
+class TimelineValidationEdits(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+
+
+class TimelineBootstrapCandidateValidationUpdate(BaseModel):
+    entity_type: Literal["thinkers", "events", "connections", "publications", "quotes"]
+    candidate_id: str
+    include: Optional[bool] = None
+    fields: Optional[Dict[str, Any]] = None
+    match_action: Optional[Literal["reuse", "create"]] = None
+    matched_thinker_id: Optional[UUID] = None
+
+
+class TimelineBootstrapValidationRequest(BaseModel):
+    timeline: Optional[TimelineValidationEdits] = None
+    candidates: List[TimelineBootstrapCandidateValidationUpdate] = Field(default_factory=list)
+
+
+class ValidationDiagnostic(BaseModel):
+    code: str
+    message: str
+    severity: str
+    entity_type: Optional[str] = None
+    candidate_id: Optional[str] = None
+
+
+class TimelineBootstrapDiagnostics(BaseModel):
+    blocking: List[ValidationDiagnostic] = Field(default_factory=list)
+    non_blocking: List[ValidationDiagnostic] = Field(default_factory=list)
+    has_blocking: bool = False
+
+
+class TimelineBootstrapValidationResponse(BaseModel):
+    validation_json: Dict[str, Any]
+    diagnostics: TimelineBootstrapDiagnostics
+
+
+class TimelineBootstrapCommitRequest(BaseModel):
+    commit_message: Optional[str] = None
+    force_skip_invalid: bool = True
+
+
+class TimelineBootstrapCommitResponse(BaseModel):
+    timeline_id: UUID
+    audit_id: UUID
+    created_counts: Dict[str, int]
+    skipped_counts: Dict[str, int]
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TimelineBootstrapAuditResponse(BaseModel):
+    audit_id: UUID
+    session_id: UUID
+    created_counts: Dict[str, int]
+    skipped_counts: Dict[str, int]
+    warnings: List[str] = Field(default_factory=list)
+    id_mappings: Dict[str, str] = Field(default_factory=dict)
+    committed_by: Optional[str] = None
+    created_at: str
 
 
 class AIUsageResponse(BaseModel):

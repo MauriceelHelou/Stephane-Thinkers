@@ -22,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      <body suppressHydrationWarning>
         <PreventBrowserZoom />
         <Providers>{children}</Providers>
       </body>

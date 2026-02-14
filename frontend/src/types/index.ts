@@ -842,6 +842,137 @@ export interface JobStatus {
   error_message?: string | null
 }
 
+export type TimelineBootstrapEntityType = 'thinkers' | 'events' | 'connections' | 'publications' | 'quotes'
+
+export interface TimelinePreviewRequest {
+  file_name: string
+  content: string
+  timeline_name_hint?: string | null
+  start_year_hint?: number | null
+  end_year_hint?: number | null
+}
+
+export interface TimelinePreviewResponse {
+  job_id: string
+  session_id: string
+  status: string
+  execution_mode: 'queued' | 'inline_dev' | 'inline_fallback'
+}
+
+export interface TimelineBootstrapSession {
+  session_id: string
+  ingestion_job_id: string
+  status: string
+  timeline_name_suggested?: string | null
+  summary_markdown?: string | null
+  candidate_counts: Record<TimelineBootstrapEntityType, number>
+  warnings: string[]
+  partial: boolean
+  telemetry: Record<string, unknown>
+  error_message?: string | null
+  committed_timeline_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TimelineBootstrapEvidence {
+  source_artifact_id?: string | null
+  chunk_index: number
+  char_start: number
+  char_end: number
+  excerpt: string
+}
+
+export interface TimelineBootstrapCandidateItem {
+  candidate_id: string
+  entity_type: TimelineBootstrapEntityType
+  confidence: number
+  include: boolean
+  fields: Record<string, unknown>
+  dependency_keys: string[]
+  evidence: TimelineBootstrapEvidence[]
+  match_status?: string | null
+  matched_thinker_id?: string | null
+  match_score?: number | null
+  match_reasons: string[]
+  metadata_delta: Record<string, unknown>
+  sort_key?: number | null
+}
+
+export interface TimelineBootstrapCandidatesResponse {
+  items: TimelineBootstrapCandidateItem[]
+  next_cursor?: string | null
+  has_more: boolean
+  total: number
+}
+
+export interface TimelineValidationEdits {
+  name?: string
+  description?: string
+  start_year?: number | null
+  end_year?: number | null
+}
+
+export interface TimelineBootstrapCandidateValidationUpdate {
+  entity_type: TimelineBootstrapEntityType
+  candidate_id: string
+  include?: boolean
+  fields?: Record<string, unknown>
+  match_action?: 'reuse' | 'create'
+  matched_thinker_id?: string
+}
+
+export interface TimelineBootstrapValidationRequest {
+  timeline?: TimelineValidationEdits
+  candidates: TimelineBootstrapCandidateValidationUpdate[]
+}
+
+export interface ValidationDiagnostic {
+  code: string
+  message: string
+  severity: string
+  entity_type?: string | null
+  candidate_id?: string | null
+}
+
+export interface TimelineBootstrapDiagnostics {
+  blocking: ValidationDiagnostic[]
+  non_blocking: ValidationDiagnostic[]
+  has_blocking: boolean
+}
+
+export interface TimelineBootstrapValidationResponse {
+  validation_json: {
+    timeline: Record<string, unknown>
+    candidates: Record<string, unknown>
+  }
+  diagnostics: TimelineBootstrapDiagnostics
+}
+
+export interface TimelineBootstrapCommitRequest {
+  commit_message?: string
+  force_skip_invalid?: boolean
+}
+
+export interface TimelineBootstrapCommitResponse {
+  timeline_id: string
+  audit_id: string
+  created_counts: Record<string, number>
+  skipped_counts: Record<string, number>
+  warnings: string[]
+}
+
+export interface TimelineBootstrapAuditResponse {
+  audit_id: string
+  session_id: string
+  created_counts: Record<string, number>
+  skipped_counts: Record<string, number>
+  warnings: string[]
+  id_mappings: Record<string, string>
+  committed_by?: string | null
+  created_at: string
+}
+
 // Research Question types for tracking intellectual investigations
 
 export type QuestionStatus = 'open' | 'in_progress' | 'answered' | 'abandoned'

@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.constants import notes_ai_phase_enabled
 from app.database import get_db
-from app.models.notes_ai import IngestionJob
-from app.services.notes_ai.ingestion_jobs import process_ingestion_job
+from app.models.notes_ai import INGESTION_JOB_TYPES, IngestionJob
+from app.services.notes_ai.ingestion_jobs import dispatch_ingestion_job
 from app.schemas.analysis import JobStatusResponse
 from app.utils.queue import cancel_queued_job, enqueue_or_run
 
@@ -30,12 +30,6 @@ def get_job_status(job_id: UUID, db: Session = Depends(get_db)):
         result_json=job.result_json,
         error_message=job.error_message,
     )
-
-
-def _job_file_type(job_type: str) -> str:
-    if job_type == "pdf_highlights":
-        return "pdf"
-    return "transcript"
 
 
 @router.post("/{job_id}/cancel", response_model=JobStatusResponse)
@@ -74,9 +68,12 @@ def retry_job(job_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=f"Can only retry failed/cancelled jobs (got '{job.status}')")
 
     payload = json.loads(job.payload_json or "{}")
+    if job.job_type not in INGESTION_JOB_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown job type '{job.job_type}'")
+
     file_name = payload.get("file_name")
     content = payload.get("content")
-    if not file_name or content is None:
+    if job.job_type in {"transcript", "pdf_highlights"} and (not file_name or content is None):
         raise HTTPException(status_code=400, detail="Job payload is incomplete; cannot retry")
 
     job.status = "queued"
@@ -85,11 +82,10 @@ def retry_job(job_id: UUID, db: Session = Depends(get_db)):
     db.flush()
 
     enqueue_or_run(
-        process_ingestion_job,
+        dispatch_ingestion_job,
+        job.job_type,
         str(job.id),
-        file_name,
-        _job_file_type(job.job_type),
-        content,
+        payload,
         job_id=str(job.id),
     )
     db.commit()
