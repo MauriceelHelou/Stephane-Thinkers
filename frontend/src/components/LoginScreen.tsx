@@ -78,7 +78,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         </form>
 
         <p className="text-center text-gray-400 text-xs mt-6">
-          Harvard PhD Research Tool
+          Intellectual Genealogy Mapper
         </p>
       </div>
     </div>

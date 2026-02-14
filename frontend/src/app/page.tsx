@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { timelinesApi, combinedViewsApi, tagsApi, thinkersApi, notesApi } from '@/lib/api'
-import type { Tag, Note } from '@/types'
+import type { Tag, Note, Thinker } from '@/types'
 import { Timeline } from '@/components/Timeline'
 import { CombinedTimelineCanvas } from '@/components/CombinedTimelineCanvas'
 import { AddThinkerModal } from '@/components/AddThinkerModal'
@@ -239,19 +239,51 @@ export default function Home() {
 
   // Mutation for updating thinker position (anchor_year and position_y)
   // When dragging, we set is_manually_positioned=true to preserve the position during repopulate
+  // Uses optimistic update to avoid snap-back on production latency
   const updateThinkerPositionMutation = useMutation({
     mutationFn: ({ id, anchor_year, position_y }: { id: string; anchor_year: number; position_y: number }) =>
       thinkersApi.update(id, { anchor_year, position_y, is_manually_positioned: true }),
-    onSuccess: () => {
+    onMutate: async ({ id, anchor_year, position_y }) => {
+      await queryClient.cancelQueries({ queryKey: ['thinkers'] })
+      const previous = queryClient.getQueryData<Thinker[]>(['thinkers'])
+      queryClient.setQueryData<Thinker[]>(['thinkers'], (old) =>
+        old?.map((t) =>
+          t.id === id ? { ...t, anchor_year, position_y, is_manually_positioned: true } : t
+        )
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['thinkers'], context.previous)
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['thinkers'] })
     },
   })
 
   // Mutation for updating note position
+  // Uses optimistic update to avoid snap-back on production latency
   const updateNotePositionMutation = useMutation({
     mutationFn: ({ id, position_x, position_y }: { id: string; position_x: number; position_y: number }) =>
       notesApi.update(id, { position_x, position_y }),
-    onSuccess: () => {
+    onMutate: async ({ id, position_x, position_y }) => {
+      await queryClient.cancelQueries({ queryKey: ['canvas-notes'] })
+      const previous = queryClient.getQueryData<Note[]>(['canvas-notes'])
+      queryClient.setQueryData<Note[]>(['canvas-notes'], (old) =>
+        old?.map((n) =>
+          n.id === id ? { ...n, position_x, position_y } : n
+        )
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['canvas-notes'], context.previous)
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['canvas-notes'] })
     },
   })

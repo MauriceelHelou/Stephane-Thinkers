@@ -5,7 +5,7 @@ import { PreventBrowserZoom } from '@/components/PreventBrowserZoom'
 
 export const metadata: Metadata = {
   title: 'Intellectual Genealogy Mapper',
-  description: 'A minimalist timeline-based knowledge graph for Harvard PhD research',
+  description: 'A minimalist timeline-based knowledge graph for intellectual history research',
 }
 
 export const viewport: Viewport = {

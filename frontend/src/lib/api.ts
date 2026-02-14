@@ -118,6 +118,38 @@ const api = axios.create({
   },
 })
 
+const ARRAY_PAYLOAD_KEYS = ['items', 'results', 'data', 'rows'] as const
+
+function coerceArray<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) {
+    return payload as T[]
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return []
+  }
+
+  const record = payload as Record<string, unknown>
+  for (const key of ARRAY_PAYLOAD_KEYS) {
+    const candidate = record[key]
+    if (Array.isArray(candidate)) {
+      return candidate as T[]
+    }
+  }
+
+  if (record.data && typeof record.data === 'object') {
+    const nested = record.data as Record<string, unknown>
+    for (const key of ['items', 'results', 'rows'] as const) {
+      const candidate = nested[key]
+      if (Array.isArray(candidate)) {
+        return candidate as T[]
+      }
+    }
+  }
+
+  return []
+}
+
 // Request interceptor to attach auth token for protected backend routes.
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
@@ -157,7 +189,7 @@ function createCrudApi<T, TCreate, TUpdate = Partial<TCreate>>(endpoint: string)
   return {
     getAll: async (): Promise<T[]> => {
       const response = await api.get(`/api/${endpoint}/`)
-      return response.data
+      return coerceArray<T>(response.data)
     },
     getOne: async (id: string): Promise<T> => {
       const response = await api.get(`/api/${endpoint}/${id}`)
@@ -223,7 +255,7 @@ export const timelineEventsApi = {
   getAll: async (timelineId?: string): Promise<TimelineEvent[]> => {
     const params = timelineId ? { timeline_id: timelineId } : {}
     const response = await api.get('/api/timeline-events/', { params })
-    return response.data
+    return coerceArray<TimelineEvent>(response.data)
   },
 }
 
@@ -236,7 +268,7 @@ export const thinkersApi = {
     const params: Record<string, string | number> = { limit: 200 }
     if (timelineId) params.timeline_id = timelineId
     const response = await api.get('/api/thinkers/', { params })
-    return response.data
+    return coerceArray<Thinker>(response.data)
   },
   getOne: async (id: string): Promise<ThinkerWithRelations> => {
     const response = await api.get(`/api/thinkers/${id}`)
@@ -250,7 +282,7 @@ export const connectionsApi = {
   ...connectionsBase,
   getAll: async (): Promise<Connection[]> => {
     const response = await api.get('/api/connections/', { params: { limit: 500 } })
-    return response.data
+    return coerceArray<Connection>(response.data)
   },
 }
 
@@ -261,7 +293,7 @@ export const publicationsApi = {
   getAll: async (thinkerId?: string): Promise<Publication[]> => {
     const params = thinkerId ? { thinker_id: thinkerId } : {}
     const response = await api.get('/api/publications/', { params })
-    return response.data
+    return coerceArray<Publication>(response.data)
   },
   getCitations: async (publicationId: string): Promise<PublicationCitations> => {
     const response = await api.get(`/api/publications/${publicationId}/citations`)
@@ -276,7 +308,7 @@ export const quotesApi = {
   getAll: async (thinkerId?: string): Promise<Quote[]> => {
     const params = thinkerId ? { thinker_id: thinkerId } : {}
     const response = await api.get('/api/quotes/', { params })
-    return response.data
+    return coerceArray<Quote>(response.data)
   },
 }
 
@@ -290,7 +322,7 @@ const getAllTags = async (): Promise<Tag[]> => {
 
   for (let page = 0; page < maxPages; page += 1) {
     const response = await api.get('/api/tags/', { params: { skip, limit } })
-    const pageData = response.data as Tag[]
+    const pageData = coerceArray<Tag>(response.data)
     allTags.push(...pageData)
     if (pageData.length < limit) {
       break
@@ -315,11 +347,11 @@ export const combinedViewsApi = {
   ...combinedViewsBase,
   getAll: async (): Promise<CombinedTimelineViewSimple[]> => {
     const response = await api.get('/api/combined-views/')
-    return response.data
+    return coerceArray<CombinedTimelineViewSimple>(response.data)
   },
   getEvents: async (id: string): Promise<TimelineEvent[]> => {
     const response = await api.get(`/api/combined-views/${id}/events`)
-    return response.data
+    return coerceArray<TimelineEvent>(response.data)
   },
 }
 
@@ -330,7 +362,7 @@ export const institutionsApi = {
   getAll: async (country?: string): Promise<Institution[]> => {
     const params = country ? { country } : {}
     const response = await api.get('/api/institutions/', { params })
-    return response.data
+    return coerceArray<Institution>(response.data)
   },
 }
 
@@ -341,7 +373,7 @@ export const thinkerInstitutionsApi = {
     if (thinkerId) params.thinker_id = thinkerId
     if (institutionId) params.institution_id = institutionId
     const response = await api.get('/api/institutions/affiliations', { params })
-    return response.data
+    return coerceArray<ThinkerInstitutionWithRelations>(response.data)
   },
   getOne: async (id: string): Promise<ThinkerInstitutionWithRelations> => {
     const response = await api.get(`/api/institutions/affiliations/${id}`)
@@ -360,7 +392,7 @@ export const thinkerInstitutionsApi = {
   },
   getAcademicLineage: async (thinkerId: string): Promise<ThinkerInstitutionWithRelations[]> => {
     const response = await api.get(`/api/institutions/academic-lineage/${thinkerId}`)
-    return response.data
+    return coerceArray<ThinkerInstitutionWithRelations>(response.data)
   },
 }
 
@@ -380,7 +412,7 @@ export const notesApi = {
     if (includeArchived) params.include_archived = 'true'
     if (tagIds && tagIds.length > 0) params.tag_ids = tagIds.join(',')
     const response = await api.get('/api/notes/', { params })
-    return response.data
+    return coerceArray<Note>(response.data)
   },
   getOne: async (id: string): Promise<NoteWithMentions> => {
     const response = await api.get(`/api/notes/${id}`)
@@ -399,15 +431,15 @@ export const notesApi = {
   },
   getVersions: async (noteId: string): Promise<NoteVersion[]> => {
     const response = await api.get(`/api/notes/${noteId}/versions`)
-    return response.data
+    return coerceArray<NoteVersion>(response.data)
   },
   getBacklinks: async (thinkerId: string): Promise<Note[]> => {
     const response = await api.get(`/api/notes/backlinks/${thinkerId}`)
-    return response.data
+    return coerceArray<Note>(response.data)
   },
   getCanvasNotes: async (): Promise<Note[]> => {
     const response = await api.get('/api/notes/', { params: { is_canvas_note: true } })
-    return response.data
+    return coerceArray<Note>(response.data)
   },
   draftFromExcerpts: async (data: DraftFromExcerptsRequest): Promise<DraftFromExcerptsResponse> => {
     const response = await api.post('/api/notes/draft-from-excerpts', data)
@@ -421,7 +453,7 @@ export const foldersApi = {
     const params: Record<string, string> = {}
     if (parentId) params.parent_id = parentId
     const response = await api.get('/api/folders/', { params })
-    return response.data
+    return coerceArray<Folder>(response.data)
   },
   getOne: async (id: string): Promise<FolderWithChildren> => {
     const response = await api.get(`/api/folders/${id}`)
@@ -431,7 +463,7 @@ export const foldersApi = {
     const params: Record<string, string> = {}
     if (includeArchived) params.include_archived = 'true'
     const response = await api.get('/api/folders/tree', { params })
-    return response.data
+    return coerceArray<FolderWithChildren>(response.data)
   },
   create: async (data: FolderCreate): Promise<Folder> => {
     const response = await api.post('/api/folders/', data)
@@ -448,7 +480,7 @@ export const foldersApi = {
   },
   reorder: async (items: ReorderItem[]): Promise<Folder[]> => {
     const response = await api.put('/api/folders/reorder', { items })
-    return response.data
+    return coerceArray<Folder>(response.data)
   },
   archive: async (id: string): Promise<Folder> => {
     const response = await api.post(`/api/folders/${id}/archive`)
@@ -466,7 +498,7 @@ export const criticalTermsApi = {
     const params: Record<string, unknown> = {}
     if (isActive !== undefined) params.is_active = isActive
     const response = await api.get('/api/critical-terms/', { params })
-    return response.data
+    return coerceArray<CriticalTermWithCount>(response.data)
   },
   getOne: async (id: string): Promise<CriticalTermWithCount> => {
     const response = await api.get(`/api/critical-terms/${id}`)
@@ -497,7 +529,7 @@ export const criticalTermsApi = {
     }
   ): Promise<TermOccurrence[]> => {
     const response = await api.get(`/api/critical-terms/${termId}/occurrences`, { params: filters })
-    return response.data
+    return coerceArray<TermOccurrence>(response.data)
   },
   getDefinition: async (termId: string, filters?: TermDefinitionFilters): Promise<TermDefinition> => {
     const params: Record<string, unknown> = {}
@@ -527,7 +559,7 @@ export const criticalTermsApi = {
   },
   getSynthesisRuns: async (termId: string, limit = 20): Promise<SynthesisRunSummary[]> => {
     const response = await api.get(`/api/critical-terms/${termId}/synthesis-runs`, { params: { limit } })
-    return response.data
+    return coerceArray<SynthesisRunSummary>(response.data)
   },
   getQualityReport: async (termId: string, runId?: string): Promise<TermQualityReport> => {
     const params: Record<string, unknown> = {}
@@ -565,7 +597,7 @@ export const analysisApi = {
     const response = await api.get('/api/thinkers/', {
       params: { search: query, limit: 10 },
     })
-    return response.data
+    return coerceArray<Thinker>(response.data)
   },
   getTermThinkerMatrix: async (filters?: { folder_id?: string; term_id?: string }): Promise<TermThinkerMatrix> => {
     const response = await api.get('/api/analysis/term-thinker-matrix', { params: filters })
@@ -573,11 +605,11 @@ export const analysisApi = {
   },
   getCoOccurrences: async (filters?: { min_count?: number; folder_id?: string }): Promise<CoOccurrencePair[]> => {
     const response = await api.get('/api/analysis/co-occurrences', { params: filters })
-    return response.data
+    return coerceArray<CoOccurrencePair>(response.data)
   },
   getConnectionSuggestions: async (filters?: { limit?: number; folder_id?: string }): Promise<ConnectionSuggestionFromNotes[]> => {
     const response = await api.get('/api/analysis/connection-suggestions', { params: filters })
-    return response.data
+    return coerceArray<ConnectionSuggestionFromNotes>(response.data)
   },
   getArgumentMap: async (note_ids: string[], title?: string): Promise<ArgumentMap> => {
     const response = await api.post('/api/analysis/argument-map', { note_ids, title })
@@ -591,19 +623,19 @@ export const analysisApi = {
     const params: Record<string, unknown> = { q, limit }
     if (folder_id) params.folder_id = folder_id
     const response = await api.get('/api/analysis/semantic-search', { params })
-    return response.data
+    return coerceArray<SemanticSearchResult>(response.data)
   },
   getRelatedExcerpts: async (occurrence_id: string, limit = 8): Promise<RelatedExcerpt[]> => {
     const response = await api.get('/api/analysis/related-excerpts', {
       params: { occurrence_id, limit },
     })
-    return response.data
+    return coerceArray<RelatedExcerpt>(response.data)
   },
   getConnectionExplanations: async (folder_id?: string, limit = 10): Promise<ConnectionExplanation[]> => {
     const params: Record<string, unknown> = { limit }
     if (folder_id) params.folder_id = folder_id
     const response = await api.get('/api/analysis/connection-explanations', { params })
-    return response.data
+    return coerceArray<ConnectionExplanation>(response.data)
   },
   getResearchSprintPlan: async (focus = 'all notes'): Promise<ResearchSprintPlan> => {
     const response = await api.post('/api/analysis/research-sprint-plan', null, { params: { focus } })
@@ -668,7 +700,7 @@ export const researchQuestionsApi = {
     thinker_id?: string
   }): Promise<ResearchQuestion[]> => {
     const response = await api.get('/api/research-questions/', { params: filters })
-    return response.data
+    return coerceArray<ResearchQuestion>(response.data)
   },
   getOne: async (id: string): Promise<ResearchQuestionWithRelations> => {
     const response = await api.get(`/api/research-questions/${id}`)
@@ -770,7 +802,7 @@ export const aiApi = {
     const params: Record<string, unknown> = { limit }
     if (timelineId) params.timeline_id = timelineId
     const response = await api.get('/api/ai/suggest-connections', { params })
-    return response.data
+    return coerceArray<ConnectionSuggestion>(response.data)
   },
   getThinkerInsight: async (thinkerId: string): Promise<ThinkerInsight> => {
     const response = await api.get(`/api/ai/thinker-insight/${thinkerId}`)
@@ -780,7 +812,7 @@ export const aiApi = {
     const params: Record<string, unknown> = { limit }
     if (thinkerId) params.thinker_id = thinkerId
     const response = await api.get('/api/ai/suggest-research', { params })
-    return response.data
+    return coerceArray<ResearchSuggestion>(response.data)
   },
   validateConnection: async (
     fromThinkerId: string,
@@ -867,7 +899,7 @@ export const quizApi = {
     if (offset !== undefined) params.offset = offset
     if (timelineId) params.timeline_id = timelineId
     const response = await api.get('/api/quiz/history', { params })
-    return response.data
+    return coerceArray<QuizSessionSummary>(response.data)
   },
 
   getStatistics: async (): Promise<QuizStatistics> => {
@@ -879,7 +911,7 @@ export const quizApi = {
     const params: Record<string, unknown> = {}
     if (limit !== undefined) params.limit = limit
     const response = await api.get('/api/quiz/review-queue', { params })
-    return response.data
+    return coerceArray<QuizQuestion>(response.data)
   },
 
   resetQuestion: async (questionId: string): Promise<void> => {
