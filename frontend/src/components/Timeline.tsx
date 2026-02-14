@@ -76,6 +76,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   // Ref to track if we just completed a drag (to prevent click after drag)
   const justDraggedRef = useRef(false)
 
+  // Cache for computed positions — avoids expensive collision detection during drag
+  const positionCacheRef = useRef<{
+    key: string
+    thinkerPositions: Map<string, { x: number; y: number; width: number; height: number }>
+    eventPositions: Map<string, { x: number; y: number }> | undefined
+  }>({ key: '', thinkerPositions: new Map(), eventPositions: undefined })
+
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
     queryFn: timelinesApi.getAll,
@@ -356,13 +363,26 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     drawGrid(ctx, canvasWidth, canvasHeight)
     drawTimeline(ctx, canvasWidth, canvasHeight)
 
-    // Calculate all positions once per frame
-    const eventPositions = timelineEvents.length > 0
-      ? calculateEventPositions(timelineEvents, canvasWidth, canvasHeight)
-      : undefined
-    const thinkerPositions = filteredThinkers.length > 0
-      ? calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight, eventPositions)
-      : new Map<string, { x: number; y: number; width: number; height: number }>()
+    // Cache-aware position calculation — skip expensive collision detection during drag.
+    // Build a key from everything that affects positions (NOT drag state).
+    const posKey = `${scale}|${canvasWidth}|${canvasHeight}|${filteredThinkers.map(t => `${t.id}:${t.anchor_year}:${t.position_y}:${t.is_manually_positioned}:${t.birth_year}:${t.death_year}:${t.position_x}`).join(',')}|${timelineEvents.map(e => `${e.id}:${e.year}`).join(',')}`
+
+    let eventPositions: Map<string, { x: number; y: number }> | undefined
+    let thinkerPositions: Map<string, { x: number; y: number; width: number; height: number }>
+
+    if (positionCacheRef.current.key === posKey) {
+      // Reuse cached positions (e.g. during drag — only draggedThinkerPos changed)
+      eventPositions = positionCacheRef.current.eventPositions
+      thinkerPositions = positionCacheRef.current.thinkerPositions
+    } else {
+      eventPositions = timelineEvents.length > 0
+        ? calculateEventPositions(timelineEvents, canvasWidth, canvasHeight)
+        : undefined
+      thinkerPositions = filteredThinkers.length > 0
+        ? calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight, eventPositions)
+        : new Map<string, { x: number; y: number; width: number; height: number }>()
+      positionCacheRef.current = { key: posKey, thinkerPositions, eventPositions }
+    }
 
     // Draw events at calculated positions
     if (eventPositions && timelineEvents.length > 0) {
