@@ -166,6 +166,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status
+    const requestUrl = String(error.config?.url || '')
+    const isAuthEndpoint = requestUrl.includes('/api/auth/login') || requestUrl.includes('/api/auth/check')
+
+    if (status === 401 && !isAuthEndpoint && typeof window !== 'undefined') {
+      sessionStorage.removeItem('auth_token')
+      sessionStorage.removeItem('authenticated')
+      window.dispatchEvent(new Event('auth:unauthorized'))
+    }
+
     // Extract the error message from the API response
     if (error.response?.data?.detail) {
       // FastAPI returns errors in { detail: "message" } format

@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { thinkersApi, connectionsApi, timelineEventsApi, API_URL } from '@/lib/api'
+import { thinkersApi, connectionsApi, timelineEventsApi, timelinesApi } from '@/lib/api'
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { REFERENCE_CANVAS_WIDTH, DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
@@ -78,10 +78,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
-    queryFn: async () => {
-      const response = await fetch(`${API_URL}/api/timelines/`)
-      return response.json()
-    },
+    queryFn: timelinesApi.getAll,
   })
 
   const { data: thinkers = [], isLoading: thinkersLoading } = useQuery({
@@ -144,7 +141,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     })
 
     // BUG #13 FIX: Also consider all timeline bounds to expand master view
-    timelines.forEach((timeline: { start_year?: number; end_year?: number }) => {
+    timelines.forEach((timeline: TimelineType) => {
       if (timeline.start_year != null) {
         minYear = Math.min(minYear, timeline.start_year)
         hasData = true

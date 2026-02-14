@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { thinkersApi, API_URL } from '@/lib/api'
+import { thinkersApi, timelinesApi } from '@/lib/api'
 import { DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT } from '@/lib/constants'
 import type { Thinker, Timeline as TimelineType } from '@/types'
 
@@ -42,7 +42,7 @@ export function Minimap({
   // Fetch data if not provided
   const { data: fetchedThinkers = [] } = useQuery({
     queryKey: ['thinkers', filterByTimelineId],
-    queryFn: () => thinkersApi.getAll(),
+    queryFn: () => thinkersApi.getAll(filterByTimelineId || undefined),
     enabled: !propThinkers,
   })
 
@@ -50,10 +50,7 @@ export function Minimap({
 
   const { data: fetchedTimelines = [] } = useQuery({
     queryKey: ['timelines'],
-    queryFn: async () => {
-      const response = await fetch(`${API_URL}/api/timelines/`)
-      return response.json()
-    },
+    queryFn: timelinesApi.getAll,
     enabled: !propTimelines,
   })
 

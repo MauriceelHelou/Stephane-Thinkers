@@ -104,25 +104,30 @@ export default function Home() {
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
   const [showRightArrow, setShowRightArrow] = useState(false)
+  const isDataQueriesEnabled = isAuthenticated === true
 
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
     queryFn: timelinesApi.getAll,
+    enabled: isDataQueriesEnabled,
   })
 
   const { data: combinedViews = [] } = useQuery({
     queryKey: ['combined-views'],
     queryFn: combinedViewsApi.getAll,
+    enabled: isDataQueriesEnabled,
   })
 
   const { data: tags = [] } = useQuery({
     queryKey: ['tags'],
     queryFn: tagsApi.getAll,
+    enabled: isDataQueriesEnabled,
   })
 
   const { data: allThinkers = [] } = useQuery({
     queryKey: ['thinkers'],
     queryFn: () => thinkersApi.getAll(),
+    enabled: isDataQueriesEnabled,
   })
 
   // Canvas notes (sticky notes)
@@ -130,6 +135,7 @@ export default function Home() {
   const { data: canvasNotes = [] } = useQuery({
     queryKey: ['canvas-notes'],
     queryFn: notesApi.getCanvasNotes,
+    enabled: isDataQueriesEnabled,
     staleTime: 30000, // Consider data fresh for 30 seconds
     refetchInterval: false, // Disable automatic polling
     refetchOnWindowFocus: false, // Don't refetch on window focus
@@ -159,6 +165,13 @@ export default function Home() {
     const token = sessionStorage.getItem('auth_token')
     const isAuth = sessionStorage.getItem('authenticated') === 'true' && !!token
     setIsAuthenticated(isAuth)
+  }, [])
+
+  // If the backend rejects a token, force return to login.
+  useEffect(() => {
+    const handleUnauthorized = () => setIsAuthenticated(false)
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized)
   }, [])
 
   // Debounce search query for performance
@@ -243,8 +256,10 @@ export default function Home() {
   const updateThinkerPositionMutation = useMutation({
     mutationFn: ({ id, anchor_year, position_y }: { id: string; anchor_year: number; position_y: number }) =>
       thinkersApi.update(id, { anchor_year, position_y, is_manually_positioned: true }),
-    onMutate: async ({ id, anchor_year, position_y }) => {
-      await queryClient.cancelQueries({ queryKey: ['thinkers'] })
+    onMutate: ({ id, anchor_year, position_y }) => {
+      // Cancel without awaiting — keeps onMutate synchronous so the cache
+      // updates in the same tick as mutate(), before drag state is cleared
+      queryClient.cancelQueries({ queryKey: ['thinkers'] })
       const previous = queryClient.getQueryData<Thinker[]>(['thinkers'])
       queryClient.setQueryData<Thinker[]>(['thinkers'], (old) =>
         old?.map((t) =>
@@ -268,8 +283,8 @@ export default function Home() {
   const updateNotePositionMutation = useMutation({
     mutationFn: ({ id, position_x, position_y }: { id: string; position_x: number; position_y: number }) =>
       notesApi.update(id, { position_x, position_y }),
-    onMutate: async ({ id, position_x, position_y }) => {
-      await queryClient.cancelQueries({ queryKey: ['canvas-notes'] })
+    onMutate: ({ id, position_x, position_y }) => {
+      queryClient.cancelQueries({ queryKey: ['canvas-notes'] })
       const previous = queryClient.getQueryData<Note[]>(['canvas-notes'])
       queryClient.setQueryData<Note[]>(['canvas-notes'], (old) =>
         old?.map((n) =>

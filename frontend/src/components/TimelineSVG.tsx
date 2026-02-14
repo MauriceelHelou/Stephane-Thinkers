@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { thinkersApi, connectionsApi, timelineEventsApi, API_URL } from '@/lib/api'
+import { thinkersApi, connectionsApi, timelineEventsApi, timelinesApi } from '@/lib/api'
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT } from '@/lib/constants'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent } from '@/types'
@@ -33,15 +33,12 @@ export function TimelineSVG({
 
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
-    queryFn: async () => {
-      const response = await fetch(`${API_URL}/api/timelines/`)
-      return response.json()
-    },
+    queryFn: timelinesApi.getAll,
   })
 
   const { data: thinkers = [], isLoading: thinkersLoading } = useQuery({
     queryKey: ['thinkers', filterByTimelineId],
-    queryFn: () => thinkersApi.getAll(),
+    queryFn: () => thinkersApi.getAll(filterByTimelineId || undefined),
     refetchOnMount: 'always',
   })
 
@@ -104,7 +101,7 @@ export function TimelineSVG({
       if (t.death_year) { maxYear = Math.max(maxYear, t.death_year); hasData = true }
     })
 
-    timelines.forEach((timeline: { start_year?: number; end_year?: number }) => {
+    timelines.forEach((timeline: TimelineType) => {
       if (timeline.start_year) { minYear = Math.min(minYear, timeline.start_year); hasData = true }
       if (timeline.end_year) { maxYear = Math.max(maxYear, timeline.end_year); hasData = true }
     })

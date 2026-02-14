@@ -101,6 +101,7 @@ export default function NotesPage() {
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const pendingTagUpdateRequestRef = useRef<number | null>(null)
   const tagUpdateSequenceRef = useRef(0)
+  const isDataQueriesEnabled = isAuthenticated === true
 
   // Resizable panel refs
   const sidebarPanelRef = usePanelRef()
@@ -129,10 +130,16 @@ export default function NotesPage() {
     setIsAuthenticated(isAuth)
   }, [])
 
+  useEffect(() => {
+    const handleUnauthorized = () => setIsAuthenticated(false)
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized)
+  }, [])
+
   const { data: selectedNote } = useQuery({
     queryKey: ['note', selectedNoteId],
     queryFn: () => notesApi.getOne(selectedNoteId!),
-    enabled: !!selectedNoteId,
+    enabled: isDataQueriesEnabled && !!selectedNoteId,
   })
 
   useEffect(() => {
@@ -149,6 +156,7 @@ export default function NotesPage() {
   const { data: allFolders = [] } = useQuery({
     queryKey: ['folder-tree', { includeArchived: showArchived }],
     queryFn: () => foldersApi.getTree(showArchived || undefined),
+    enabled: isDataQueriesEnabled,
   })
 
   const { data: connectionSuggestions = [] } = useQuery({
@@ -158,6 +166,7 @@ export default function NotesPage() {
         limit: 20,
         folder_id: selectedFolderId && selectedFolderId !== 'unfiled' ? selectedFolderId : undefined,
       }),
+    enabled: isDataQueriesEnabled,
     staleTime: 30_000,
     refetchOnMount: 'always',
   })
@@ -165,6 +174,7 @@ export default function NotesPage() {
   const { data: criticalTerms = [] } = useQuery({
     queryKey: ['critical-terms'],
     queryFn: () => criticalTermsApi.getAll(),
+    enabled: isDataQueriesEnabled,
     staleTime: 60_000,
   })
 
