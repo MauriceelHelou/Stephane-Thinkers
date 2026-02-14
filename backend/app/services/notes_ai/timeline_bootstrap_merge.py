@@ -53,6 +53,15 @@ def _default_include(confidence: float) -> bool:
     return confidence >= 0.45
 
 
+def _coerce_year(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _tokenize_label(value: Optional[str]) -> List[str]:
     normalized = _normalize_label(value)
     if not normalized:
@@ -343,10 +352,10 @@ def merge_extraction_outputs(
     event_bucket: Dict[Tuple[str, Optional[int]], Dict[str, Any]] = {}
     for raw_event in raw_events:
         name = str(raw_event.get("name", "")).strip()
-        year = raw_event.get("year")
+        year = _coerce_year(raw_event.get("year"))
         if not name:
             continue
-        key = (_normalize_label(name), int(year) if isinstance(year, int) else year)
+        key = (_normalize_label(name), year)
         confidence = float(raw_event.get("confidence", 0.5))
         existing = event_bucket.get(key)
         if existing is None or confidence > existing["confidence"]:
@@ -361,7 +370,9 @@ def merge_extraction_outputs(
         else:
             existing["evidence"].extend(raw_event.get("evidence", []) or [])
 
-    for idx, ((normalized_name, year), payload) in enumerate(sorted(event_bucket.items(), key=lambda item: (item[0][1] or 0, item[1]["name"].lower()))):
+    for idx, ((normalized_name, year), payload) in enumerate(
+        sorted(event_bucket.items(), key=lambda item: ((item[0][1] if item[0][1] is not None else 0), item[1]["name"].lower()))
+    ):
         candidate_id = _stable_candidate_id("event", f"{normalized_name}:{year}")
         deduped_event_evidence = _dedupe_evidence(payload["evidence"])
         include_by_default = _default_include(payload["confidence"]) and bool(deduped_event_evidence)
@@ -490,8 +501,8 @@ def merge_extraction_outputs(
             warnings.append(f"Skipped publication with unmatched thinker: {raw_publication.get('thinker_name')}")
             continue
 
-        year = raw_publication.get("year")
-        key = (thinker_candidate_id, _normalize_label(title), int(year) if isinstance(year, int) else year)
+        year = _coerce_year(raw_publication.get("year"))
+        key = (thinker_candidate_id, _normalize_label(title), year)
         confidence = float(raw_publication.get("confidence", 0.5))
         existing = publication_bucket.get(key)
         if existing is None or confidence > existing["confidence"]:
@@ -553,7 +564,7 @@ def merge_extraction_outputs(
             "thinker_candidate_id": thinker_candidate_id,
             "text": quote_text,
             "source": raw_quote.get("source"),
-            "year": raw_quote.get("year"),
+            "year": _coerce_year(raw_quote.get("year")),
             "context_notes": raw_quote.get("context_notes"),
             "confidence": confidence,
             "evidence": list(raw_quote.get("evidence", []) or []),

@@ -139,3 +139,48 @@ def test_merge_defaults_include_false_without_evidence():
     thinker = graph["thinkers"][0]
     assert thinker["include"] is False
     assert thinker["evidence"] == []
+
+
+def test_merge_coerces_string_years_without_sort_crash():
+    output = _base_output()
+    output["thinkers"] = [
+        {
+            "name": "Rene Descartes",
+            "confidence": 0.92,
+            "evidence": [_ev(0, 10, 24, "Rene Descartes")],
+        }
+    ]
+    output["events"] = [
+        {
+            "name": "Discourse on Method published",
+            "year": "1637",
+            "event_type": "publication",
+            "description": "Descartes publishes Discourse on Method.",
+            "confidence": 0.74,
+            "evidence": [_ev(0, 100, 150, "In 1637, Rene Descartes published Discourse on Method.")],
+        }
+    ]
+    output["publications"] = [
+        {
+            "thinker_name": "Rene Descartes",
+            "title": "Discourse on Method",
+            "year": "1637",
+            "publication_type": "book",
+            "confidence": 0.8,
+            "evidence": [_ev(0, 110, 145, "Discourse on Method")],
+        }
+    ]
+    output["quotes"] = [
+        {
+            "thinker_name": "Rene Descartes",
+            "text": "I think, therefore I am.",
+            "year": "1637",
+            "confidence": 0.65,
+            "evidence": [_ev(0, 160, 190, '"I think, therefore I am."')],
+        }
+    ]
+
+    graph = merge_extraction_outputs([output], timeline_name_hint="Test")
+    assert graph["events"][0]["fields"]["year"] == 1637
+    assert graph["publications"][0]["fields"]["year"] == 1637
+    assert graph["quotes"][0]["fields"]["year"] == 1637
