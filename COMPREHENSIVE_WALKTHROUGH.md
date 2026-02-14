@@ -29,13 +29,13 @@ The Intellectual Genealogy Mapper is a timeline-based knowledge graph for academ
 # Backend (terminal 1, from backend/ directory)
 venv\Scripts\activate       # Windows
 source venv/bin/activate    # Unix
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8010
 
 # Frontend (terminal 2, from frontend/ directory)
-npm run dev                  # Runs on port 3001
+npm run dev                  # Runs on port 3010
 ```
 
-Access the app at: http://localhost:3001
+Access the app at: http://localhost:3010
 
 ---
 

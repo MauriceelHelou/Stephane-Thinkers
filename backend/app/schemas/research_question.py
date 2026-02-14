@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 from uuid import UUID
@@ -61,6 +61,22 @@ class ResearchQuestionUpdate(BaseModel):
     parent_question_id: Optional[UUID] = None
     related_thinker_ids: Optional[List[UUID]] = None
 
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v):
+        if v is not None:
+            if not v.strip():
+                raise ValueError('Title cannot be empty')
+            return v.strip()
+        return v
+
+    @field_validator('priority')
+    @classmethod
+    def validate_priority(cls, v):
+        if v is not None and (v < 1 or v > 5):
+            raise ValueError('Priority must be between 1 and 5')
+        return v
+
 
 class ResearchQuestion(ResearchQuestionBase):
     model_config = ConfigDict(from_attributes=True)
@@ -73,8 +89,8 @@ class ResearchQuestion(ResearchQuestionBase):
 class ResearchQuestionWithRelations(ResearchQuestion):
     model_config = ConfigDict(from_attributes=True)
 
-    related_thinkers: List[RelatedThinker] = []
-    sub_questions: Optional[List['ResearchQuestion']] = []
+    related_thinkers: List[RelatedThinker] = Field(default_factory=list)
+    sub_questions: Optional[List['ResearchQuestion']] = Field(default_factory=list)
 
     @field_validator('sub_questions', mode='before')
     @classmethod

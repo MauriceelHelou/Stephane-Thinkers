@@ -44,9 +44,9 @@ def sample_timeline(db: Session):
     """Create a sample timeline."""
     timeline = Timeline(
         id=uuid.uuid4(),
-        name="Test Philosophy Timeline",
-        start_year=1700,
-        end_year=1900,
+        name="Mysticism and Subject Formation",
+        start_year=1200,
+        end_year=2000,
     )
     db.add(timeline)
     db.commit()
@@ -60,38 +60,38 @@ def sample_thinkers(db: Session, sample_timeline):
     thinkers = [
         Thinker(
             id=uuid.uuid4(),
-            name="Immanuel Kant",
-            birth_year=1724,
-            death_year=1804,
-            field="Philosophy",
-            biography_notes="German philosopher",
+            name="Meister Eckhart",
+            birth_year=1260,
+            death_year=1328,
+            field="Mystical Theology",
+            biography_notes="Dominican theologian associated with apophatic thought",
             timeline_id=sample_timeline.id,
         ),
         Thinker(
             id=uuid.uuid4(),
-            name="Georg Wilhelm Friedrich Hegel",
-            birth_year=1770,
-            death_year=1831,
-            field="Philosophy",
-            biography_notes="German philosopher",
+            name="William James",
+            birth_year=1842,
+            death_year=1910,
+            field="Psychology of Religion",
+            biography_notes="Pragmatist psychologist of religious experience",
             timeline_id=sample_timeline.id,
         ),
         Thinker(
             id=uuid.uuid4(),
-            name="Arthur Schopenhauer",
-            birth_year=1788,
-            death_year=1860,
-            field="Philosophy",
-            biography_notes="German philosopher",
+            name="Carl Gustav Jung",
+            birth_year=1875,
+            death_year=1961,
+            field="Analytical Psychology",
+            biography_notes="Depth psychologist focused on symbols and archetypes",
             timeline_id=sample_timeline.id,
         ),
         Thinker(
             id=uuid.uuid4(),
-            name="John Stuart Mill",
-            birth_year=1806,
-            death_year=1873,
-            field="Philosophy",
-            biography_notes="British philosopher",
+            name="Georges Bataille",
+            birth_year=1897,
+            death_year=1962,
+            field="Philosophy and Religious Studies",
+            biography_notes="Theorist of transgression, sacrifice, and excess",
             timeline_id=sample_timeline.id,
         ),
     ]
@@ -107,15 +107,15 @@ def sample_quotes(db: Session, sample_thinkers):
     quotes = [
         Quote(
             id=uuid.uuid4(),
-            thinker_id=sample_thinkers[0].id,  # Kant
-            text="Two things fill the mind with ever new and increasing admiration and awe.",
-            source="Critique of Practical Reason",
+            thinker_id=sample_thinkers[0].id,  # Eckhart
+            text="Detachment opens the way to a transformed relation with the self.",
+            source="Research notebook on Meister Eckhart",
         ),
         Quote(
             id=uuid.uuid4(),
-            thinker_id=sample_thinkers[1].id,  # Hegel
-            text="The owl of Minerva spreads its wings only with the falling of the dusk.",
-            source="Philosophy of Right",
+            thinker_id=sample_thinkers[3].id,  # Bataille
+            text="Transgression reveals the limit that order cannot fully absorb.",
+            source="Seminar digest on Bataille",
         ),
     ]
     for q in quotes:
@@ -130,15 +130,15 @@ def sample_publications(db: Session, sample_thinkers):
     publications = [
         Publication(
             id=uuid.uuid4(),
-            thinker_id=sample_thinkers[0].id,  # Kant
-            title="Critique of Pure Reason",
-            year=1781,
+            thinker_id=sample_thinkers[1].id,  # James
+            title="The Varieties of Religious Experience",
+            year=1902,
         ),
         Publication(
             id=uuid.uuid4(),
-            thinker_id=sample_thinkers[1].id,  # Hegel
-            title="Phenomenology of Spirit",
-            year=1807,
+            thinker_id=sample_thinkers[3].id,  # Bataille
+            title="Erotism",
+            year=1957,
         ),
     ]
     for p in publications:
@@ -153,10 +153,10 @@ def sample_connections(db: Session, sample_thinkers):
     connections = [
         Connection(
             id=uuid.uuid4(),
-            from_thinker_id=sample_thinkers[0].id,  # Kant
-            to_thinker_id=sample_thinkers[1].id,  # Hegel
+            from_thinker_id=sample_thinkers[1].id,  # James
+            to_thinker_id=sample_thinkers[2].id,  # Jung
             connection_type="influenced",
-            notes="Kant's critical philosophy influenced Hegel's dialectical method",
+            notes="James influenced Jung's psychology of symbols and religious experience",
         ),
     ]
     for c in connections:
@@ -170,14 +170,14 @@ def sample_question(db: Session, sample_thinkers):
     """Create a sample quiz question."""
     question = QuizQuestion(
         id=uuid.uuid4(),
-        question_text="When was Immanuel Kant born?",
+        question_text="When was Georges Bataille born?",
         question_type="multiple_choice",
         category="birth_year",
-        correct_answer="1724",
-        options=["1724", "1770", "1788", "1806"],
+        correct_answer="1897",
+        options=["1897", "1875", "1842", "1909"],
         difficulty="medium",
-        explanation="Immanuel Kant was born in 1724 in Königsberg.",
-        related_thinker_ids=[str(sample_thinkers[0].id)],
+        explanation="Georges Bataille was born in 1897 in Billom, France.",
+        related_thinker_ids=[str(sample_thinkers[3].id)],
         times_asked=0,
         times_correct=0,
     )
@@ -324,27 +324,27 @@ class TestAnswerValidation:
 
     def test_validate_multiple_choice_exact_match(self):
         """Test exact match for multiple choice."""
-        result = validate_answer("1724", "1724", "multiple_choice")
+        result = validate_answer("1897", "1897", "multiple_choice")
         assert result is True
 
     def test_validate_multiple_choice_case_insensitive(self):
         """Test case insensitive matching."""
-        result = validate_answer("KANT", "Kant", "multiple_choice")
+        result = validate_answer("BATAILLE", "Bataille", "multiple_choice")
         assert result is True
 
     def test_validate_short_answer_partial_match(self):
         """Test partial match for short answer."""
-        result = validate_answer("Kant", "Immanuel Kant", "short_answer")
+        result = validate_answer("Bataille", "Georges Bataille", "short_answer")
         assert result is True
 
     def test_validate_short_answer_year_match(self):
         """Test year extraction for short answer."""
-        result = validate_answer("1724", "1724", "short_answer")
+        result = validate_answer("1897", "1897", "short_answer")
         assert result is True
 
     def test_validate_wrong_answer(self):
         """Test incorrect answer detection."""
-        result = validate_answer("1770", "1724", "multiple_choice")
+        result = validate_answer("1842", "1897", "multiple_choice")
         assert result is False
 
 
@@ -356,34 +356,34 @@ class TestQuestionGeneration:
     def test_generate_year_distractors_easy(self):
         """Test year distractor generation for easy difficulty."""
         distractors = generate_year_distractors(
-            correct_year=1724,
+            correct_year=1897,
             all_thinkers=[],
             difficulty="easy",
         )
         assert len(distractors) >= 3
-        assert "1724" not in distractors
+        assert "1897" not in distractors
 
     def test_generate_year_distractors_hard(self):
         """Test year distractor generation for hard difficulty."""
         distractors = generate_year_distractors(
-            correct_year=1724,
+            correct_year=1897,
             all_thinkers=[],
             difficulty="hard",
         )
         assert len(distractors) >= 3
         # Hard distractors should be closer to correct answer
         for d in distractors:
-            diff = abs(int(d) - 1724)
+            diff = abs(int(d) - 1897)
             assert diff <= 20
 
     def test_generate_birth_year_question(self):
         """Test birth year question generation."""
         thinker = {
             "id": str(uuid.uuid4()),
-            "name": "Immanuel Kant",
-            "birth_year": 1724,
-            "death_year": 1804,
-            "field": "Philosophy",
+            "name": "Georges Bataille",
+            "birth_year": 1897,
+            "death_year": 1962,
+            "field": "Philosophy and Religious Studies",
         }
         question = generate_birth_year_question(
             thinker=thinker,
@@ -392,10 +392,10 @@ class TestQuestionGeneration:
             question_type="multiple_choice",
         )
         assert question is not None
-        assert "Kant" in question.question_text
-        assert question.correct_answer == "1724"
+        assert "Bataille" in question.question_text
+        assert question.correct_answer == "1897"
         assert len(question.options) == 4
-        assert "1724" in question.options
+        assert "1897" in question.options
 
 
 # ============ API Endpoint Tests ============
@@ -442,20 +442,20 @@ class TestQuizAPIEndpoints:
         """Test validating a correct answer."""
         response = client.post("/api/quiz/validate-answer", json={
             "question_id": str(sample_question.id),
-            "user_answer": "1724",
+            "user_answer": "1897",
             "session_id": str(sample_session.id),
             "time_taken_seconds": 10,
         })
         assert response.status_code == 200
         data = response.json()
         assert data["correct"] is True
-        assert data["correct_answer"] == "1724"
+        assert data["correct_answer"] == "1897"
 
     def test_validate_answer_incorrect(self, db: Session, sample_question, sample_session):
         """Test validating an incorrect answer."""
         response = client.post("/api/quiz/validate-answer", json={
             "question_id": str(sample_question.id),
-            "user_answer": "1770",
+            "user_answer": "1842",
             "session_id": str(sample_session.id),
             "time_taken_seconds": 15,
         })
@@ -680,3 +680,169 @@ class TestQuizEdgeCases:
             "difficulty": "medium",
         })
         assert response.status_code == 200
+
+
+class TestQuizTimelineScopeSafety:
+    """Tests to ensure timeline-scoped operations do not affect unrelated quiz data."""
+
+    def test_clear_question_pool_scoped_does_not_delete_other_timeline_or_global_data(self, db: Session):
+        timeline_a = Timeline(id=uuid.uuid4(), name="Timeline A")
+        timeline_b = Timeline(id=uuid.uuid4(), name="Timeline B")
+        db.add_all([timeline_a, timeline_b])
+        db.commit()
+
+        session_a = QuizSession(id=uuid.uuid4(), timeline_id=timeline_a.id, difficulty="easy", question_count=1)
+        session_b = QuizSession(id=uuid.uuid4(), timeline_id=timeline_b.id, difficulty="easy", question_count=1)
+        db.add_all([session_a, session_b])
+
+        question_a = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="A question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1900",
+            options=["1900", "1901", "1902", "1903"],
+            difficulty="easy",
+            timeline_id=timeline_a.id,
+            times_asked=0,
+            times_correct=0,
+        )
+        question_b = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="B question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1900",
+            options=["1900", "1901", "1902", "1903"],
+            difficulty="easy",
+            timeline_id=timeline_b.id,
+            times_asked=0,
+            times_correct=0,
+        )
+        question_global = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="Global question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1900",
+            options=["1900", "1901", "1902", "1903"],
+            difficulty="easy",
+            timeline_id=None,
+            times_asked=0,
+            times_correct=0,
+        )
+        db.add_all([question_a, question_b, question_global])
+        db.flush()
+
+        answer_a = QuizAnswer(
+            id=uuid.uuid4(),
+            session_id=session_a.id,
+            question_id=question_a.id,
+            user_answer="1900",
+            is_correct=True,
+        )
+        answer_b = QuizAnswer(
+            id=uuid.uuid4(),
+            session_id=session_b.id,
+            question_id=question_b.id,
+            user_answer="1900",
+            is_correct=True,
+        )
+        sr_a = SpacedRepetitionQueue(id=uuid.uuid4(), question_id=question_a.id)
+        sr_b = SpacedRepetitionQueue(id=uuid.uuid4(), question_id=question_b.id)
+        db.add_all([answer_a, answer_b, sr_a, sr_b])
+        db.commit()
+
+        question_a_id = question_a.id
+        question_b_id = question_b.id
+        question_global_id = question_global.id
+
+        response = client.post(f"/api/quiz/clear-question-pool?timeline_id={timeline_a.id}")
+        assert response.status_code == 200
+
+        remaining_question_ids = {q.id for q in db.query(QuizQuestion).all()}
+        assert question_a_id not in remaining_question_ids
+        assert question_b_id in remaining_question_ids
+        assert question_global_id in remaining_question_ids
+
+        assert db.query(QuizAnswer).filter(QuizAnswer.question_id == question_a_id).count() == 0
+        assert db.query(QuizAnswer).filter(QuizAnswer.question_id == question_b_id).count() == 1
+        assert db.query(SpacedRepetitionQueue).filter(SpacedRepetitionQueue.question_id == question_a_id).count() == 0
+        assert db.query(SpacedRepetitionQueue).filter(SpacedRepetitionQueue.question_id == question_b_id).count() == 1
+
+    def test_refresh_questions_scoped_does_not_delete_other_timeline_or_global_data(self, db: Session):
+        timeline_a = Timeline(id=uuid.uuid4(), name="Timeline A")
+        timeline_b = Timeline(id=uuid.uuid4(), name="Timeline B")
+        thinker_a = Thinker(id=uuid.uuid4(), name="Thinker A", birth_year=1900, timeline_id=timeline_a.id)
+        thinker_b = Thinker(id=uuid.uuid4(), name="Thinker B", birth_year=1910, timeline_id=timeline_b.id)
+        db.add_all([timeline_a, timeline_b, thinker_a, thinker_b])
+        db.flush()
+
+        question_a = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="Old A question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1900",
+            options=["1900", "1901", "1902", "1903"],
+            difficulty="easy",
+            timeline_id=timeline_a.id,
+            times_asked=0,
+            times_correct=0,
+        )
+        question_b = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="Old B question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1910",
+            options=["1910", "1911", "1912", "1913"],
+            difficulty="easy",
+            timeline_id=timeline_b.id,
+            times_asked=0,
+            times_correct=0,
+        )
+        question_global = QuizQuestion(
+            id=uuid.uuid4(),
+            question_text="Old global question",
+            question_type="multiple_choice",
+            category="birth_year",
+            correct_answer="1950",
+            options=["1950", "1951", "1952", "1953"],
+            difficulty="easy",
+            timeline_id=None,
+            times_asked=0,
+            times_correct=0,
+        )
+        db.add_all([question_a, question_b, question_global])
+        db.commit()
+
+        question_b_id = question_b.id
+        question_global_id = question_global.id
+
+        from app.utils.quiz_service import GeneratedQuestion
+
+        with patch("app.routes.quiz.generate_question", new_callable=AsyncMock) as mock_generate:
+            mock_generate.return_value = GeneratedQuestion(
+                question_text="New A question",
+                question_type="multiple_choice",
+                category="birth_year",
+                correct_answer="1900",
+                options=["1900", "1901", "1902", "1903"],
+                difficulty="easy",
+                explanation="Test",
+                related_thinker_ids=[str(thinker_a.id)],
+            )
+            response = client.post(f"/api/quiz/refresh-questions?timeline_id={timeline_a.id}&count=1")
+            assert response.status_code == 200
+
+        timeline_a_questions = db.query(QuizQuestion).filter(QuizQuestion.timeline_id == timeline_a.id).all()
+        timeline_b_questions = db.query(QuizQuestion).filter(QuizQuestion.timeline_id == timeline_b.id).all()
+        global_questions = db.query(QuizQuestion).filter(QuizQuestion.timeline_id.is_(None)).all()
+
+        assert len(timeline_a_questions) == 1
+        assert timeline_a_questions[0].question_text == "New A question"
+        assert len(timeline_b_questions) == 1
+        assert timeline_b_questions[0].id == question_b_id
+        assert len(global_questions) == 1
+        assert global_questions[0].id == question_global_id

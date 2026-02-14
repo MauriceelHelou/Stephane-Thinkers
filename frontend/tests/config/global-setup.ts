@@ -1,7 +1,7 @@
 import { chromium, FullConfig } from '@playwright/test'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
-const FRONTEND_URL = 'http://localhost:3001'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8010'
+const FRONTEND_URL = 'http://localhost:3010'
 
 async function waitForServer(url: string, timeout: number = 60000): Promise<boolean> {
   const startTime = Date.now()

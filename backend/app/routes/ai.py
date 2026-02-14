@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import UUID
 
 from app.database import get_db
 from app.models.thinker import Thinker
@@ -49,8 +50,8 @@ class ResearchSuggestionResponse(BaseModel):
 
 
 class ValidationRequest(BaseModel):
-    from_thinker_id: str
-    to_thinker_id: str
+    from_thinker_id: UUID
+    to_thinker_id: UUID
     connection_type: str
     notes: Optional[str] = None
 
@@ -79,7 +80,7 @@ def get_ai_status():
 
 @router.get("/suggest-connections", response_model=List[ConnectionSuggestionResponse])
 async def get_connection_suggestions(
-    limit: int = 5,
+    limit: int = Query(5, ge=1, le=20),
     timeline_id: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
@@ -87,14 +88,28 @@ async def get_connection_suggestions(
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
+    timeline_uuid = None
+    if timeline_id:
+        try:
+            timeline_uuid = UUID(timeline_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid timeline identifier")
+
     # Get thinkers
     query = db.query(Thinker)
-    if timeline_id:
-        query = query.filter(Thinker.timeline_id == timeline_id)
-    thinkers = query.all()
+    if timeline_uuid:
+        query = query.filter(Thinker.timeline_id == timeline_uuid)
+    thinkers = query.limit(200).all()
 
     # Get existing connections
-    connections = db.query(Connection).all()
+    thinker_ids = [t.id for t in thinkers]
+    connections_query = db.query(Connection)
+    if timeline_uuid:
+        connections_query = connections_query.filter(
+            Connection.from_thinker_id.in_(thinker_ids),
+            Connection.to_thinker_id.in_(thinker_ids),
+        )
+    connections = connections_query.limit(300).all()
 
     # Convert to dicts for AI service
     thinker_dicts = [
@@ -135,7 +150,7 @@ async def get_connection_suggestions(
 
 
 @router.get("/thinker-insight/{thinker_id}", response_model=ThinkerInsightResponse)
-async def get_thinker_insight(thinker_id: str, db: Session = Depends(get_db)):
+async def get_thinker_insight(thinker_id: UUID, db: Session = Depends(get_db)):
     """Get AI-generated insights about a thinker."""
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
@@ -174,16 +189,16 @@ async def get_thinker_insight(thinker_id: str, db: Session = Depends(get_db)):
 
 @router.get("/suggest-research", response_model=List[ResearchSuggestionResponse])
 async def get_research_suggestions(
-    limit: int = 3,
-    thinker_id: Optional[str] = None,
+    limit: int = Query(3, ge=1, le=20),
+    thinker_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
     """Get AI-suggested research questions."""
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
-    thinkers = db.query(Thinker).all()
-    questions = db.query(ResearchQuestion).all()
+    thinkers = db.query(Thinker).limit(200).all()
+    questions = db.query(ResearchQuestion).limit(200).all()
 
     thinker_dicts = [
         {
@@ -199,7 +214,7 @@ async def get_research_suggestions(
     suggestions = await suggest_research_questions(
         thinker_dicts,
         question_dicts,
-        focus_thinker_id=thinker_id,
+        focus_thinker_id=str(thinker_id) if thinker_id else None,
         limit=limit,
     )
 
@@ -266,7 +281,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1, max_length=2000)
     conversation_history: Optional[List[ChatMessage]] = None
 
 
@@ -299,7 +314,7 @@ class SummaryResponse(BaseModel):
 
 
 class ParseRequest(BaseModel):
-    text: str
+    text: str = Field(..., min_length=1, max_length=4000)
 
 
 class ParseResponse(BaseModel):
@@ -323,10 +338,10 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
     # Get all data from database
-    thinkers = db.query(Thinker).all()
-    connections = db.query(Connection).all()
-    publications = db.query(Publication).all()
-    quotes = db.query(Quote).all()
+    thinkers = db.query(Thinker).limit(100).all()
+    connections = db.query(Connection).limit(200).all()
+    publications = db.query(Publication).limit(100).all()
+    quotes = db.query(Quote).limit(100).all()
 
     # Convert to dicts
     thinker_dicts = [
@@ -408,6 +423,21 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
+    allowed_summary_types = {"overview", "timeline", "thinker", "field", "period"}
+    if request.summary_type not in allowed_summary_types:
+        raise HTTPException(status_code=422, detail="Invalid summary_type")
+
+    allowed_lengths = {"short", "medium", "detailed"}
+    if request.length not in allowed_lengths:
+        raise HTTPException(status_code=422, detail="Invalid summary length")
+
+    if request.summary_type == "thinker" and not request.target_id:
+        raise HTTPException(status_code=422, detail="target_id is required for thinker summaries")
+    if request.summary_type in {"field", "period"} and not request.target_name:
+        raise HTTPException(status_code=422, detail="target_name is required for this summary type")
+    if request.summary_type == "timeline" and not (request.target_id or request.timeline_id):
+        raise HTTPException(status_code=422, detail="target_id or timeline_id is required for timeline summaries")
+
     # Get data from database - optionally filter by timeline
     thinker_query = db.query(Thinker)
 
@@ -417,24 +447,29 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
         timeline_filter_id = request.target_id
 
     if timeline_filter_id:
-        thinker_query = thinker_query.filter(Thinker.timeline_id == timeline_filter_id)
+        try:
+            timeline_uuid = UUID(str(timeline_filter_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid timeline identifier")
+        thinker_query = thinker_query.filter(Thinker.timeline_id == timeline_uuid)
 
     thinkers = thinker_query.all()
 
     if not thinkers:
         raise HTTPException(status_code=400, detail="No thinkers found for the selected criteria")
 
-    # Get thinker IDs for filtering connections and publications
-    thinker_ids = {str(t.id) for t in thinkers}
+    # Get thinker IDs for filtering connections and publications.
+    thinker_ids = [t.id for t in thinkers]
+    thinker_id_set = {str(tid) for tid in thinker_ids}
 
-    # Get connections between these thinkers
-    connections = db.query(Connection).all()
-    filtered_connections = [c for c in connections
-                           if str(c.from_thinker_id) in thinker_ids or str(c.to_thinker_id) in thinker_ids]
-
-    # Get publications for these thinkers
-    publications = db.query(Publication).all()
-    filtered_publications = [p for p in publications if str(p.thinker_id) in thinker_ids]
+    # Query only relevant connections/publications instead of full-table scans.
+    filtered_connections = db.query(Connection).filter(
+        (Connection.from_thinker_id.in_(thinker_ids)) |
+        (Connection.to_thinker_id.in_(thinker_ids))
+    ).all()
+    filtered_publications = db.query(Publication).filter(
+        Publication.thinker_id.in_(thinker_ids)
+    ).all()
 
     thinker_dicts = [
         {
@@ -464,6 +499,7 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
             "year": p.year,
         }
         for p in filtered_publications
+        if str(p.thinker_id) in thinker_id_set
     ]
 
     try:
@@ -488,9 +524,10 @@ async def summary_endpoint(request: SummaryRequest, db: Session = Depends(get_db
             length=result.length,
         )
     except AIServiceError as e:
-        raise HTTPException(status_code=500, detail=f"{e.message}. {e.details or ''}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error generating summary: {str(e)[:200]}")
+        # Avoid leaking provider internals to clients.
+        raise HTTPException(status_code=502, detail=e.message)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unexpected error generating summary")
 
 
 @router.post("/parse", response_model=ParseResponse)
@@ -507,7 +544,7 @@ async def parse_natural_language(request: ParseRequest, db: Session = Depends(ge
     if not is_ai_enabled():
         raise HTTPException(status_code=503, detail="AI features are not enabled. Set DEEPSEEK_API_KEY environment variable.")
 
-    thinkers = db.query(Thinker).all()
+    thinkers = db.query(Thinker).limit(300).all()
     thinker_dicts = [
         {
             "id": str(t.id),
@@ -529,4 +566,6 @@ async def parse_natural_language(request: ParseRequest, db: Session = Depends(ge
             needs_clarification=result.needs_clarification,
         )
     except AIServiceError as e:
-        raise HTTPException(status_code=500, detail=f"{e.message}. {e.details or ''}")
+        raise HTTPException(status_code=502, detail=e.message)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unexpected error parsing input")

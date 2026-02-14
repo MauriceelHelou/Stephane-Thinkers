@@ -10,9 +10,13 @@ Configure DEEPSEEK_API_KEY and OPENAI_API_KEY environment variables to enable AI
 
 import os
 import json
+import hashlib
 import httpx
+import time
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from threading import Lock
 
 # DeepSeek Configuration (for LLM/text generation)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -22,6 +26,39 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 # OpenAI Configuration (for embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+_is_test_env = os.getenv("ENVIRONMENT", "development") == "test"
+AI_COST_CONTROLS_ENABLED = _env_bool("AI_COST_CONTROLS_ENABLED", not _is_test_env)
+AI_MAX_PROMPT_TOKENS = _env_int("AI_MAX_PROMPT_TOKENS", 12000)
+AI_MAX_COMPLETION_TOKENS = _env_int("AI_MAX_COMPLETION_TOKENS", 1500)
+AI_DAILY_SOFT_QUOTA_TOKENS = _env_int("AI_DAILY_SOFT_QUOTA_TOKENS", 250000)
+AI_RESPONSE_CACHE_TTL_SECONDS = _env_int("AI_RESPONSE_CACHE_TTL_SECONDS", 0 if _is_test_env else 3600)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+_cache_lock = Lock()
+_daily_usage_lock = Lock()
+_local_response_cache: Dict[str, Dict[str, Any]] = {}
+_local_daily_usage: Dict[str, int] = {}
+_redis_client = None
+_redis_unavailable = False
 
 
 @dataclass
@@ -94,6 +131,174 @@ class AIServiceError(Exception):
         super().__init__(self.message)
 
 
+def estimate_token_count(text: str) -> int:
+    # Lightweight approximation used for telemetry when tokenizer is unavailable.
+    if not text:
+        return 0
+    return max(1, int(len(text) / 4))
+
+
+def build_ai_telemetry(messages: List[Dict[str, str]], response_text: Optional[str], elapsed_ms: int) -> Dict[str, Any]:
+    prompt_chars = sum(len((msg or {}).get("content", "")) for msg in messages)
+    completion_chars = len(response_text or "")
+    return {
+        "elapsed_ms": elapsed_ms,
+        "prompt_tokens_estimate": estimate_token_count(" ".join((msg or {}).get("content", "") for msg in messages)),
+        "completion_tokens_estimate": estimate_token_count(response_text or ""),
+        "prompt_chars": prompt_chars,
+        "completion_chars": completion_chars,
+        "model": DEEPSEEK_MODEL,
+    }
+
+
+def _get_today_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _get_redis_client():
+    global _redis_client, _redis_unavailable
+    if _redis_unavailable:
+        return None
+    if _redis_client is not None:
+        return _redis_client
+    try:
+        from redis import Redis
+
+        _redis_client = Redis.from_url(REDIS_URL, decode_responses=True)
+        _redis_client.ping()
+        return _redis_client
+    except Exception:
+        _redis_unavailable = True
+        return None
+
+
+def _daily_usage_key(day_key: str) -> str:
+    return f"ai:usage:{day_key}"
+
+
+def _cache_key(payload_hash: str) -> str:
+    return f"ai:cache:{payload_hash}"
+
+
+def _cache_payload_hash(messages: List[Dict[str, str]], temperature: float, max_tokens: int) -> str:
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    payload_str = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+
+
+def _get_cached_response(payload_hash: str) -> Optional[str]:
+    if AI_RESPONSE_CACHE_TTL_SECONDS <= 0:
+        return None
+
+    redis_client = _get_redis_client()
+    if redis_client is not None:
+        cached = redis_client.get(_cache_key(payload_hash))
+        if cached:
+            return cached
+        return None
+
+    now = time.time()
+    with _cache_lock:
+        entry = _local_response_cache.get(payload_hash)
+        if not entry:
+            return None
+        expires_at = float(entry.get("expires_at", 0))
+        if expires_at <= now:
+            _local_response_cache.pop(payload_hash, None)
+            return None
+        return str(entry.get("value", ""))
+
+
+def _set_cached_response(payload_hash: str, response_text: str) -> None:
+    if AI_RESPONSE_CACHE_TTL_SECONDS <= 0:
+        return
+
+    redis_client = _get_redis_client()
+    if redis_client is not None:
+        redis_client.setex(_cache_key(payload_hash), AI_RESPONSE_CACHE_TTL_SECONDS, response_text)
+        return
+
+    with _cache_lock:
+        _local_response_cache[payload_hash] = {
+            "value": response_text,
+            "expires_at": time.time() + AI_RESPONSE_CACHE_TTL_SECONDS,
+        }
+
+
+def _get_daily_usage_tokens(day_key: str) -> int:
+    redis_client = _get_redis_client()
+    if redis_client is not None:
+        value = redis_client.get(_daily_usage_key(day_key))
+        return int(value) if value else 0
+
+    with _daily_usage_lock:
+        return _local_daily_usage.get(day_key, 0)
+
+
+def _increment_daily_usage_tokens(day_key: str, tokens: int) -> None:
+    if tokens <= 0:
+        return
+    redis_client = _get_redis_client()
+    if redis_client is not None:
+        key = _daily_usage_key(day_key)
+        redis_client.incrby(key, int(tokens))
+        redis_client.expire(key, 3 * 24 * 60 * 60)
+        return
+
+    with _daily_usage_lock:
+        _local_daily_usage[day_key] = _local_daily_usage.get(day_key, 0) + int(tokens)
+
+
+def _enforce_cost_controls(messages: List[Dict[str, str]], requested_max_tokens: int) -> int:
+    if not AI_COST_CONTROLS_ENABLED:
+        return requested_max_tokens
+
+    prompt_tokens = estimate_token_count(" ".join((msg or {}).get("content", "") for msg in messages))
+    if prompt_tokens > AI_MAX_PROMPT_TOKENS:
+        raise AIServiceError(
+            "Prompt exceeds token cap",
+            f"Estimated prompt tokens {prompt_tokens} > limit {AI_MAX_PROMPT_TOKENS}",
+        )
+
+    capped_max_tokens = min(requested_max_tokens, AI_MAX_COMPLETION_TOKENS)
+    day_key = _get_today_key()
+    used_tokens = _get_daily_usage_tokens(day_key)
+    projected = used_tokens + prompt_tokens + capped_max_tokens
+    if projected > AI_DAILY_SOFT_QUOTA_TOKENS:
+        raise AIServiceError(
+            "Daily AI quota reached",
+            f"Projected usage {projected} exceeds daily soft quota {AI_DAILY_SOFT_QUOTA_TOKENS}",
+        )
+
+    return capped_max_tokens
+
+
+def get_ai_usage_status() -> Dict[str, Any]:
+    day_key = _get_today_key()
+    used_tokens = _get_daily_usage_tokens(day_key)
+    return {
+        "day": day_key,
+        "used_tokens": used_tokens,
+        "daily_quota_tokens": AI_DAILY_SOFT_QUOTA_TOKENS,
+        "cost_controls_enabled": AI_COST_CONTROLS_ENABLED,
+    }
+
+
+def _reset_ai_cost_controls_state_for_tests() -> None:
+    global _redis_client, _redis_unavailable
+    with _cache_lock:
+        _local_response_cache.clear()
+    with _daily_usage_lock:
+        _local_daily_usage.clear()
+    _redis_client = None
+    _redis_unavailable = True
+
+
 async def _call_deepseek_api(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
@@ -104,7 +309,14 @@ async def _call_deepseek_api(
         raise AIServiceError("AI features not enabled", "DEEPSEEK_API_KEY environment variable is not set")
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        capped_max_tokens = _enforce_cost_controls(messages=messages, requested_max_tokens=max_tokens)
+        payload_hash = _cache_payload_hash(messages=messages, temperature=temperature, max_tokens=capped_max_tokens)
+        cached_response = _get_cached_response(payload_hash)
+        if cached_response is not None:
+            return cached_response
+
+        started_at = time.perf_counter()
+        async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
             response = await client.post(
                 f"{DEEPSEEK_BASE_URL}/chat/completions",
                 headers={
@@ -115,12 +327,24 @@ async def _call_deepseek_api(
                     "model": DEEPSEEK_MODEL,
                     "messages": messages,
                     "temperature": temperature,
-                    "max_tokens": max_tokens,
+                    "max_tokens": capped_max_tokens,
                 },
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if AI_COST_CONTROLS_ENABLED:
+                prompt_tokens = estimate_token_count(" ".join((msg or {}).get("content", "") for msg in messages))
+                completion_tokens = estimate_token_count(content)
+                _increment_daily_usage_tokens(_get_today_key(), prompt_tokens + completion_tokens)
+            _set_cached_response(payload_hash, content)
+            telemetry = build_ai_telemetry(
+                messages=messages,
+                response_text=content,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+            print(f"AI_TELEMETRY: {json.dumps(telemetry, sort_keys=True)}")
+            return content
     except httpx.TimeoutException:
         raise AIServiceError("AI request timed out", "The request to DeepSeek API took too long (>60s)")
     except httpx.HTTPStatusError as e:
@@ -826,3 +1050,74 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
             "Failed to parse AI response",
             f"Invalid JSON from AI: {str(e)}. Response was: {cleaned_response[:200]}..."
         )
+
+
+async def synthesize_term_definition(
+    term_name: str,
+    excerpts: List[Dict[str, Any]],
+    filter_context: str = "all notes",
+) -> str:
+    """
+    Synthesize a definition grounded only in the provided excerpts.
+    """
+    if not is_ai_enabled():
+        raise AIServiceError(
+            "AI features not enabled",
+            "DEEPSEEK_API_KEY environment variable is not set",
+        )
+
+    if not excerpts:
+        return (
+            f'No excerpts found for "{term_name}" in {filter_context}. '
+            "Add more notes containing this term to enable synthesis."
+        )
+
+    formatted_excerpts: List[str] = []
+    for index, excerpt in enumerate(excerpts[:30], 1):
+        citation_key = excerpt.get("citation_key") or f"E{index}"
+        thinkers = ", ".join(excerpt.get("associated_thinkers", [])) or "no specific thinker"
+        formatted_excerpts.append(
+            f'[{citation_key}] Excerpt {index} (from "{excerpt.get("note_title", "Untitled note")}" '
+            f'in {excerpt.get("folder_name", "Unfiled")}, associated with {thinkers}):\n'
+            f'"{excerpt.get("context_snippet", "")}"'
+        )
+
+    system_prompt = (
+        "You are a scholarly research assistant helping a PhD student organize notes "
+        "on intellectual history. Synthesize a definition using ONLY provided excerpts.\n\n"
+        "Rules:\n"
+        "1. Do not add external knowledge.\n"
+        "2. Attribute ideas to thinkers when stated.\n"
+        "3. Note tensions or contradictions across excerpts.\n"
+        "4. Use scholarly but accessible language.\n"
+        "5. Structure output as: concise definition, key nuances, unresolved tensions.\n"
+        "6. Format response in markdown.\n"
+        "7. If excerpts are sparse, say so clearly.\n"
+        "8. Cite claims inline using square-bracket excerpt keys, e.g. [E1], [E3].\n"
+        "9. Do not invent citation keys; only use the provided [E#] keys.\n"
+        "10. Every substantive sentence or bullet must include at least one inline citation.\n"
+    )
+
+    user_prompt = (
+        f'Synthesize a scholarly definition of "{term_name}" from these '
+        f"{len(formatted_excerpts)} excerpts (filtered to: {filter_context}).\n\n"
+        "Use inline citations in [E#] format.\n\n"
+        + "\n\n".join(formatted_excerpts)
+    )
+
+    response = await _call_deepseek_api(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.5,
+        max_tokens=1000,
+    )
+
+    if not response:
+        raise AIServiceError(
+            "Empty response from AI",
+            "The DeepSeek API returned an empty response for term synthesis.",
+        )
+
+    return response

@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { primeAuthenticatedSession } from './helpers/auth-helpers'
 
 test.describe('Connections', () => {
   test.beforeEach(async ({ page }) => {
+    await primeAuthenticatedSession(page)
     await page.goto('/')
   })
 
@@ -43,9 +45,10 @@ test.describe('Connections', () => {
 
   test('should show optional fields', async ({ page }) => {
     await page.keyboard.press('Control+k')
-    await expect(page.getByText('Connection Name (optional)')).toBeVisible()
-    await expect(page.getByText('Notes')).toBeVisible()
-    await expect(page.getByText('Strength (1-5, optional)')).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Add Connection' })
+    await expect(dialog.getByText('Connection Name (optional)')).toBeVisible()
+    await expect(dialog.locator('label', { hasText: 'Notes' })).toBeVisible()
+    await expect(dialog.getByText('Strength (1-5, optional)')).toBeVisible()
   })
 
   test('should cancel adding a connection', async ({ page }) => {

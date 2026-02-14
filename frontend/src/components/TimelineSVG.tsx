@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { thinkersApi, connectionsApi, timelineEventsApi } from '@/lib/api'
+import { thinkersApi, connectionsApi, timelineEventsApi, API_URL } from '@/lib/api'
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT } from '@/lib/constants'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent } from '@/types'
@@ -34,7 +34,7 @@ export function TimelineSVG({
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
     queryFn: async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/timelines/`)
+      const response = await fetch(`${API_URL}/api/timelines/`)
       return response.json()
     },
   })
@@ -42,11 +42,13 @@ export function TimelineSVG({
   const { data: thinkers = [], isLoading: thinkersLoading } = useQuery({
     queryKey: ['thinkers', filterByTimelineId],
     queryFn: () => thinkersApi.getAll(),
+    refetchOnMount: 'always',
   })
 
   const { data: connections = [], isLoading: connectionsLoading } = useQuery({
     queryKey: ['connections'],
     queryFn: connectionsApi.getAll,
+    refetchOnMount: 'always',
   })
 
   const { data: timelineEvents = [], isLoading: eventsLoading } = useQuery({

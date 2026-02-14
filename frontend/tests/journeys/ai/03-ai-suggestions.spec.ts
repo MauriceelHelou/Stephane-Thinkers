@@ -4,6 +4,9 @@ import { createAPIHelpers } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('AI Journey: AI Suggestions', () => {
+  test.describe.configure({ mode: 'serial' })
+  test.setTimeout(120000)
+
   test.beforeEach(async ({ page, request }) => {
     const api = createAPIHelpers(request)
     await api.resetDatabase()
@@ -22,23 +25,24 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
-      await expect(suggestionsTab).toBeVisible()
+      await expect(page.getByRole('button', { name: /Connection Ideas/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Research Ideas/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Status/i })).toBeVisible()
     })
 
     test('should switch to suggestions tab', async ({ page }) => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
-      if (await suggestionsTab.isVisible()) {
-        await suggestionsTab.click()
+      const researchTab = page.getByRole('button', { name: /Research Ideas/i })
+      if (await researchTab.isVisible()) {
+        await researchTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)
       }
     })
@@ -49,10 +53,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Connection Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -67,10 +71,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Connection Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -85,16 +89,17 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Connection Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
 
         // Accept button for suggestion
-        const acceptButton = page.locator('button').filter({ hasText: /accept|add|create/i })
+        const suggestionsModal = page.locator('div.fixed.inset-0.bg-black\\/30.z-50')
+        const acceptButton = suggestionsModal.getByRole('button', { name: /Add Connection/i })
         if (await acceptButton.first().isVisible()) {
           await acceptButton.first().click()
           await page.waitForTimeout(TIMEOUTS.animation)
@@ -106,16 +111,17 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Connection Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
 
         // Dismiss button
-        const dismissButton = page.locator('button').filter({ hasText: /dismiss|ignore|skip|×/i })
+        const suggestionsModal = page.locator('div.fixed.inset-0.bg-black\\/30.z-50')
+        const dismissButton = suggestionsModal.getByRole('button', { name: /dismiss|ignore|skip/i })
         if (await dismissButton.first().isVisible()) {
           await dismissButton.first().click()
           await page.waitForTimeout(TIMEOUTS.animation)
@@ -129,10 +135,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -147,10 +153,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -166,10 +172,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -184,10 +190,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -202,10 +208,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)
@@ -223,10 +229,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)
@@ -245,7 +251,7 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Empty state message
@@ -265,10 +271,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Open AI panel
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -283,17 +289,26 @@ test.describe('AI Journey: AI Suggestions', () => {
 
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)
 
-        // Select different thinker
+        // Close the modal before interacting with the canvas.
+        const suggestionsModal = page.locator('div.fixed.inset-0.bg-black\\/30.z-50')
+        await suggestionsModal.locator('button').filter({ hasText: /^×$/ }).first().click()
+        await expect(suggestionsModal).toBeHidden()
+
+        // Select a different thinker, then reopen suggestions.
         await canvasPage.clickOnCanvas(180, 200)
         await page.waitForTimeout(TIMEOUTS.medium)
+
+        await mainPage.openAISuggestionsPanel()
+        await page.getByRole('button', { name: /Research Ideas/i }).click()
+        await page.waitForTimeout(TIMEOUTS.animation)
 
         // Suggestions should update
       }
@@ -305,10 +320,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.medium)
@@ -324,10 +339,10 @@ test.describe('AI Journey: AI Suggestions', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const suggestionsTab = page.locator('button, [role="tab"]').filter({ hasText: /suggest/i })
+      const suggestionsTab = page.getByRole('button', { name: /Research Ideas/i })
       if (await suggestionsTab.isVisible()) {
         await suggestionsTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)

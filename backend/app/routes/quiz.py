@@ -13,8 +13,8 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import case, func, select
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
@@ -45,7 +45,17 @@ router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
 # ============ Helper Functions ============
 
-def get_thinker_dicts(db: Session, timeline_id: Optional[str] = None) -> List[dict]:
+def _enum_or_string(value, default: Optional[str] = None) -> Optional[str]:
+    """
+    Return enum `.value` when present, otherwise return string value directly.
+    This keeps quiz generation compatible across legacy/new column representations.
+    """
+    if value is None:
+        return default
+    enum_value = getattr(value, "value", value)
+    return enum_value if isinstance(enum_value, str) else str(enum_value)
+
+def get_thinker_dicts(db: Session, timeline_id: Optional[UUID] = None) -> List[dict]:
     """Get thinkers as dictionaries."""
     query = db.query(Thinker)
     if timeline_id:
@@ -65,9 +75,14 @@ def get_thinker_dicts(db: Session, timeline_id: Optional[str] = None) -> List[di
     ]
 
 
-def get_quote_dicts(db: Session) -> List[dict]:
+def get_quote_dicts(db: Session, timeline_id: Optional[UUID] = None) -> List[dict]:
     """Get quotes as dictionaries."""
-    quotes = db.query(Quote).all()
+    query = db.query(Quote)
+    if timeline_id:
+        query = query.join(Thinker, Thinker.id == Quote.thinker_id).filter(
+            Thinker.timeline_id == timeline_id
+        )
+    quotes = query.all()
     return [
         {
             "id": str(q.id),
@@ -79,30 +94,47 @@ def get_quote_dicts(db: Session) -> List[dict]:
     ]
 
 
-def get_publication_dicts(db: Session) -> List[dict]:
+def get_publication_dicts(db: Session, timeline_id: Optional[UUID] = None) -> List[dict]:
     """Get publications as dictionaries."""
-    publications = db.query(Publication).all()
+    query = db.query(Publication)
+    if timeline_id:
+        query = query.join(Thinker, Thinker.id == Publication.thinker_id).filter(
+            Thinker.timeline_id == timeline_id
+        )
+    publications = query.all()
     return [
         {
             "id": str(p.id),
             "thinker_id": str(p.thinker_id),
             "title": p.title,
             "year": p.year,
-            "publication_type": p.publication_type.value if p.publication_type else None,
+            "publication_type": _enum_or_string(p.publication_type),
         }
         for p in publications
     ]
 
 
-def get_connection_dicts(db: Session) -> List[dict]:
+def get_connection_dicts(db: Session, timeline_id: Optional[UUID] = None) -> List[dict]:
     """Get connections as dictionaries."""
-    connections = db.query(Connection).all()
+    query = db.query(Connection)
+    if timeline_id:
+        from_thinker = aliased(Thinker)
+        to_thinker = aliased(Thinker)
+        query = query.join(
+            from_thinker, Connection.from_thinker_id == from_thinker.id
+        ).join(
+            to_thinker, Connection.to_thinker_id == to_thinker.id
+        ).filter(
+            from_thinker.timeline_id == timeline_id,
+            to_thinker.timeline_id == timeline_id,
+        )
+    connections = query.all()
     return [
         {
             "id": str(c.id),
             "from_thinker_id": str(c.from_thinker_id),
             "to_thinker_id": str(c.to_thinker_id),
-            "connection_type": c.connection_type.value if c.connection_type else "influenced",
+            "connection_type": _enum_or_string(c.connection_type, default="influenced"),
             "notes": c.notes,
         }
         for c in connections
@@ -128,6 +160,19 @@ def question_to_response(q: QuizQuestion) -> schemas.QuizQuestionResponse:
     )
 
 
+def _parse_uuid(value: str, field_name: str) -> UUID:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"Invalid {field_name}")
+
+
+def _parse_optional_uuid(value: Optional[str], field_name: str) -> Optional[UUID]:
+    if not value:
+        return None
+    return _parse_uuid(value, field_name)
+
+
 # ============ Endpoints ============
 
 @router.post("/generate-question", response_model=schemas.QuizQuestionResponse)
@@ -141,6 +186,9 @@ async def generate_question_endpoint(
     First checks the question pool for existing suitable questions.
     If none found, generates a new question (with AI if enabled).
     """
+    timeline_uuid = _parse_optional_uuid(params.timeline_id, "timeline_id")
+    timeline_id_str = str(timeline_uuid) if timeline_uuid else None
+
     # Check for spaced repetition questions first
     if params.use_spaced_repetition:
         review_entry = db.query(SpacedRepetitionQueue).filter(
@@ -151,7 +199,7 @@ async def generate_question_endpoint(
             question = db.query(QuizQuestion).filter(
                 QuizQuestion.id == review_entry.question_id
             ).first()
-            if question and str(question.id) not in params.exclude_question_ids:
+            if question and question.id not in params.exclude_question_ids:
                 # Update times_asked
                 question.times_asked = (question.times_asked or 0) + 1
                 db.commit()
@@ -164,16 +212,10 @@ async def generate_question_endpoint(
     )
 
     if params.timeline_id:
-        query = query.filter(
-            (QuizQuestion.timeline_id == params.timeline_id) |
-            (QuizQuestion.timeline_id.is_(None))
-        )
+        query = query.filter(QuizQuestion.timeline_id == timeline_uuid)
 
     if params.exclude_question_ids:
-        query = query.filter(~QuizQuestion.id.in_([
-            uuid.UUID(qid.replace('-', '')) if '-' in qid else uuid.UUID(qid)
-            for qid in params.exclude_question_ids
-        ]))
+        query = query.filter(~QuizQuestion.id.in_(params.exclude_question_ids))
 
     # Order by least asked to vary questions
     existing_question = query.order_by(QuizQuestion.times_asked.asc()).first()
@@ -184,10 +226,10 @@ async def generate_question_endpoint(
         return question_to_response(existing_question)
 
     # Generate new question
-    thinkers = get_thinker_dicts(db, params.timeline_id)
-    quotes = get_quote_dicts(db)
-    publications = get_publication_dicts(db)
-    connections = get_connection_dicts(db)
+    thinkers = get_thinker_dicts(db, timeline_uuid)
+    quotes = get_quote_dicts(db, timeline_uuid)
+    publications = get_publication_dicts(db, timeline_uuid)
+    connections = get_connection_dicts(db, timeline_uuid)
 
     if not thinkers:
         raise HTTPException(status_code=400, detail="No thinkers in database to generate questions from")
@@ -203,7 +245,7 @@ async def generate_question_endpoint(
         allowed_categories=params.question_categories,
         difficulty=difficulty,
         question_type=q_type,
-        timeline_id=params.timeline_id,
+        timeline_id=timeline_id_str,
     )
 
     if not generated:
@@ -228,7 +270,7 @@ async def generate_question_endpoint(
         difficulty=generated.difficulty,
         explanation=generated.explanation,
         related_thinker_ids=generated.related_thinker_ids,
-        timeline_id=uuid.UUID(params.timeline_id) if params.timeline_id else None,
+        timeline_id=timeline_uuid,
         times_asked=1,
         times_correct=0,
     )
@@ -247,10 +289,13 @@ async def generate_quiz_endpoint(
     """
     Generate a full quiz session with multiple questions.
     """
+    timeline_uuid = _parse_optional_uuid(params.timeline_id, "timeline_id")
+    timeline_id_str = str(timeline_uuid) if timeline_uuid else None
+
     # Create session
     session = QuizSession(
         id=uuid.uuid4(),
-        timeline_id=uuid.UUID(params.timeline_id) if params.timeline_id else None,
+        timeline_id=timeline_uuid,
         difficulty=params.difficulty if params.difficulty != "adaptive" else "medium",
         question_count=params.question_count,
         question_categories=params.question_categories,
@@ -266,10 +311,10 @@ async def generate_quiz_endpoint(
     exclude_ids = []
     current_difficulty = params.difficulty if params.difficulty != "adaptive" else "medium"
 
-    thinkers = get_thinker_dicts(db, params.timeline_id)
-    quotes = get_quote_dicts(db)
-    publications = get_publication_dicts(db)
-    connections = get_connection_dicts(db)
+    thinkers = get_thinker_dicts(db, timeline_uuid)
+    quotes = get_quote_dicts(db, timeline_uuid)
+    publications = get_publication_dicts(db, timeline_uuid)
+    connections = get_connection_dicts(db, timeline_uuid)
 
     for i in range(params.question_count):
         # Determine question type based on ratio
@@ -284,10 +329,7 @@ async def generate_quiz_endpoint(
             )
 
             if params.timeline_id:
-                query = query.filter(
-                    (QuizQuestion.timeline_id == params.timeline_id) |
-                    (QuizQuestion.timeline_id.is_(None))
-                )
+                query = query.filter(QuizQuestion.timeline_id == timeline_uuid)
 
             if exclude_ids:
                 query = query.filter(~QuizQuestion.id.in_(exclude_ids))
@@ -308,7 +350,7 @@ async def generate_quiz_endpoint(
                 allowed_categories=params.question_categories,
                 difficulty=current_difficulty,
                 question_type=q_type,
-                timeline_id=params.timeline_id,
+                timeline_id=timeline_id_str,
             )
 
             if generated:
@@ -322,7 +364,7 @@ async def generate_quiz_endpoint(
                     difficulty=generated.difficulty,
                     explanation=generated.explanation,
                     related_thinker_ids=generated.related_thinker_ids,
-                    timeline_id=uuid.UUID(params.timeline_id) if params.timeline_id else None,
+                    timeline_id=timeline_uuid,
                     times_asked=1,
                     times_correct=0,
                 )
@@ -366,13 +408,13 @@ async def validate_answer_endpoint(
     Validate a user's answer and update statistics.
     """
     # Get question
-    question_uuid = uuid.UUID(request.question_id.replace('-', '')) if '-' in request.question_id else uuid.UUID(request.question_id)
+    question_uuid = _parse_uuid(request.question_id, "question_id")
     question = db.query(QuizQuestion).filter(QuizQuestion.id == question_uuid).first()
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
 
     # Get session
-    session_uuid = uuid.UUID(request.session_id.replace('-', '')) if '-' in request.session_id else uuid.UUID(request.session_id)
+    session_uuid = _parse_uuid(request.session_id, "session_id")
     session = db.query(QuizSession).filter(QuizSession.id == session_uuid).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -479,7 +521,7 @@ def get_session_endpoint(
     db: Session = Depends(get_db),
 ):
     """Get quiz session details."""
-    session_uuid = uuid.UUID(session_id.replace('-', '')) if '-' in session_id else uuid.UUID(session_id)
+    session_uuid = _parse_uuid(session_id, "session_id")
     session = db.query(QuizSession).filter(QuizSession.id == session_uuid).first()
 
     if not session:
@@ -499,20 +541,21 @@ def get_history_endpoint(
     query = db.query(QuizSession).order_by(QuizSession.created_at.desc())
 
     if timeline_id:
-        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+        tl_uuid = _parse_uuid(timeline_id, "timeline_id")
         query = query.filter(QuizSession.timeline_id == tl_uuid)
 
     sessions = query.offset(offset).limit(limit).all()
+    timeline_ids = {session.timeline_id for session in sessions if session.timeline_id}
+    timeline_name_by_id = {}
+    if timeline_ids:
+        timelines = db.query(Timeline.id, Timeline.name).filter(Timeline.id.in_(timeline_ids)).all()
+        timeline_name_by_id = {timeline.id: timeline.name for timeline in timelines}
 
     result = []
     for session in sessions:
         accuracy = (session.score / session.question_count * 100) if session.question_count > 0 else 0
 
-        timeline_name = None
-        if session.timeline_id:
-            timeline = db.query(Timeline).filter(Timeline.id == session.timeline_id).first()
-            if timeline:
-                timeline_name = timeline.name
+        timeline_name = timeline_name_by_id.get(session.timeline_id)
 
         result.append(schemas.QuizSessionSummary(
             session_id=str(session.id),
@@ -536,7 +579,7 @@ def get_statistics_endpoint(db: Session = Depends(get_db)):
 
     # Total answers
     total_answers = db.query(func.count(QuizAnswer.id)).scalar() or 0
-    correct_answers = db.query(func.count(QuizAnswer.id)).filter(QuizAnswer.is_correct == True).scalar() or 0
+    correct_answers = db.query(func.count(QuizAnswer.id)).filter(QuizAnswer.is_correct.is_(True)).scalar() or 0
 
     overall_accuracy = (correct_answers / total_answers * 100) if total_answers > 0 else 0
 
@@ -544,7 +587,7 @@ def get_statistics_endpoint(db: Session = Depends(get_db)):
     category_stats = db.query(
         QuizQuestion.category,
         func.count(QuizAnswer.id).label('total'),
-        func.sum(func.cast(QuizAnswer.is_correct, db.bind.dialect.type_descriptor(db.bind.dialect.supports_native_boolean and type(True) or type(1)))).label('correct')
+        func.sum(case((QuizAnswer.is_correct.is_(True), 1), else_=0)).label('correct')
     ).join(QuizAnswer, QuizQuestion.id == QuizAnswer.question_id).group_by(QuizQuestion.category).all()
 
     category_performance = []
@@ -628,7 +671,7 @@ def reset_question_endpoint(
     db: Session = Depends(get_db),
 ):
     """Reset question statistics (admin endpoint)."""
-    question_uuid = uuid.UUID(question_id.replace('-', '')) if '-' in question_id else uuid.UUID(question_id)
+    question_uuid = _parse_uuid(question_id, "question_id")
     question = db.query(QuizQuestion).filter(QuizQuestion.id == question_uuid).first()
 
     if not question:
@@ -659,7 +702,7 @@ def complete_session_endpoint(
     db: Session = Depends(get_db),
 ):
     """Mark a quiz session as completed."""
-    session_uuid = uuid.UUID(session_id.replace('-', '')) if '-' in session_id else uuid.UUID(session_id)
+    session_uuid = _parse_uuid(session_id, "session_id")
     session = db.query(QuizSession).filter(QuizSession.id == session_uuid).first()
 
     if not session:
@@ -684,13 +727,14 @@ def clear_question_pool_endpoint(
     Clear all quiz questions from the pool.
     Use this when thinker data has been updated and you want fresh questions.
     """
+    timeline_uuid = _parse_optional_uuid(timeline_id, "timeline_id")
+
     # Delete spaced repetition entries first (foreign key constraint)
     sr_query = db.query(SpacedRepetitionQueue)
-    if timeline_id:
-        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+    if timeline_uuid:
         # Get question IDs for this timeline
         question_ids = [q.id for q in db.query(QuizQuestion.id).filter(
-            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
+            QuizQuestion.timeline_id == timeline_uuid
         ).all()]
         sr_query = sr_query.filter(SpacedRepetitionQueue.question_id.in_(question_ids))
 
@@ -698,17 +742,14 @@ def clear_question_pool_endpoint(
 
     # Delete quiz answers (foreign key constraint)
     answer_query = db.query(QuizAnswer)
-    if timeline_id:
+    if timeline_uuid:
         answer_query = answer_query.filter(QuizAnswer.question_id.in_(question_ids))
     answer_deleted = answer_query.delete(synchronize_session=False)
 
     # Delete questions
     query = db.query(QuizQuestion)
-    if timeline_id:
-        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
-        query = query.filter(
-            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
-        )
+    if timeline_uuid:
+        query = query.filter(QuizQuestion.timeline_id == timeline_uuid)
 
     deleted_count = query.delete(synchronize_session=False)
     db.commit()
@@ -732,25 +773,38 @@ async def refresh_questions_endpoint(
     Clear the question pool and generate fresh questions from current data.
     Use this after updating thinker information.
     """
-    # First clear existing questions
-    sr_deleted = db.query(SpacedRepetitionQueue).delete(synchronize_session=False)
-    answer_deleted = db.query(QuizAnswer).delete(synchronize_session=False)
+    timeline_uuid = _parse_optional_uuid(timeline_id, "timeline_id")
+    timeline_id_str = str(timeline_uuid) if timeline_uuid else None
 
-    if timeline_id:
-        tl_uuid = uuid.UUID(timeline_id.replace('-', '')) if '-' in timeline_id else uuid.UUID(timeline_id)
+    if timeline_uuid:
+        question_ids_subquery = db.query(QuizQuestion.id).filter(
+            QuizQuestion.timeline_id == timeline_uuid
+        ).subquery()
+
+        # First clear related review/answer data for only the targeted question set.
+        sr_deleted = db.query(SpacedRepetitionQueue).filter(
+            SpacedRepetitionQueue.question_id.in_(select(question_ids_subquery.c.id))
+        ).delete(synchronize_session=False)
+        answer_deleted = db.query(QuizAnswer).filter(
+            QuizAnswer.question_id.in_(select(question_ids_subquery.c.id))
+        ).delete(synchronize_session=False)
+
         deleted_count = db.query(QuizQuestion).filter(
-            (QuizQuestion.timeline_id == tl_uuid) | (QuizQuestion.timeline_id.is_(None))
+            QuizQuestion.id.in_(select(question_ids_subquery.c.id))
         ).delete(synchronize_session=False)
     else:
+        # First clear existing questions and dependent data globally.
+        sr_deleted = db.query(SpacedRepetitionQueue).delete(synchronize_session=False)
+        answer_deleted = db.query(QuizAnswer).delete(synchronize_session=False)
         deleted_count = db.query(QuizQuestion).delete(synchronize_session=False)
 
     db.commit()
 
     # Now generate fresh questions
-    thinkers = get_thinker_dicts(db, timeline_id)
-    quotes = get_quote_dicts(db)
-    publications = get_publication_dicts(db)
-    connections = get_connection_dicts(db)
+    thinkers = get_thinker_dicts(db, timeline_uuid)
+    quotes = get_quote_dicts(db, timeline_uuid)
+    publications = get_publication_dicts(db, timeline_uuid)
+    connections = get_connection_dicts(db, timeline_uuid)
 
     if not thinkers:
         return {
@@ -772,7 +826,7 @@ async def refresh_questions_endpoint(
             allowed_categories=categories,
             difficulty="medium",
             question_type="multiple_choice",
-            timeline_id=timeline_id,
+            timeline_id=timeline_id_str,
         )
 
         if generated:
@@ -786,7 +840,7 @@ async def refresh_questions_endpoint(
                 difficulty=generated.difficulty,
                 explanation=generated.explanation,
                 related_thinker_ids=generated.related_thinker_ids,
-                timeline_id=uuid.UUID(timeline_id) if timeline_id else None,
+                timeline_id=timeline_uuid,
                 times_asked=0,
                 times_correct=0,
             )

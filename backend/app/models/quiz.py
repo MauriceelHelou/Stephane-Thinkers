@@ -51,13 +51,13 @@ class QuizQuestion(Base):
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     question_text = Column(Text, nullable=False)
     question_type = Column(String(20), nullable=False)  # multiple_choice, short_answer
-    category = Column(String(20), nullable=False)  # birth_year, death_year, quote, etc.
+    category = Column(String(20), nullable=False, index=True)  # birth_year, death_year, quote, etc.
     correct_answer = Column(Text, nullable=False)
     options = Column(JSON, nullable=True)  # For multiple choice options
-    difficulty = Column(String(10), nullable=False, default="medium")
+    difficulty = Column(String(10), nullable=False, default="medium", index=True)
     explanation = Column(Text, nullable=True)
     related_thinker_ids = Column(JSON, nullable=True)  # Array of thinker UUIDs as strings
-    timeline_id = Column(GUID, ForeignKey("timelines.id"), nullable=True)  # Optional timeline scope
+    timeline_id = Column(GUID, ForeignKey("timelines.id"), nullable=True, index=True)  # Optional timeline scope
     times_asked = Column(Integer, default=0)
     times_correct = Column(Integer, default=0)
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -83,7 +83,7 @@ class QuizSession(Base):
     __tablename__ = "quiz_sessions"
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    timeline_id = Column(GUID, ForeignKey("timelines.id"), nullable=True)
+    timeline_id = Column(GUID, ForeignKey("timelines.id"), nullable=True, index=True)
     difficulty = Column(String(10), nullable=False, default="medium")
     question_count = Column(Integer, nullable=False)
     score = Column(Integer, default=0)  # Number of correct answers
@@ -106,8 +106,8 @@ class QuizAnswer(Base):
     __tablename__ = "quiz_answers"
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    session_id = Column(GUID, ForeignKey("quiz_sessions.id"), nullable=False)
-    question_id = Column(GUID, ForeignKey("quiz_questions.id"), nullable=False)
+    session_id = Column(GUID, ForeignKey("quiz_sessions.id"), nullable=False, index=True)
+    question_id = Column(GUID, ForeignKey("quiz_questions.id"), nullable=False, index=True)
     user_answer = Column(Text, nullable=False)
     is_correct = Column(Boolean, nullable=False)
     time_taken_seconds = Column(Integer, nullable=True)
@@ -126,9 +126,9 @@ class SpacedRepetitionQueue(Base):
     __tablename__ = "spaced_repetition_queue"
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    question_id = Column(GUID, ForeignKey("quiz_questions.id"), nullable=False)
+    question_id = Column(GUID, ForeignKey("quiz_questions.id"), nullable=False, unique=True, index=True)
     last_answered_at = Column(TIMESTAMP, nullable=True)
-    next_review_at = Column(TIMESTAMP, server_default=func.now())
+    next_review_at = Column(TIMESTAMP, server_default=func.now(), index=True)
     ease_factor = Column(Float, default=2.5)  # SM-2 ease factor
     interval_days = Column(Integer, default=1)  # Current interval
     repetitions = Column(Integer, default=0)  # Number of successful reviews

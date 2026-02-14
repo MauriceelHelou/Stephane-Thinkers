@@ -17,13 +17,14 @@ This directory contains comprehensive documentation for the AI/LLM integration i
 3. **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Implementation guide and code structure
 4. **[API.md](API.md)** - AI API endpoints and usage examples
 5. **[FEATURES.md](FEATURES.md)** - AI-powered features and capabilities
+6. **[PLAN9-API.md](PLAN9-API.md)** - Notes AI endpoints for Plan 9 (phases 0-F)
 
 ### Reference Documentation
-6. **[EMBEDDINGS.md](EMBEDDINGS.md)** - Embedding generation and management
-7. **[VECTOR-DB.md](VECTOR-DB.md)** - ChromaDB setup and operations
-8. **[DEEPSEEK.md](DEEPSEEK.md)** - DeepSeek API integration guide
-9. **[PROMPTS.md](PROMPTS.md)** - Prompt engineering templates
-10. **[TESTING.md](TESTING.md)** - Testing AI features
+7. **[EMBEDDINGS.md](EMBEDDINGS.md)** - Embedding generation and management
+8. **[VECTOR-DB.md](VECTOR-DB.md)** - ChromaDB setup and operations
+9. **[DEEPSEEK.md](DEEPSEEK.md)** - DeepSeek API integration guide
+10. **[PROMPTS.md](PROMPTS.md)** - Prompt engineering templates
+11. **[TESTING.md](TESTING.md)** - Testing AI features
 
 ## Quick Start
 
@@ -223,7 +224,7 @@ backend/
 # Start backend with AI features
 cd backend
 source venv/bin/activate
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8010
 ```
 
 ### 2. Testing

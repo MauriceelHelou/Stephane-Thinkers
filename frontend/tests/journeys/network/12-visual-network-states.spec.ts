@@ -5,6 +5,8 @@ import { createAPIHelpers, TestThinker } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('Network Journey: Visual Network States', () => {
+  test.describe.configure({ mode: 'serial' })
+
   let thinkers: TestThinker[]
 
   test.beforeEach(async ({ page, request }) => {
@@ -316,15 +318,14 @@ test.describe('Network Journey: Visual Network States', () => {
 
     test('should show loading state while connections are being fetched', async ({ page }) => {
       // This requires network throttling
-      const mainPage = createMainPage(page)
-
       // Navigate with slow network
       await page.route('**/api/connections/**', async route => {
         await new Promise(resolve => setTimeout(resolve, 1000))
         await route.continue()
       })
 
-      await mainPage.goto()
+      await page.goto('/')
+      await page.waitForTimeout(TIMEOUTS.short)
 
       // During load, might show spinner or loading skeleton
     })

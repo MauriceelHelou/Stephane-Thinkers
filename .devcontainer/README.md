@@ -38,7 +38,7 @@ Terminal 1 - Backend:
 ```bash
 cd backend
 source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8010 --reload
 ```
 
 Terminal 2 - Frontend:
@@ -54,9 +54,9 @@ bash .devcontainer/start-services.sh
 
 ### 4. Access the Application
 
-- **Frontend**: http://localhost:3001
-- **Backend API**: http://localhost:8001
-- **API Documentation**: http://localhost:8001/docs
+- **Frontend**: http://localhost:3010
+- **Backend API**: http://localhost:8010
+- **API Documentation**: http://localhost:8010/docs
 
 ## Using Claude Code Inside the Container
 
@@ -233,7 +233,7 @@ If your project is in OneDrive, you MUST pause syncing during development:
 
 ### Ports already in use
 
-If ports 3001 or 8001 are already in use:
+If ports 3010 or 8010 are already in use:
 
 1. Stop services using those ports on your host machine
 2. Or modify port mappings in `.devcontainer/devcontainer.json`

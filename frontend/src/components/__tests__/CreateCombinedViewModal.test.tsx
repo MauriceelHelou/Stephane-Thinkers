@@ -98,6 +98,9 @@ describe('CreateCombinedViewModal', () => {
       renderWithProviders(<CreateCombinedViewModal {...defaultProps} />)
 
       const submitButton = screen.getByRole('button', { name: /Create Combined View/i })
+      await waitFor(() => {
+        expect(submitButton).not.toBeDisabled()
+      })
       fireEvent.click(submitButton)
 
       await waitFor(() => {
@@ -112,6 +115,9 @@ describe('CreateCombinedViewModal', () => {
       fireEvent.change(nameInput, { target: { value: 'Test View' } })
 
       const submitButton = screen.getByRole('button', { name: /Create Combined View/i })
+      await waitFor(() => {
+        expect(submitButton).not.toBeDisabled()
+      })
       fireEvent.click(submitButton)
 
       await waitFor(() => {

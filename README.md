@@ -8,14 +8,14 @@ A minimalist timeline-based knowledge graph for Harvard PhD research.
 - Next.js 14 App Router with TypeScript
 - TailwindCSS for styling
 - React Query for data fetching
-- Port: 3001
+- Port: 3010
 
 **Backend:**
 - FastAPI (Python)
 - PostgreSQL database
 - SQLAlchemy ORM
 - Alembic for migrations
-- Port: 8001
+- Port: 8010
 
 ## Project Structure
 
@@ -79,7 +79,7 @@ alembic upgrade head
 
 4. Start the backend server:
 ```bash
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8010
 ```
 
 ### Frontend Setup
@@ -95,21 +95,21 @@ npm install
 npm run dev
 ```
 
-The frontend will be available at http://localhost:3001
-The backend API will be available at http://localhost:8001
+The frontend will be available at http://localhost:3010
+The backend API will be available at http://localhost:8010
 
 ## Environment Variables
 
 ### Backend (.env)
 ```
 DATABASE_URL=postgresql://username:password@localhost:5432/intellectual_graph
-PORT=8001
-FRONTEND_URL=http://localhost:3001
+PORT=8010
+FRONTEND_URL=http://localhost:3010
 ```
 
 ### Frontend (.env.local)
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_API_URL=http://localhost:8010
 ```
 
 ## Features
@@ -176,7 +176,7 @@ The application uses SQLite for local development (PostgreSQL ready for producti
 
 ## API Endpoints
 
-All endpoints are available at `http://localhost:8001`:
+All endpoints are available at `http://localhost:8010`:
 
 - `GET /api/thinkers` - List all thinkers
 - `POST /api/thinkers` - Create a thinker
@@ -202,7 +202,7 @@ All endpoints are available at `http://localhost:8001`:
 3. Update `backend/.env` with PostgreSQL connection string
 4. Run migrations: `alembic upgrade head`
 
-**Port Configuration**: Uses ports 3001 (frontend) and 8001 (backend) to avoid conflicts with standard ports.
+**Port Configuration**: Uses ports 3010 (frontend) and 8010 (backend) to avoid conflicts with standard ports.
 
 **Design System**: Academic minimalism with Crimson Text serif font, Harvard crimson accents, and generous white space.
 

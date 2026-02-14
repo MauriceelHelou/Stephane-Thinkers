@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -39,7 +39,7 @@ class CombinedTimelineView(CombinedTimelineViewBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
-    members: List[CombinedViewMember] = []
+    members: List[CombinedViewMember] = Field(default_factory=list)
 
 # Schema for updating a combined view
 class CombinedTimelineViewUpdate(BaseModel):

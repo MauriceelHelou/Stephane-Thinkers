@@ -9,6 +9,7 @@ import {
   publicationsApi,
   quotesApi,
   tagsApi,
+  noteTagsApi,
   aiApi,
   researchQuestionsApi,
   institutionsApi,
@@ -165,6 +166,21 @@ describe('API Client', () => {
     })
   })
 
+  describe('noteTagsApi', () => {
+    it('should have CRUD methods', () => {
+      expect(noteTagsApi.getAll).toBeDefined()
+      expect(noteTagsApi.getOne).toBeDefined()
+      expect(noteTagsApi.create).toBeDefined()
+      expect(noteTagsApi.update).toBeDefined()
+      expect(noteTagsApi.delete).toBeDefined()
+    })
+
+    it('should fetch all note tags', async () => {
+      const tags = await noteTagsApi.getAll()
+      expect(Array.isArray(tags)).toBe(true)
+    })
+  })
+
   describe('aiApi', () => {
     it('should have status method', () => {
       expect(aiApi.getStatus).toBeDefined()
@@ -258,6 +274,11 @@ describe('API Client', () => {
 
     it('should fetch notes', async () => {
       const notes = await notesApi.getAll()
+      expect(Array.isArray(notes)).toBe(true)
+    })
+
+    it('should fetch notes with tag filters', async () => {
+      const notes = await notesApi.getAll(undefined, undefined, undefined, undefined, ['note-tag-1'])
       expect(Array.isArray(notes)).toBe(true)
     })
   })

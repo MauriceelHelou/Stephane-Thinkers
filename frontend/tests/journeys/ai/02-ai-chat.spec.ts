@@ -4,6 +4,9 @@ import { createAPIHelpers } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('AI Journey: AI Chat Interface', () => {
+  test.describe.configure({ mode: 'serial' })
+  test.setTimeout(120000)
+
   test.beforeEach(async ({ page, request }) => {
     const api = createAPIHelpers(request)
     await api.resetDatabase()
@@ -24,10 +27,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatTab = page.locator('button, [role="tab"]').filter({ hasText: /chat/i })
+      const chatTab = page.locator('button, [role="tab"]').filter({ hasText: /ask questions/i })
       await expect(chatTab).toBeVisible()
     })
 
@@ -35,10 +38,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatTab = page.locator('button, [role="tab"]').filter({ hasText: /chat/i })
+      const chatTab = page.locator('button, [role="tab"]').filter({ hasText: /ask questions/i })
       if (await chatTab.isVisible()) {
         await chatTab.click()
         await page.waitForTimeout(TIMEOUTS.animation)
@@ -49,14 +52,12 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Chat input should be visible
-      const chatInput = page.locator('textarea, input').filter({ hasText: '' })
-        .or(page.locator('[data-testid="chat-input"]'))
-        .or(page.locator('[placeholder*="message" i]'))
-        .or(page.locator('[placeholder*="ask" i]'))
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
+      await expect(chatInput).toBeVisible()
     })
   })
 
@@ -65,15 +66,13 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input[type="text"]')
-        .filter({ has: page.locator('[placeholder*="message" i], [placeholder*="ask" i]') })
-        .or(page.locator('[data-testid="chat-input"]'))
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
 
-      if (await chatInput.first().isVisible()) {
-        await chatInput.first().fill('Who was Immanuel Kant?')
+      if (await chatInput.isVisible()) {
+        await chatInput.fill('Who was Immanuel Kant?')
 
         // Send with button or enter
         const sendButton = page.locator('button').filter({ hasText: /send|submit/i })
@@ -93,14 +92,13 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input')
-        .or(page.locator('[data-testid="chat-input"]'))
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
 
-      if (await chatInput.first().isVisible()) {
-        await chatInput.first().fill('Test message')
+      if (await chatInput.isVisible()) {
+        await chatInput.fill('Test message')
         await page.keyboard.press('Enter')
         await page.waitForTimeout(TIMEOUTS.animation)
 
@@ -113,14 +111,13 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input')
-        .or(page.locator('[data-testid="chat-input"]'))
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
 
-      if (await chatInput.first().isVisible()) {
-        await chatInput.first().fill('Enter key test')
+      if (await chatInput.isVisible()) {
+        await chatInput.fill('Enter key test')
         await page.keyboard.press('Enter')
         await page.waitForTimeout(TIMEOUTS.animation)
       }
@@ -130,19 +127,18 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input')
-        .or(page.locator('[data-testid="chat-input"]'))
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
 
-      if (await chatInput.first().isVisible()) {
-        await chatInput.first().fill('Clear test')
+      if (await chatInput.isVisible()) {
+        await chatInput.fill('Clear test')
         await page.keyboard.press('Enter')
         await page.waitForTimeout(TIMEOUTS.animation)
 
         // Input should be cleared
-        const value = await chatInput.first().inputValue()
+        const value = await chatInput.inputValue()
         expect(value).toBe('')
       }
     })
@@ -153,11 +149,11 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Ask about seeded thinker
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         await chatInput.fill('Tell me about the connections in this database')
         await page.keyboard.press('Enter')
@@ -171,10 +167,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         await chatInput.fill('How many thinkers are in this timeline?')
         await page.keyboard.press('Enter')
@@ -186,10 +182,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         await chatInput.fill('What connections exist between thinkers?')
         await page.keyboard.press('Enter')
@@ -203,10 +199,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         // Send first message
         await chatInput.fill('First message')
@@ -228,7 +224,7 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // User messages and AI responses should have different styling
@@ -240,10 +236,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         // Send multiple messages
         for (let i = 0; i < 5; i++) {
@@ -260,11 +256,12 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Look for clear history button
-      const clearButton = page.locator('button').filter({ hasText: /clear|reset|new.*chat/i })
+      const chatModal = page.locator('div.fixed.inset-0.bg-black\\/30.z-50')
+      const clearButton = chatModal.locator('button').filter({ hasText: /clear|reset|new.*chat/i })
 
       if (await clearButton.isVisible()) {
         await clearButton.click()
@@ -278,10 +275,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         await chatInput.fill('Test loading')
         await page.keyboard.press('Enter')
@@ -296,10 +293,10 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      const chatInput = page.locator('textarea, input').first()
+      const chatInput = page.getByPlaceholder('Ask a question...').first()
       if (await chatInput.isVisible()) {
         await chatInput.fill('Test disable')
         await page.keyboard.press('Enter')
@@ -314,7 +311,7 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // If AI fails, should show error message
@@ -326,7 +323,7 @@ test.describe('AI Journey: AI Chat Interface', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAIChatPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Retry button should appear after error

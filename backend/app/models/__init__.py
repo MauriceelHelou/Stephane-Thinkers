@@ -9,6 +9,7 @@ from app.models.tag import Tag, thinker_tags
 from app.models.connection import Connection, ConnectionType
 from app.models.institution import Institution, ThinkerInstitution
 from app.models.note import Note, NoteVersion, note_mentions
+from app.models.note_tag import NoteTag, note_tag_assignments
 from app.models.research_question import ResearchQuestion, research_question_thinkers
 from app.models.quiz import (
     QuizQuestion,
@@ -18,6 +19,26 @@ from app.models.quiz import (
     QuestionCategory,
     QuestionType,
     Difficulty,
+)
+from app.models.folder import Folder
+from app.models.critical_term import CriticalTerm, TermOccurrence
+from app.models.thinker_mention import ThinkerMention, ThinkerCoOccurrence
+from app.models.notes_ai import (
+    SynthesisRun,
+    SynthesisRunCitation,
+    SynthesisSnapshot,
+    QualityReport,
+    ClaimCandidate,
+    ArgumentMap,
+    ArgumentMapNode,
+    ArgumentMapEdge,
+    TermAlias,
+    TermRelationship,
+    NoteEmbedding,
+    PlannerRun,
+    WeeklyDigest,
+    IngestionJob,
+    SourceArtifact,
 )
 
 __all__ = [
@@ -40,6 +61,8 @@ __all__ = [
     "Note",
     "NoteVersion",
     "note_mentions",
+    "NoteTag",
+    "note_tag_assignments",
     "ResearchQuestion",
     "research_question_thinkers",
     # Quiz
@@ -50,4 +73,25 @@ __all__ = [
     "QuestionCategory",
     "QuestionType",
     "Difficulty",
+    # Research notes analysis
+    "Folder",
+    "CriticalTerm",
+    "TermOccurrence",
+    "ThinkerMention",
+    "ThinkerCoOccurrence",
+    "SynthesisRun",
+    "SynthesisRunCitation",
+    "SynthesisSnapshot",
+    "QualityReport",
+    "ClaimCandidate",
+    "ArgumentMap",
+    "ArgumentMapNode",
+    "ArgumentMapEdge",
+    "TermAlias",
+    "TermRelationship",
+    "NoteEmbedding",
+    "PlannerRun",
+    "WeeklyDigest",
+    "IngestionJob",
+    "SourceArtifact",
 ]

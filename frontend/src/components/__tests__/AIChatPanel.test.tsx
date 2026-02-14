@@ -5,7 +5,7 @@ import { AIChatPanel } from '../AIChatPanel'
 import { server } from '../../test/setup'
 import { http, HttpResponse } from 'msw'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 describe('AIChatPanel', () => {
   const defaultProps = {

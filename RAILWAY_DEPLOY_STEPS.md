@@ -72,7 +72,7 @@ Go to **Variables** tab and add:
 | Variable              | Value                                                                      |
 | --------------------- | -------------------------------------------------------------------------- |
 | `DATABASE_URL`        | `${{Postgres.DATABASE_URL}}`                                               |
-| `PORT`                | `8001`                                                                     |
+| `PORT`                | `8010`                                                                     |
 | `ENVIRONMENT`         | `production`                                                               |
 | `FRONTEND_URL`        | `https://placeholder.up.railway.app` (update later)                        |
 | `RAILWAY_RUN_COMMAND` | `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
@@ -173,7 +173,7 @@ Open `https://your-frontend.up.railway.app` in browser.
 
 ```
 DATABASE_URL=${{Postgres.DATABASE_URL}}
-PORT=8001
+PORT=8010
 ENVIRONMENT=production
 FRONTEND_URL=https://your-frontend.up.railway.app
 RAILWAY_RUN_COMMAND=alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT

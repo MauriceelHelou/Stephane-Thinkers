@@ -151,3 +151,36 @@ class TestThinkerInstitutionsAPI:
         assert response.status_code == 200
         data = response.json()
         assert all(a["thinker_id"] == sample_thinker["id"] for a in data)
+
+    def test_create_duplicate_affiliation_rejected(self, client: TestClient, sample_thinker: dict, sample_institution: dict):
+        """Test duplicate affiliation payload is rejected."""
+        payload = {
+            "thinker_id": sample_thinker["id"],
+            "institution_id": sample_institution["id"],
+            "role": "Professor",
+            "department": "Philosophy",
+            "start_year": 1950,
+            "end_year": 1970
+        }
+        first = client.post("/api/institutions/affiliations", json=payload)
+        assert first.status_code == 201
+
+        second = client.post("/api/institutions/affiliations", json=payload)
+        assert second.status_code == 400
+
+    def test_update_affiliation_invalid_year_range(self, client: TestClient, sample_thinker: dict, sample_institution: dict):
+        """Test chronology validation on affiliation updates."""
+        created = client.post("/api/institutions/affiliations", json={
+            "thinker_id": sample_thinker["id"],
+            "institution_id": sample_institution["id"],
+            "role": "Professor",
+            "start_year": 1950,
+            "end_year": 1970
+        })
+        assert created.status_code == 201
+        affiliation_id = created.json()["id"]
+
+        response = client.put(f"/api/institutions/affiliations/{affiliation_id}", json={
+            "start_year": 1980
+        })
+        assert response.status_code == 422

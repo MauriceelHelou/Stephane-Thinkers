@@ -5,7 +5,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { connectionsApi, thinkersApi } from '@/lib/api'
 import { Modal, ModalButton, ModalError } from '@/components/Modal'
 import { SearchableSelect } from '@/components/SearchableSelect'
-import { ConnectionType, type ConnectionCreate, type Thinker } from '@/types'
+import { ConnectionType, type Connection, type ConnectionCreate, type Thinker } from '@/types'
 
 interface AddConnectionModalProps {
   isOpen: boolean
@@ -47,10 +47,23 @@ export function AddConnectionModal({
     enabled: isOpen && !!editingConnectionId,
   })
 
+  const refreshConnectionViews = () => {
+    queryClient.invalidateQueries({ queryKey: ['connections'] })
+    queryClient.invalidateQueries({ queryKey: ['connection-suggestions'] })
+  }
+
+  const upsertConnectionCache = (connection: Connection) => {
+    queryClient.setQueryData<Connection[]>(['connections'], (current = []) => {
+      const withoutCurrent = current.filter((item) => item.id !== connection.id)
+      return [connection, ...withoutCurrent]
+    })
+  }
+
   const createMutation = useMutation({
     mutationFn: connectionsApi.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] })
+    onSuccess: (createdConnection) => {
+      upsertConnectionCache(createdConnection)
+      refreshConnectionViews()
       onClose()
       resetForm()
     },
@@ -58,8 +71,9 @@ export function AddConnectionModal({
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ConnectionCreate }) => connectionsApi.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] })
+    onSuccess: (updatedConnection) => {
+      upsertConnectionCache(updatedConnection)
+      refreshConnectionViews()
       queryClient.invalidateQueries({ queryKey: ['connection', editingConnectionId] })
       onClose()
       resetForm()
@@ -68,8 +82,11 @@ export function AddConnectionModal({
 
   const deleteMutation = useMutation({
     mutationFn: connectionsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] })
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueryData<Connection[]>(['connections'], (current = []) =>
+        current.filter((item) => item.id !== deletedId)
+      )
+      refreshConnectionViews()
       onClose()
       resetForm()
     },

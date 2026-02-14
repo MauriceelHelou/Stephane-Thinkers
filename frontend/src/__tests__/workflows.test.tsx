@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event'
 import { server } from '../test/setup'
 import { http, HttpResponse } from 'msw'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 // Test utilities
 function setupMocks() {
@@ -278,8 +278,8 @@ describe('Help Guide Workflow', () => {
     render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
 
     // Help guide should show sections
-    expect(screen.getByText('How to Use')).toBeInTheDocument()
-    expect(screen.getByText('Navigation')).toBeInTheDocument()
-    expect(screen.getByText('Adding Items')).toBeInTheDocument()
+    expect(screen.getByText('Help & Keyboard Shortcuts')).toBeInTheDocument()
+    expect(screen.getByText('Navigation & Zoom')).toBeInTheDocument()
+    expect(screen.getByText('Adding Thinkers')).toBeInTheDocument()
   })
 })

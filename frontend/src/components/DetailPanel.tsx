@@ -33,10 +33,11 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
     context_notes: null,
   })
 
-  const { data: thinker, isLoading } = useQuery({
+  const { data: thinker, isLoading, isError } = useQuery({
     queryKey: ['thinker', thinkerId],
     queryFn: () => thinkersApi.getOne(thinkerId!),
     enabled: !!thinkerId,
+    retry: 2,
   })
 
   const { data: allTags = [] } = useQuery({
@@ -314,6 +315,10 @@ export function DetailPanel({ thinkerId, onClose, onOpenConnectionMap, onAddConn
         {isLoading ? (
           <div className="flex items-center justify-center flex-1">
             <p className="text-secondary">Loading...</p>
+          </div>
+        ) : isError ? (
+          <div className="flex items-center justify-center flex-1">
+            <p className="text-red-500 text-sm">Failed to load thinker details. Click to retry.</p>
           </div>
         ) : thinker ? (
           <div className="flex-1 overflow-y-auto p-6 space-y-6">

@@ -5,7 +5,7 @@ import { FullConfig } from '@playwright/test'
  * Runs once after all tests in the test suite
  */
 async function globalTeardown(config: FullConfig): Promise<void> {
-  const apiURL = process.env.API_BASE_URL || 'http://localhost:8001'
+  const apiURL = process.env.API_BASE_URL || 'http://localhost:8010'
 
   console.log('\n🧹 Starting global test teardown...')
 

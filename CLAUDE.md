@@ -16,8 +16,8 @@ venv\Scripts\activate        # Windows
 source venv/bin/activate     # Unix
 pip install -r requirements.txt
 
-# Run dev server (port 8001)
-uvicorn app.main:app --reload --port 8001
+# Run dev server (port 8010)
+uvicorn app.main:app --reload --port 8010
 
 # Database migrations
 alembic upgrade head                          # Apply migrations
@@ -27,7 +27,7 @@ alembic revision --autogenerate -m "message"  # Generate migration
 ### Frontend (from `frontend/` directory)
 ```bash
 npm install                  # Install dependencies
-npm run dev                  # Dev server on port 3001
+npm run dev                  # Dev server on port 3010
 npm run build                # Production build
 npm run type-check           # TypeScript check
 npx playwright test          # E2E tests (requires dev server running)
@@ -66,13 +66,13 @@ Frontend React component → React Query mutation → Axios (lib/api.ts) → Fas
 Backend `.env`:
 ```
 DATABASE_URL=sqlite:///./intellectual_graph.db
-PORT=8001
-FRONTEND_URL=http://localhost:3001
+PORT=8010
+FRONTEND_URL=http://localhost:3010
 ```
 
 Frontend `.env.local`:
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_API_URL=http://localhost:8010
 ```
 
 ## Code Patterns

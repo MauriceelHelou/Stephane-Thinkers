@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.database import get_db
@@ -35,11 +35,16 @@ def create_publication(publication: schemas.PublicationCreate, db: Session = Dep
     return db_publication
 
 @router.get("/", response_model=List[schemas.Publication])
-def get_publications(thinker_id: UUID = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_publications(
+    thinker_id: Optional[UUID] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Publication)
     if thinker_id:
         query = query.filter(Publication.thinker_id == thinker_id)
-    publications = query.offset(skip).limit(limit).all()
+    publications = query.order_by(Publication.created_at.desc()).offset(skip).limit(limit).all()
     return publications
 
 @router.get("/{publication_id}", response_model=schemas.Publication)

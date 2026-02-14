@@ -20,6 +20,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
     try {
       const response = await authApi.login(password)
       if (response.success) {
+        sessionStorage.setItem('auth_token', response.token || 'auth-disabled')
         // Store in sessionStorage so it persists during the session
         sessionStorage.setItem('authenticated', 'true')
         onSuccess()

@@ -30,14 +30,18 @@ export class CanvasPage {
     this.zoomInButton = page.locator('[data-testid="zoom-in-button"]')
       .or(page.locator('button[aria-label="Zoom in"]'))
       .or(page.locator('button').filter({ hasText: '+' }))
+      .first()
     this.zoomOutButton = page.locator('[data-testid="zoom-out-button"]')
       .or(page.locator('button[aria-label="Zoom out"]'))
       .or(page.locator('button').filter({ hasText: '-' }))
+      .first()
     this.resetZoomButton = page.locator('[data-testid="reset-zoom-button"]')
       .or(page.locator('button[aria-label="Reset zoom"]'))
+      .first()
     this.fitToViewButton = page.locator('[data-testid="fit-to-view-button"]')
       .or(page.locator('button[aria-label="Fit to view"]'))
-    this.zoomIndicator = page.locator('[data-testid="zoom-indicator"]')
+      .first()
+    this.zoomIndicator = page.locator('[data-testid="zoom-indicator"]').first()
 
     // Minimap
     this.minimap = page.locator('[data-testid="minimap"]')
@@ -55,25 +59,11 @@ export class CanvasPage {
 
   // Zoom operations
   async zoomIn(steps: number = 1): Promise<void> {
-    for (let i = 0; i < steps; i++) {
-      if (await this.zoomInButton.isVisible()) {
-        await this.zoomInButton.click()
-      } else {
-        await this.helpers.zoomIn()
-      }
-      await this.helpers.waitForCanvasRender()
-    }
+    await this.helpers.zoomIn(steps)
   }
 
   async zoomOut(steps: number = 1): Promise<void> {
-    for (let i = 0; i < steps; i++) {
-      if (await this.zoomOutButton.isVisible()) {
-        await this.zoomOutButton.click()
-      } else {
-        await this.helpers.zoomOut()
-      }
-      await this.helpers.waitForCanvasRender()
-    }
+    await this.helpers.zoomOut(steps)
   }
 
   async resetZoom(): Promise<void> {

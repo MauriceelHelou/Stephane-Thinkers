@@ -72,6 +72,12 @@ class TestAIConnectionSuggestions:
                 response = client.get(f"/api/ai/suggest-connections?timeline_id={sample_timeline['id']}")
                 assert response.status_code in [200, 201, 204]
 
+    def test_suggest_connections_invalid_timeline_filter(self, client: TestClient):
+        """Test invalid timeline filter returns 422."""
+        with patch("app.routes.ai.is_ai_enabled", return_value=True):
+            response = client.get("/api/ai/suggest-connections?timeline_id=not-a-uuid")
+            assert response.status_code == 422
+
 
 class TestAIThinkerInsight:
     """Test suite for AI thinker insight endpoint."""
@@ -218,11 +224,11 @@ class TestAIServiceUnit:
 
     @pytest.mark.asyncio
     async def test_call_deepseek_api_disabled(self):
-        """Test _call_deepseek_api returns None when disabled."""
+        """Test _call_deepseek_api raises explicit error when disabled."""
         with patch("app.utils.ai_service.is_ai_enabled", return_value=False):
-            from app.utils.ai_service import _call_deepseek_api
-            result = await _call_deepseek_api([{"role": "user", "content": "test"}])
-            assert result is None
+            from app.utils.ai_service import AIServiceError, _call_deepseek_api
+            with pytest.raises(AIServiceError):
+                await _call_deepseek_api([{"role": "user", "content": "test"}])
 
     @pytest.mark.asyncio
     async def test_call_deepseek_api_success(self):
@@ -246,16 +252,16 @@ class TestAIServiceUnit:
 
     @pytest.mark.asyncio
     async def test_call_deepseek_api_error(self):
-        """Test _call_deepseek_api handles errors gracefully."""
+        """Test _call_deepseek_api raises explicit service errors."""
         with patch("app.utils.ai_service.is_ai_enabled", return_value=True):
             with patch("httpx.AsyncClient") as mock_client:
                 mock_instance = AsyncMock()
                 mock_instance.post = AsyncMock(side_effect=Exception("API Error"))
                 mock_client.return_value.__aenter__.return_value = mock_instance
-                
-                from app.utils.ai_service import _call_deepseek_api
-                result = await _call_deepseek_api([{"role": "user", "content": "test"}])
-                assert result is None
+
+                from app.utils.ai_service import AIServiceError, _call_deepseek_api
+                with pytest.raises(AIServiceError):
+                    await _call_deepseek_api([{"role": "user", "content": "test"}])
 
 
 class TestOpenAIUsage:
@@ -288,7 +294,8 @@ class TestOpenAIUsage:
 
     def test_no_openai_chat_imports(self):
         """Verify no OpenAI chat completion imports in AI service."""
-        with open('/workspace/backend/app/utils/ai_service.py', 'r') as f:
+        import app.utils.ai_service as ai_service
+        with open(ai_service.__file__, 'r') as f:
             content = f.read()
 
         # Should not have OpenAI client imports for chat
@@ -490,7 +497,7 @@ class TestAISummaryEndpoint:
                     data = response.json()
                     assert data["length"] == length
 
-    def test_summary_failed_generation(self, client: TestClient):
+    def test_summary_failed_generation(self, client: TestClient, sample_thinker: dict):
         """Test summary when AI generation fails."""
         with patch("app.routes.ai.is_ai_enabled", return_value=True):
             with patch("app.routes.ai.generate_summary", new_callable=AsyncMock) as mock_sum:
@@ -499,6 +506,24 @@ class TestAISummaryEndpoint:
                     "summary_type": "overview"
                 })
                 assert response.status_code == 500
+
+    def test_summary_invalid_type(self, client: TestClient):
+        """Test summary_type validation."""
+        with patch("app.routes.ai.is_ai_enabled", return_value=True):
+            response = client.post("/api/ai/summary", json={
+                "summary_type": "invalid",
+                "length": "medium"
+            })
+            assert response.status_code == 422
+
+    def test_summary_invalid_length(self, client: TestClient):
+        """Test summary length validation."""
+        with patch("app.routes.ai.is_ai_enabled", return_value=True):
+            response = client.post("/api/ai/summary", json={
+                "summary_type": "overview",
+                "length": "too-long"
+            })
+            assert response.status_code == 422
 
 
 class TestAIParseEndpoint:

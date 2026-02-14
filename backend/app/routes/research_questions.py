@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from uuid import UUID
@@ -61,10 +61,10 @@ def create_question(
 def get_questions(
     status: Optional[str] = None,
     category: Optional[str] = None,
-    priority: Optional[int] = None,
+    priority: Optional[int] = Query(None, ge=1, le=5),
     thinker_id: Optional[UUID] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(ResearchQuestion)
@@ -73,7 +73,7 @@ def get_questions(
         query = query.filter(ResearchQuestion.status == status)
     if category:
         query = query.filter(ResearchQuestion.category == category)
-    if priority:
+    if priority is not None:
         query = query.filter(ResearchQuestion.priority == priority)
     if thinker_id:
         query = query.join(ResearchQuestion.related_thinkers).filter(

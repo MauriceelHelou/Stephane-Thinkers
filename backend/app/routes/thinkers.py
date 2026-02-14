@@ -27,15 +27,18 @@ def create_thinker(thinker: schemas.ThinkerCreate, db: Session = Depends(get_db)
 # BUG #8 FIX: Add optional timeline_id filter parameter
 @router.get("/", response_model=List[schemas.Thinker])
 def get_thinkers(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     timeline_id: Optional[UUID] = Query(None, description="Filter by timeline ID"),
+    search: Optional[str] = Query(None, description="Search thinkers by name (case-insensitive partial match)"),
     db: Session = Depends(get_db)
 ):
     query = db.query(Thinker)
     if timeline_id:
         query = query.filter(Thinker.timeline_id == timeline_id)
-    thinkers = query.offset(skip).limit(limit).all()
+    if search:
+        query = query.filter(Thinker.name.ilike(f"%{search}%"))
+    thinkers = query.order_by(Thinker.created_at.desc()).offset(skip).limit(limit).all()
     return thinkers
 
 @router.get("/{thinker_id}", response_model=schemas.ThinkerWithRelations)
@@ -65,6 +68,11 @@ def update_thinker(thinker_id: UUID, thinker_update: schemas.ThinkerUpdate, db: 
         timeline = db.query(Timeline).filter(Timeline.id == update_data['timeline_id']).first()
         if not timeline:
             raise HTTPException(status_code=404, detail=f"Timeline with id {update_data['timeline_id']} not found")
+
+    birth_year = update_data.get('birth_year', db_thinker.birth_year)
+    death_year = update_data.get('death_year', db_thinker.death_year)
+    if birth_year is not None and death_year is not None and birth_year > death_year:
+        raise HTTPException(status_code=422, detail="Birth year must be before or equal to death year")
 
     for field, value in update_data.items():
         setattr(db_thinker, field, value)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TimelineSVG } from '../TimelineSVG'
 
@@ -27,7 +27,7 @@ describe('TimelineSVG', () => {
     it('renders zoom controls', async () => {
       renderWithProviders(<TimelineSVG />)
       // Wait for loading to complete
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -41,7 +41,7 @@ describe('TimelineSVG', () => {
     it('allows zooming in', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -53,7 +53,7 @@ describe('TimelineSVG', () => {
     it('allows zooming out', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -65,7 +65,7 @@ describe('TimelineSVG', () => {
     it('allows resetting zoom', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -80,7 +80,7 @@ describe('TimelineSVG', () => {
       const onThinkerClick = vi.fn()
       renderWithProviders(<TimelineSVG onThinkerClick={onThinkerClick} />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -92,7 +92,7 @@ describe('TimelineSVG', () => {
       const onCanvasClick = vi.fn()
       renderWithProviders(<TimelineSVG onCanvasClick={onCanvasClick} />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -104,7 +104,7 @@ describe('TimelineSVG', () => {
       const onConnectionClick = vi.fn()
       renderWithProviders(<TimelineSVG onConnectionClick={onConnectionClick} />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -116,7 +116,7 @@ describe('TimelineSVG', () => {
     it('shows empty state when no thinkers', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -151,7 +151,7 @@ describe('TimelineSVG', () => {
     it('handles mouse wheel for zooming', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 
@@ -167,7 +167,7 @@ describe('TimelineSVG', () => {
     it('handles panning with mouse drag', async () => {
       renderWithProviders(<TimelineSVG />)
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(screen.queryByText(/Loading timeline/)).not.toBeInTheDocument()
       }, { timeout: 2000 })
 

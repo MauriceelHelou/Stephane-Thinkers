@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -78,6 +78,13 @@ class ThinkerUpdate(BaseModel):
             raise ValueError(f'Year must be between {MIN_YEAR} and {MAX_YEAR}')
         return v
 
+    @model_validator(mode='after')
+    def validate_year_order(self):
+        if self.birth_year is not None and self.death_year is not None:
+            if self.birth_year > self.death_year:
+                raise ValueError('Birth year must be before or equal to death year')
+        return self
+
 class Thinker(ThinkerBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -88,9 +95,9 @@ class Thinker(ThinkerBase):
 class ThinkerWithRelations(Thinker):
     model_config = ConfigDict(from_attributes=True)
 
-    publications: List['Publication'] = []
-    quotes: List['Quote'] = []
-    tags: List['Tag'] = []
+    publications: List['Publication'] = Field(default_factory=list)
+    quotes: List['Quote'] = Field(default_factory=list)
+    tags: List['Tag'] = Field(default_factory=list)
 
 from app.schemas.publication import Publication
 from app.schemas.quote import Quote

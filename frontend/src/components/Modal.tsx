@@ -37,8 +37,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'xl' }: Mod
       // Focus the first input element, or fall back to the modal itself
       const firstInput = modalRef.current.querySelector('input, select, textarea') as HTMLElement
       if (firstInput) {
-        // Small delay to ensure DOM is ready
-        setTimeout(() => firstInput.focus(), 10)
+        firstInput.focus()
       }
     }
   }, [isOpen])

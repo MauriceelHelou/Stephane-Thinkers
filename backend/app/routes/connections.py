@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List
@@ -58,13 +59,21 @@ def create_connection(connection: schemas.ConnectionCreate, db: Session = Depend
 
     db_connection = Connection(**connection.model_dump())
     db.add(db_connection)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="A connection between these thinkers already exists")
     db.refresh(db_connection)
     return db_connection
 
 @router.get("/", response_model=List[schemas.Connection])
-def get_connections(skip: int = 0, limit: int = 200, db: Session = Depends(get_db)):
-    connections = db.query(Connection).offset(skip).limit(limit).all()
+def get_connections(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    connections = db.query(Connection).order_by(Connection.created_at.desc()).offset(skip).limit(limit).all()
     return connections
 
 @router.get("/{connection_id}", response_model=schemas.Connection)
@@ -97,7 +106,11 @@ def update_connection(connection_id: UUID, connection_update: schemas.Connection
     for field, value in update_data.items():
         setattr(db_connection, field, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="A connection between these thinkers already exists")
     db.refresh(db_connection)
     return db_connection
 

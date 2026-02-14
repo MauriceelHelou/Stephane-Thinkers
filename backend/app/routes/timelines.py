@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -11,21 +11,21 @@ from app.models.thinker import Thinker
 from app.models.connection import Connection
 from app.schemas import timeline as schemas
 from app.schemas import thinker as thinker_schemas
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RepopulateConfig(BaseModel):
     """Configuration for the repopulate algorithm"""
     # Force-directed layout parameters
-    repulsion_strength: float = 5000.0  # How strongly nodes repel each other
-    attraction_strength: float = 0.1    # How strongly connected nodes attract
-    center_gravity: float = 0.01        # Pull toward center (y=0)
-    field_attraction: float = 0.05      # How strongly same-field thinkers attract
-    damping: float = 0.9                # Velocity damping per iteration
-    max_iterations: int = 100           # Maximum simulation iterations
-    convergence_threshold: float = 0.5  # Stop when max velocity below this
-    min_node_distance: float = 80       # Minimum distance between nodes
-    vertical_spread: float = 200        # Max Y distance from center
+    repulsion_strength: float = Field(5000.0, ge=0.0, le=50000.0)  # How strongly nodes repel each other
+    attraction_strength: float = Field(0.1, ge=0.0, le=5.0)    # How strongly connected nodes attract
+    center_gravity: float = Field(0.01, ge=0.0, le=1.0)        # Pull toward center (y=0)
+    field_attraction: float = Field(0.05, ge=0.0, le=5.0)      # How strongly same-field thinkers attract
+    damping: float = Field(0.9, ge=0.0, le=1.0)                # Velocity damping per iteration
+    max_iterations: int = Field(100, ge=1, le=500)             # Maximum simulation iterations
+    convergence_threshold: float = Field(0.5, ge=0.0, le=10.0)  # Stop when max velocity below this
+    min_node_distance: float = Field(80, ge=1.0, le=1000.0)       # Minimum distance between nodes
+    vertical_spread: float = Field(200, ge=10.0, le=5000.0)        # Max Y distance from center
 
 
 class RepopulateResponse(BaseModel):
@@ -44,8 +44,12 @@ def create_timeline(timeline: schemas.TimelineCreate, db: Session = Depends(get_
     return db_timeline
 
 @router.get("/", response_model=List[schemas.Timeline])
-def get_timelines(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    timelines = db.query(Timeline).offset(skip).limit(limit).all()
+def get_timelines(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    timelines = db.query(Timeline).order_by(Timeline.created_at.desc()).offset(skip).limit(limit).all()
     return timelines
 
 @router.get("/{timeline_id}", response_model=schemas.Timeline)

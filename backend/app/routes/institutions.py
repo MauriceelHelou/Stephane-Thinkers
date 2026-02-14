@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_
 from typing import List, Optional
 from uuid import UUID
 
@@ -25,6 +26,30 @@ def validate_institution_exists(db: Session, institution_id: UUID):
         raise HTTPException(status_code=404, detail=f"Institution with id {institution_id} not found")
 
 
+def validate_affiliation_year_range(start_year: Optional[int], end_year: Optional[int]):
+    """Validate affiliation chronology after merging update values."""
+    if start_year is not None and end_year is not None and start_year > end_year:
+        raise HTTPException(status_code=422, detail="start_year cannot be greater than end_year")
+
+
+def validate_no_duplicate_affiliation(db: Session, affiliation: schemas.ThinkerInstitutionCreate):
+    """Prevent exact duplicate affiliation rows."""
+    existing = db.query(ThinkerInstitution).filter(
+        and_(
+            ThinkerInstitution.thinker_id == affiliation.thinker_id,
+            ThinkerInstitution.institution_id == affiliation.institution_id,
+            ThinkerInstitution.role == affiliation.role,
+            ThinkerInstitution.department == affiliation.department,
+            ThinkerInstitution.start_year == affiliation.start_year,
+            ThinkerInstitution.end_year == affiliation.end_year,
+            ThinkerInstitution.is_phd_institution == int(affiliation.is_phd_institution),
+            ThinkerInstitution.phd_advisor_id == affiliation.phd_advisor_id,
+        )
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="An identical affiliation already exists")
+
+
 # ThinkerInstitution (affiliation) endpoints - MUST come before dynamic routes
 
 @router.post("/affiliations", response_model=schemas.ThinkerInstitution, status_code=201)
@@ -40,6 +65,9 @@ def create_affiliation(
     if affiliation.phd_advisor_id:
         validate_thinker_exists(db, affiliation.phd_advisor_id)
 
+    validate_affiliation_year_range(affiliation.start_year, affiliation.end_year)
+    validate_no_duplicate_affiliation(db, affiliation)
+
     db_affiliation = ThinkerInstitution(**affiliation.model_dump())
     db.add(db_affiliation)
     db.commit()
@@ -51,8 +79,8 @@ def create_affiliation(
 def get_affiliations(
     thinker_id: Optional[UUID] = None,
     institution_id: Optional[UUID] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(ThinkerInstitution).options(joinedload(ThinkerInstitution.institution))
@@ -62,7 +90,7 @@ def get_affiliations(
     if institution_id:
         query = query.filter(ThinkerInstitution.institution_id == institution_id)
 
-    affiliations = query.offset(skip).limit(limit).all()
+    affiliations = query.order_by(ThinkerInstitution.created_at.desc()).offset(skip).limit(limit).all()
     return affiliations
 
 
@@ -94,6 +122,11 @@ def update_affiliation(
     # Validate phd_advisor if being updated
     if 'phd_advisor_id' in update_data and update_data['phd_advisor_id']:
         validate_thinker_exists(db, update_data['phd_advisor_id'])
+
+    validate_affiliation_year_range(
+        update_data.get('start_year', db_affiliation.start_year),
+        update_data.get('end_year', db_affiliation.end_year),
+    )
 
     for field, value in update_data.items():
         setattr(db_affiliation, field, value)
@@ -163,14 +196,14 @@ def create_institution(institution: schemas.InstitutionCreate, db: Session = Dep
 @router.get("/", response_model=List[schemas.Institution])
 def get_institutions(
     country: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(Institution)
     if country:
         query = query.filter(Institution.country == country)
-    institutions = query.offset(skip).limit(limit).all()
+    institutions = query.order_by(Institution.name.asc()).offset(skip).limit(limit).all()
     return institutions
 
 

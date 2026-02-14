@@ -1,10 +1,19 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { thinkersApi, connectionsApi, timelineEventsApi } from '@/lib/api'
+import { thinkersApi, connectionsApi, timelineEventsApi, API_URL } from '@/lib/api'
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { REFERENCE_CANVAS_WIDTH, DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
+
+// Event layout constants
+const EVENT_SHAPE_SIZE = 8
+const EVENT_LABEL_HEIGHT = 12
+const EVENT_VERTICAL_GAP = 4
+const EVENT_ZONE_OFFSET = -15 // Base Y offset from centerY for events
+const EVENT_BBOX_HEIGHT = EVENT_SHAPE_SIZE * 2 + EVENT_LABEL_HEIGHT // shape + label
+const EVENT_BBOX_WIDTH = EVENT_SHAPE_SIZE * 4 // generous horizontal hitbox
+const CANVAS_VERTICAL_PADDING = 12
 
 // Sticky note color palette - more realistic sticky note colors with shadow and fold
 const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; fold: string; border: string; text: string; shadow: string }> = {
@@ -20,6 +29,7 @@ interface TimelineProps {
   onConnectionClick?: (connectionId: string) => void
   onEventClick?: (eventId: string) => void
   onThinkerDrag?: (thinkerId: string, anchorYear: number, positionY: number) => void
+  onEmptyClick?: () => void
   // Sticky notes support
   canvasNotes?: Note[]
   onNoteClick?: (noteId: string) => void
@@ -44,14 +54,9 @@ interface TimelineProps {
   stickyNoteMode?: boolean
 }
 
-export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, showConnectionLabels = true, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
+export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, onEmptyClick, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, showConnectionLabels = true, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [scale, setScale] = useState(1)
-
-  // Debug: Log when visibleConnectionTypes changes
-  useEffect(() => {
-    console.log('Timeline received visibleConnectionTypes:', visibleConnectionTypes)
-  }, [visibleConnectionTypes])
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
   const [isPanning, setIsPanning] = useState(false)
@@ -74,19 +79,21 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
     queryFn: async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/timelines/`)
+      const response = await fetch(`${API_URL}/api/timelines/`)
       return response.json()
     },
   })
 
   const { data: thinkers = [], isLoading: thinkersLoading } = useQuery({
     queryKey: ['thinkers', filterByTimelineId],
-    queryFn: () => thinkersApi.getAll(),
+    queryFn: () => thinkersApi.getAll(filterByTimelineId || undefined),
+    refetchOnMount: 'always',
   })
 
   const { data: connections = [], isLoading: connectionsLoading } = useQuery({
     queryKey: ['connections'],
     queryFn: connectionsApi.getAll,
+    refetchOnMount: 'always',
   })
 
   const { data: timelineEvents = [], isLoading: eventsLoading } = useQuery({
@@ -98,19 +105,19 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   // Priority: anchor_year (if set) > midpoint of birth/death > death_year > birth_year > null
   const getThinkerYear = (thinker: Thinker): number | null => {
     // If anchor_year is explicitly set (e.g., after user drag), use it
-    if (thinker.anchor_year) {
+    if (thinker.anchor_year != null) {
       return thinker.anchor_year
     }
     // If both birth and death years are available, use the midpoint
-    if (thinker.birth_year && thinker.death_year) {
+    if (thinker.birth_year != null && thinker.death_year != null) {
       return Math.round((thinker.birth_year + thinker.death_year) / 2)
     }
     // If only death_year is available, use that
-    if (thinker.death_year) {
+    if (thinker.death_year != null) {
       return thinker.death_year
     }
     // If only birth_year is available, use that as the position
-    if (thinker.birth_year) {
+    if (thinker.birth_year != null) {
       return thinker.birth_year
     }
     return null
@@ -126,11 +133,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Consider all thinkers' birth/death years
     thinkers.forEach(t => {
-      if (t.birth_year) {
+      if (t.birth_year != null) {
         minYear = Math.min(minYear, t.birth_year)
         hasData = true
       }
-      if (t.death_year) {
+      if (t.death_year != null) {
         maxYear = Math.max(maxYear, t.death_year)
         hasData = true
       }
@@ -138,11 +145,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // BUG #13 FIX: Also consider all timeline bounds to expand master view
     timelines.forEach((timeline: { start_year?: number; end_year?: number }) => {
-      if (timeline.start_year) {
+      if (timeline.start_year != null) {
         minYear = Math.min(minYear, timeline.start_year)
         hasData = true
       }
-      if (timeline.end_year) {
+      if (timeline.end_year != null) {
         maxYear = Math.max(maxYear, timeline.end_year)
         hasData = true
       }
@@ -172,8 +179,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     if (selectedTimeline) {
       // Use timeline's specific bounds
-      startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-      endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
     } else {
       // For "All Thinkers" view, use calculated range based on all thinkers
       const range = calculateAllThinkersRange()
@@ -192,8 +199,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     let startYear, endYear
 
     if (selectedTimeline) {
-      startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-      endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
     } else {
       const range = calculateAllThinkersRange()
       startYear = range.startYear
@@ -241,8 +248,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       }
       // Filter by year range (checks if thinker's active period overlaps with filter range)
       if (filterByYearStart !== null || filterByYearEnd !== null) {
-        const thinkerStart = t.birth_year || null
-        const thinkerEnd = t.death_year || null
+        const thinkerStart = t.birth_year ?? null
+        const thinkerEnd = t.death_year ?? null
 
         // If thinker has no dates, exclude them when year filter is active
         if (thinkerStart === null && thinkerEnd === null) {
@@ -260,8 +267,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       // Animation year filter: show only thinkers alive at the animation year
       if (animationYear !== null) {
-        const thinkerStart = t.birth_year || null
-        const thinkerEnd = t.death_year || new Date().getFullYear()
+        const thinkerStart = t.birth_year ?? null
+        const thinkerEnd = t.death_year ?? new Date().getFullYear()
 
         // If thinker has no birth year, we can't determine if they were alive
         if (thinkerStart === null) {
@@ -285,6 +292,22 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       (c) => visibleThinkerIds.has(c.from_thinker_id) && visibleThinkerIds.has(c.to_thinker_id)
     )
   }, [connections, filteredThinkers])
+
+  const filterConnectionsByVisibleTypes = useCallback((inputConnections: Connection[]): Connection[] => {
+    if (!visibleConnectionTypes || !Array.isArray(visibleConnectionTypes)) {
+      return inputConnections
+    }
+
+    const visibleTypes = new Set<ConnectionStyleType>(visibleConnectionTypes)
+    return inputConnections.filter((conn) =>
+      visibleTypes.has(conn.connection_type as ConnectionStyleType)
+    )
+  }, [visibleConnectionTypes])
+
+  const visibleFilteredConnections = useMemo(
+    () => filterConnectionsByVisibleTypes(filteredConnections),
+    [filteredConnections, filterConnectionsByVisibleTypes]
+  )
 
   // Prevent browser zoom on the timeline container - only for pinch-to-zoom gestures
   useEffect(() => {
@@ -336,16 +359,26 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     drawGrid(ctx, canvasWidth, canvasHeight)
     drawTimeline(ctx, canvasWidth, canvasHeight)
 
-    if (timelineEvents.length > 0) {
-      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight)
+    // Calculate all positions once per frame
+    const eventPositions = timelineEvents.length > 0
+      ? calculateEventPositions(timelineEvents, canvasWidth, canvasHeight)
+      : undefined
+    const thinkerPositions = filteredThinkers.length > 0
+      ? calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight, eventPositions)
+      : new Map<string, { x: number; y: number; width: number; height: number }>()
+
+    // Draw events at calculated positions
+    if (eventPositions && timelineEvents.length > 0) {
+      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions)
     }
 
-    if (filteredConnections.length > 0) {
-      drawConnections(ctx, filteredConnections, filteredThinkers, canvasWidth, canvasHeight)
+    // Draw connections and thinkers using pre-computed positions
+    if (visibleFilteredConnections.length > 0) {
+      drawConnections(ctx, visibleFilteredConnections, filteredThinkers, thinkerPositions)
     }
 
     if (filteredThinkers.length > 0) {
-      drawThinkers(ctx, filteredThinkers, canvasWidth, canvasHeight, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos)
+      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos)
     } else {
       drawEmptyState(ctx, canvasWidth, canvasHeight)
     }
@@ -356,7 +389,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     ctx.restore()
-  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, filteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, visibleConnectionTypes, showConnectionLabels])
+  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, visibleFilteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, showConnectionLabels])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#F0F0F0'
@@ -433,8 +466,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Use the same year range calculation as yearToX
     let startYear, endYear
     if (selectedTimeline) {
-      startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-      endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
     } else {
       const range = calculateAllThinkersRange()
       startYear = range.startYear
@@ -502,7 +535,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Calculate thinker positions with zoom-aware collision detection
-  const calculateThinkerPositions = (thinkers: Thinker[], canvasWidth: number, canvasHeight: number): Map<string, { x: number; y: number; width: number; height: number }> => {
+  const calculateThinkerPositions = (thinkers: Thinker[], canvasWidth: number, canvasHeight: number, eventPositions?: Map<string, { x: number; y: number }>): Map<string, { x: number; y: number; width: number; height: number }> => {
     const positions = new Map<string, { x: number; y: number; width: number; height: number }>()
     const centerY = canvasHeight / 2
     const canvas = canvasRef.current
@@ -511,13 +544,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (!ctx) return positions
 
     // First pass: calculate base positions and sizes
-    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number }[] = []
+    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number; isManuallyPositioned: boolean }[] = []
 
     thinkers.forEach((thinker) => {
       const thinkerYear = getThinkerYear(thinker)
-      const x = thinkerYear
+      const x = thinkerYear != null
         ? yearToX(thinkerYear, canvasWidth, scale)
-        : scaleX(thinker.position_x || canvasWidth / 2)
+        : scaleX(thinker.position_x ?? canvasWidth / 2)
 
       ctx.font = '14px "Crimson Text", serif'
       const metrics = ctx.measureText(thinker.name)
@@ -527,73 +560,184 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       // position_y is stored as an offset from the timeline axis (0 = on the timeline)
       // Positive values go below, negative values go above
-      const yOffset = thinker.position_y || 0
+      const yOffset = thinker.position_y ?? 0
       thinkerData.push({
         id: thinker.id,
         x,
         baseY: centerY + yOffset,
         width: bgWidth,
-        height: bgHeight
+        height: bgHeight,
+        isManuallyPositioned: thinker.is_manually_positioned === true,
       })
     })
 
     // Sort by x position for collision detection
     thinkerData.sort((a, b) => a.x - b.x)
 
-    // Scale-independent collision detection parameters
-    // Use constant minimum pixel values that don't depend on zoom level
-    // This ensures labels never overlap regardless of zoom
-    const MIN_HORIZONTAL_GAP = 10 // Constant minimum horizontal gap between labels
-    const MIN_VERTICAL_GAP = 6    // Constant minimum vertical gap between labels
-    const horizontalMargin = MIN_HORIZONTAL_GAP // Fixed spacing regardless of zoom
-    const verticalSpacing = MIN_VERTICAL_GAP    // Fixed spacing regardless of zoom
+    // Zoom-dependent collision detection parameters
+    // Spacing grows with sqrt(scale) so items spread more when zoomed in
+    // sqrt gives ~1.4x at scale=2, ~2x at scale=4, capped at 3x
+    const MIN_HORIZONTAL_GAP_BASE = 10
+    const MIN_VERTICAL_GAP_BASE = 6
+    const MIN_LABEL_WIDTH = 56
+    const HORIZONTAL_COMPRESSION_FACTORS = [1, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6]
+    // Quantize to steps of 0.5 so positions don't shift continuously during zoom
+    const SPACING_ZOOM_FACTOR = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
+    const horizontalMargin = MIN_HORIZONTAL_GAP_BASE * SPACING_ZOOM_FACTOR
+    const verticalSpacing = MIN_VERTICAL_GAP_BASE * SPACING_ZOOM_FACTOR
     const elevationOffset = -5 // Small offset to position thinkers just above the timeline line
 
     // Second pass: resolve collisions by moving thinkers vertically
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 
-    thinkerData.forEach((thinker) => {
-      let y = thinker.baseY + elevationOffset
-      let foundPosition = false
-      let attempts = 0
-      const maxAttempts = 30
+    const manuallyPositionedThinkers = thinkerData.filter((thinker) => thinker.isManuallyPositioned)
+    const autoPositionedThinkers = thinkerData.filter((thinker) => !thinker.isManuallyPositioned)
 
-      while (!foundPosition && attempts < maxAttempts) {
-        foundPosition = true
-
-        for (const existing of placed) {
-          // Check horizontal overlap with zoom-adjusted margin
-          const horizontalOverlap = Math.abs(thinker.x - existing.x) < (thinker.width + existing.width) / 2 + horizontalMargin
-
-          if (horizontalOverlap) {
-            // Check vertical overlap with zoom-adjusted spacing
-            const verticalOverlap = Math.abs(y - existing.y) < (thinker.height + existing.height) / 2 + verticalSpacing
-
-            if (verticalOverlap) {
-              // Alternate stacking direction - favor spreading upward from timeline
-              if (attempts % 2 === 0) {
-                y = existing.y - existing.height / 2 - thinker.height / 2 - verticalSpacing
-              } else {
-                y = existing.y + existing.height / 2 + thinker.height / 2 + verticalSpacing
-              }
-              foundPosition = false
-              break
-            }
-          }
-        }
-        attempts++
-      }
-
+    manuallyPositionedThinkers.forEach((thinker) => {
+      const y = thinker.baseY
       placed.push({ x: thinker.x, y, width: thinker.width, height: thinker.height, id: thinker.id })
       positions.set(thinker.id, { x: thinker.x, y, width: thinker.width, height: thinker.height })
+    })
+
+    // Add event positions as obstacles so thinkers avoid overlapping events
+    if (eventPositions) {
+      for (const [, ePos] of eventPositions) {
+        placed.push({
+          x: ePos.x,
+          y: ePos.y,
+          width: EVENT_BBOX_WIDTH,
+          height: EVENT_BBOX_HEIGHT,
+          id: '__event__',
+        })
+      }
+    }
+
+    autoPositionedThinkers.forEach((thinker) => {
+      const defaultY = thinker.baseY + elevationOffset
+      const minY = CANVAS_VERTICAL_PADDING + thinker.height / 2
+      const maxY = canvasHeight - CANVAS_VERTICAL_PADDING - thinker.height / 2
+      const laneStep = thinker.height + verticalSpacing
+
+      // Generate candidate lanes from center outward (up, down) to use full vertical space.
+      const candidateYs: number[] = []
+      let ring = 0
+      while (true) {
+        const upY = defaultY - ring * laneStep
+        const downY = defaultY + ring * laneStep
+        let addedCandidate = false
+
+        if (ring === 0) {
+          if (upY >= minY && upY <= maxY) {
+            candidateYs.push(upY)
+            addedCandidate = true
+          }
+        } else {
+          if (upY >= minY && upY <= maxY) {
+            candidateYs.push(upY)
+            addedCandidate = true
+          }
+          if (downY >= minY && downY <= maxY) {
+            candidateYs.push(downY)
+            addedCandidate = true
+          }
+        }
+
+        if (!addedCandidate && upY < minY && downY > maxY) break
+        ring += 1
+      }
+
+      if (candidateYs.length === 0) {
+        candidateYs.push(Math.min(maxY, Math.max(minY, defaultY)))
+      }
+
+      let y = candidateYs[0]
+      let width = thinker.width
+      let bestCollisionCount = Number.POSITIVE_INFINITY
+      let bestCollisionPenalty = Number.POSITIVE_INFINITY
+      let bestVerticalDistance = Number.POSITIVE_INFINITY
+      let foundCollisionFreePlacement = false
+
+      // Stage 1: spread vertically as much as possible at natural width.
+      // Stage 2: if needed, progressively compress horizontal label width.
+      for (const compressionFactor of HORIZONTAL_COMPRESSION_FACTORS) {
+        const candidateWidth = Math.max(MIN_LABEL_WIDTH, thinker.width * compressionFactor)
+
+        for (const candidateY of candidateYs) {
+          let collisionCount = 0
+          let collisionPenalty = 0
+
+          for (const existing of placed) {
+            const horizontalThreshold = (candidateWidth + existing.width) / 2 + horizontalMargin
+            const horizontalDistance = Math.abs(thinker.x - existing.x)
+            if (horizontalDistance >= horizontalThreshold) continue
+
+            const verticalThreshold = (thinker.height + existing.height) / 2 + verticalSpacing
+            const verticalDistance = Math.abs(candidateY - existing.y)
+            if (verticalDistance >= verticalThreshold) continue
+
+            collisionCount += 1
+            collisionPenalty += (horizontalThreshold - horizontalDistance) * (verticalThreshold - verticalDistance)
+          }
+
+          const verticalDistanceFromDefault = Math.abs(candidateY - defaultY)
+
+          if (collisionCount === 0) {
+            if (!foundCollisionFreePlacement || verticalDistanceFromDefault < bestVerticalDistance) {
+              y = candidateY
+              width = candidateWidth
+              bestCollisionCount = 0
+              bestCollisionPenalty = 0
+              bestVerticalDistance = verticalDistanceFromDefault
+              foundCollisionFreePlacement = true
+            }
+            continue
+          }
+
+          if (foundCollisionFreePlacement) {
+            continue
+          }
+
+          if (
+            collisionCount < bestCollisionCount ||
+            (collisionCount === bestCollisionCount && collisionPenalty < bestCollisionPenalty) ||
+            (
+              collisionCount === bestCollisionCount &&
+              collisionPenalty === bestCollisionPenalty &&
+              verticalDistanceFromDefault < bestVerticalDistance
+            )
+          ) {
+            y = candidateY
+            width = candidateWidth
+            bestCollisionCount = collisionCount
+            bestCollisionPenalty = collisionPenalty
+            bestVerticalDistance = verticalDistanceFromDefault
+          }
+        }
+
+        if (foundCollisionFreePlacement) {
+          break
+        }
+      }
+
+      placed.push({ x: thinker.x, y, width, height: thinker.height, id: thinker.id })
+      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height })
     })
 
     return positions
   }
 
-  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], canvasWidth: number, canvasHeight: number, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null) => {
-    // Calculate positions with collision detection
-    const positions = calculateThinkerPositions(thinkers, canvasWidth, canvasHeight)
+  const fitTextToWidth = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
+    if (ctx.measureText(text).width <= maxWidth) return text
+
+    const ellipsis = '...'
+    let truncated = text
+    while (truncated.length > 1 && ctx.measureText(`${truncated}${ellipsis}`).width > maxWidth) {
+      truncated = truncated.slice(0, -1)
+    }
+    return `${truncated}${ellipsis}`
+  }
+
+  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null) => {
 
     thinkers.forEach((thinker) => {
       const pos = positions.get(thinker.id)
@@ -633,7 +777,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       // Draw text (name only - no date labels)
       ctx.fillStyle = isSelected ? '#FFFFFF' : '#1A1A1A'
-      ctx.fillText(thinker.name, x, y)
+      const textPadding = 8
+      const maxTextWidth = Math.max(10, bgWidth - textPadding * 2)
+      const displayName = fitTextToWidth(ctx, thinker.name, maxTextWidth)
+      ctx.fillText(displayName, x, y)
 
       // Draw checkbox indicator for bulk selected items
       if (isBulkSelected) {
@@ -818,90 +965,117 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     return { width, height }
   }
 
-  const drawConnections = (ctx: CanvasRenderingContext2D, connections: Connection[], thinkers: Thinker[], canvasWidth: number, canvasHeight: number) => {
-    // Get calculated positions for proper connection endpoints
-    const positions = calculateThinkerPositions(thinkers, canvasWidth, canvasHeight)
+  const CONNECTION_CURVE_OFFSET_STEP = 25
+  const CONNECTION_CURVE_BASE_DEPTH = 30
 
-    // Filter connections by visible types
-    let filteredConns = connections
+  const getConnectionPairKey = (connection: Connection): string => {
+    const ids = [connection.from_thinker_id, connection.to_thinker_id].sort()
+    return `${ids[0]}-${ids[1]}`
+  }
 
-    if (visibleConnectionTypes !== undefined && Array.isArray(visibleConnectionTypes)) {
-      // Only show connections whose type is in the visibleConnectionTypes array
-      filteredConns = connections.filter(conn => {
-        const connType = conn.connection_type as ConnectionStyleType
-        const isVisible = visibleConnectionTypes.includes(connType)
+  const getConnectionOffsets = (inputConnections: Connection[]): Map<string, number> => {
+    const pairConnections = new Map<string, Connection[]>()
 
-        // Debug logging (remove after fixing)
-        if (!isVisible) {
-          console.log(`Filtering out connection: ${connType}, visible types:`, visibleConnectionTypes)
-        }
+    inputConnections.forEach((connection) => {
+      const pairKey = getConnectionPairKey(connection)
+      const existing = pairConnections.get(pairKey)
+      if (existing) {
+        existing.push(connection)
+      } else {
+        pairConnections.set(pairKey, [connection])
+      }
+    })
 
-        return isVisible
+    const offsets = new Map<string, number>()
+
+    pairConnections.forEach((connectionsForPair) => {
+      // Keep offsets stable so lines do not jump when highlight state changes.
+      const stableOrder = [...connectionsForPair].sort((a, b) => a.id.localeCompare(b.id))
+      const totalOffset = (stableOrder.length - 1) * CONNECTION_CURVE_OFFSET_STEP
+
+      stableOrder.forEach((connection, index) => {
+        const curveOffset = index * CONNECTION_CURVE_OFFSET_STEP - totalOffset / 2
+        offsets.set(connection.id, curveOffset)
       })
+    })
 
-      console.log(`Total connections: ${connections.length}, Filtered to: ${filteredConns.length}, Visible types:`, visibleConnectionTypes)
-    }
+    return offsets
+  }
 
-    // Separate connections into two groups: non-highlighted first, then highlighted
-    // This ensures highlighted connections are drawn on top
+  const orderConnectionsForRendering = (inputConnections: Connection[]): Connection[] => {
     const nonHighlighted: Connection[] = []
     const highlighted: Connection[] = []
 
-    filteredConns.forEach((conn) => {
-      const isHighlighted = highlightSelectedConnections && selectedThinkerId &&
-        (conn.from_thinker_id === selectedThinkerId || conn.to_thinker_id === selectedThinkerId)
+    inputConnections.forEach((connection) => {
+      const isHighlighted = Boolean(
+        highlightSelectedConnections &&
+        selectedThinkerId &&
+        (connection.from_thinker_id === selectedThinkerId || connection.to_thinker_id === selectedThinkerId)
+      )
 
       if (isHighlighted) {
-        highlighted.push(conn)
+        highlighted.push(connection)
       } else {
-        nonHighlighted.push(conn)
+        nonHighlighted.push(connection)
       }
     })
 
-    // Draw non-highlighted connections first, then highlighted ones on top
-    const allConns = [...nonHighlighted, ...highlighted]
+    return [...nonHighlighted, ...highlighted]
+  }
 
-    // Group connections by thinker pair to handle dual connections
-    const pairConnectionCount = new Map<string, { total: number; current: number }>()
+  const getConnectionCurvePoints = (
+    connection: Connection,
+    positions: Map<string, { x: number; y: number; width: number; height: number }>,
+    thinkersById: Map<string, Thinker>,
+    curveOffsetsById: Map<string, number>
+  ): {
+    fromX: number
+    fromY: number
+    toX: number
+    toY: number
+    controlX1: number
+    controlY1: number
+    controlX2: number
+    controlY2: number
+  } | null => {
+    const fromThinker = thinkersById.get(connection.from_thinker_id)
+    const toThinker = thinkersById.get(connection.to_thinker_id)
+
+    if (!fromThinker || !toThinker) return null
+
+    const fromPos = positions.get(fromThinker.id)
+    const toPos = positions.get(toThinker.id)
+    if (!fromPos || !toPos) return null
+
+    const fromX = fromPos.x
+    const fromY = fromPos.y + fromPos.height / 2
+    const toX = toPos.x
+    const toY = toPos.y + toPos.height / 2
+    const curveOffset = curveOffsetsById.get(connection.id) ?? 0
+    const controlY = Math.max(fromY, toY) + CONNECTION_CURVE_BASE_DEPTH + curveOffset
+
+    return {
+      fromX,
+      fromY,
+      toX,
+      toY,
+      controlX1: fromX,
+      controlY1: controlY,
+      controlX2: toX,
+      controlY2: controlY,
+    }
+  }
+
+  const drawConnections = (ctx: CanvasRenderingContext2D, connections: Connection[], thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>) => {
+    const thinkersById = new Map(thinkers.map((thinker) => [thinker.id, thinker]))
+    const allConns = orderConnectionsForRendering(connections)
+    const curveOffsetsById = getConnectionOffsets(connections)
+
     allConns.forEach((conn) => {
-      // Create a consistent key for the pair (sorted IDs)
-      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
-      const pairKey = `${ids[0]}-${ids[1]}`
-      const existing = pairConnectionCount.get(pairKey)
-      if (existing) {
-        existing.total++
-      } else {
-        pairConnectionCount.set(pairKey, { total: 1, current: 0 })
-      }
-    })
+      const curve = getConnectionCurvePoints(conn, positions, thinkersById, curveOffsetsById)
+      if (!curve) return
 
-    allConns.forEach((conn) => {
-      const fromThinker = thinkers.find((t) => t.id === conn.from_thinker_id)
-      const toThinker = thinkers.find((t) => t.id === conn.to_thinker_id)
-
-      if (!fromThinker || !toThinker) return
-
-      // Use calculated positions for endpoints
-      const fromPos = positions.get(fromThinker.id)
-      const toPos = positions.get(toThinker.id)
-      if (!fromPos || !toPos) return
-
-      // Calculate offset for dual connections
-      const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
-      const pairKey = `${ids[0]}-${ids[1]}`
-      const pairInfo = pairConnectionCount.get(pairKey)!
-      const connectionIndex = pairInfo.current++
-      const totalConnections = pairInfo.total
-
-      // Calculate offset: spread connections evenly
-      const offsetStep = 25 // Pixels between parallel connections
-      const totalOffset = (totalConnections - 1) * offsetStep
-      const curveOffset = connectionIndex * offsetStep - totalOffset / 2
-
-      const fromX = fromPos.x
-      const fromY = fromPos.y + fromPos.height / 2 // Bottom of the box
-      const toX = toPos.x
-      const toY = toPos.y + toPos.height / 2 // Bottom of the box
+      const { fromX, fromY, toX, toY, controlX1, controlY1, controlX2, controlY2 } = curve
 
       // Get connection style based on type
       const connType = conn.connection_type as ConnectionStyleType
@@ -929,13 +1103,6 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       ctx.beginPath()
       ctx.moveTo(fromX, fromY)
-
-      // More elegant curved connection with offset for dual connections
-      const midY = Math.max(fromY, toY) + 30 + curveOffset // Curve dips below, offset for parallels
-      const controlX1 = fromX
-      const controlY1 = midY
-      const controlX2 = toX
-      const controlY2 = midY
 
       ctx.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, toX, toY)
       ctx.stroke()
@@ -1038,19 +1205,90 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     ctx.setLineDash([])
   }
 
-  const drawTimelineEvents = (ctx: CanvasRenderingContext2D, events: TimelineEvent[], canvasWidth: number, canvasHeight: number) => {
+  // Calculate event positions with collision detection (text-aware bounding boxes)
+  const calculateEventPositions = (events: TimelineEvent[], canvasWidth: number, canvasHeight: number): Map<string, { x: number; y: number }> => {
+    const positions = new Map<string, { x: number; y: number }>()
     const centerY = canvasHeight / 2
+    const canvas = canvasRef.current
+    if (!canvas) return positions
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return positions
 
-    events.forEach((event) => {
+    // Zoom-dependent spacing for events (quantized to avoid jitter during zoom)
+    const zoomFactor = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
+    const eventGap = EVENT_VERTICAL_GAP * zoomFactor
+
+    // Sort events by year for left-to-right processing
+    const sortedEvents = [...events].sort((a, b) => a.year - b.year)
+
+    // Pre-measure text widths for each event
+    ctx.font = '10px "JetBrains Mono", monospace'
+    const eventWidths = new Map<string, number>()
+    sortedEvents.forEach((event) => {
+      const textWidth = ctx.measureText(event.name).width
+      // Bounding box width = max of shape width and label text width
+      eventWidths.set(event.id, Math.max(EVENT_BBOX_WIDTH, textWidth + 4))
+    })
+
+    // Track placed events for collision detection
+    const placed: { x: number; y: number; width: number; height: number }[] = []
+
+    sortedEvents.forEach((event) => {
       const x = yearToX(event.year, canvasWidth, scale)
-      const y = centerY - 15  // Position events just above the timeline line
+      const baseY = centerY + EVENT_ZONE_OFFSET
+      const evtWidth = eventWidths.get(event.id) || EVENT_BBOX_WIDTH
+
+      let bestY = baseY
+      let foundFree = false
+
+      // Generate candidates spiraling away from baseY
+      for (let ring = 0; ring < 20; ring++) {
+        const candidates = ring === 0
+          ? [baseY]
+          : [baseY - ring * (EVENT_BBOX_HEIGHT + eventGap), baseY + ring * (EVENT_BBOX_HEIGHT + eventGap)]
+
+        for (const candidateY of candidates) {
+          if (candidateY < CANVAS_VERTICAL_PADDING || candidateY > canvasHeight - CANVAS_VERTICAL_PADDING) continue
+
+          let hasCollision = false
+
+          for (const existing of placed) {
+            const hOverlap = Math.abs(x - existing.x) < (evtWidth + existing.width) / 2
+            const vOverlap = Math.abs(candidateY - existing.y) < (EVENT_BBOX_HEIGHT + existing.height) / 2 + eventGap
+            if (hOverlap && vOverlap) {
+              hasCollision = true
+              break
+            }
+          }
+
+          if (!hasCollision) {
+            bestY = candidateY
+            foundFree = true
+            break
+          }
+        }
+        if (foundFree) break
+      }
+
+      placed.push({ x, y: bestY, width: evtWidth, height: EVENT_BBOX_HEIGHT })
+      positions.set(event.id, { x, y: bestY })
+    })
+
+    return positions
+  }
+
+  const drawTimelineEvents = (ctx: CanvasRenderingContext2D, events: TimelineEvent[], canvasWidth: number, canvasHeight: number, eventPositions: Map<string, { x: number; y: number }>) => {
+    events.forEach((event) => {
+      const pos = eventPositions.get(event.id)
+      if (!pos) return
+      const { x, y } = pos
 
       // Different shapes for different event types
       ctx.fillStyle = '#8B4513'  // Brown color for events
       ctx.strokeStyle = '#6B3410'
       ctx.lineWidth = 2
 
-      const size = 8
+      const size = EVENT_SHAPE_SIZE
 
       switch (event.event_type) {
         case 'council':
@@ -1145,7 +1383,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Use CSS dimensions (not DPR-scaled canvas dimensions) to match click coordinates
     const rect = canvas.getBoundingClientRect()
-    const positions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height)
+    const eventPos = timelineEvents.length > 0
+      ? calculateEventPositions(timelineEvents, rect.width, rect.height)
+      : undefined
+    const positions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height, eventPos)
 
     for (const thinker of filteredThinkers) {
       const pos = positions.get(thinker.id)
@@ -1187,34 +1428,34 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const canvas = canvasRef.current
     if (!canvas) return null
 
-    const clickThreshold = 10  // pixels
-
     // Use CSS dimensions (not DPR-scaled canvas dimensions) to match click coordinates
     const rect = canvas.getBoundingClientRect()
-    const positions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height)
+    const eventPos = timelineEvents.length > 0
+      ? calculateEventPositions(timelineEvents, rect.width, rect.height)
+      : undefined
+    const positions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height, eventPos)
+    const thinkersById = new Map(filteredThinkers.map((thinker) => [thinker.id, thinker]))
+    const orderedConnections = orderConnectionsForRendering(visibleFilteredConnections)
+    const curveOffsetsById = getConnectionOffsets(visibleFilteredConnections)
 
-    for (const conn of filteredConnections) {
-      const fromThinker = filteredThinkers.find((t) => t.id === conn.from_thinker_id)
-      const toThinker = filteredThinkers.find((t) => t.id === conn.to_thinker_id)
+    // Check top-most connections first (matches draw order with highlighted links on top).
+    for (let index = orderedConnections.length - 1; index >= 0; index--) {
+      const conn = orderedConnections[index]
+      const curve = getConnectionCurvePoints(conn, positions, thinkersById, curveOffsetsById)
+      if (!curve) continue
 
-      if (!fromThinker || !toThinker) continue
+      const {
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX1,
+        controlY1,
+        controlX2,
+        controlY2,
+      } = curve
 
-      // Use calculated positions (same as in drawConnections)
-      const fromPos = positions.get(fromThinker.id)
-      const toPos = positions.get(toThinker.id)
-      if (!fromPos || !toPos) continue
-
-      const fromX = fromPos.x
-      const fromY = fromPos.y + fromPos.height / 2
-      const toX = toPos.x
-      const toY = toPos.y + toPos.height / 2
-
-      // Calculate control points (same as in drawConnections)
-      const midY = Math.max(fromY, toY) + 30
-      const controlX1 = fromX
-      const controlY1 = midY
-      const controlX2 = toX
-      const controlY2 = midY
+      const clickThreshold = 10 + getConnectionLineWidth(conn.strength) / 2
 
       // Sample points along the bezier curve and check if click is near any of them
       for (let t = 0; t <= 1; t += 0.02) {
@@ -1247,42 +1488,47 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Use CSS dimensions (not DPR-scaled canvas dimensions) to match click coordinates
     const rect = canvas.getBoundingClientRect()
-    const centerY = rect.height / 2
-    const eventY = centerY - 15  // Same as in drawTimelineEvents
+
+    // Use calculated event positions (same as rendering)
+    const eventPositions = calculateEventPositions(timelineEvents, rect.width, rect.height)
 
     for (const event of timelineEvents) {
-      const eventX = yearToX(event.year, rect.width, scale)
-      const size = 8  // Same as in drawTimelineEvents
+      const pos = eventPositions.get(event.id)
+      if (!pos) continue
+
+      const size = EVENT_SHAPE_SIZE
 
       // Check if click is within event bounds (generous hit area)
-      if (x >= eventX - size * 2 && x <= eventX + size * 2 &&
-          y >= eventY - size * 2 && y <= eventY + size * 2) {
+      if (x >= pos.x - size * 2 && x <= pos.x + size * 2 &&
+          y >= pos.y - size * 2 && y <= pos.y + size * 2) {
         return event
       }
     }
     return null
   }
 
-  // BUG #3 FIX: Calculate minimum scale that ensures timeline always fills the screen
-  const calculateMinScale = (canvasWidth: number): number => {
+  // Dynamic zoom bounds based on the actual timeline year span
+  const calculateZoomBounds = (): { minScale: number; maxScale: number } => {
     let startYear, endYear
     if (selectedTimeline) {
-      startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-      endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
     } else {
       const range = calculateAllThinkersRange()
       startYear = range.startYear
       endYear = range.endYear
     }
-
-    // Calculate the base timeline width (at scale=1) using the same formula as yearToX
     const yearSpan = endYear - startYear
-    const pixelsPerYear = (canvasWidth * TIMELINE_CONTENT_WIDTH_PERCENT) / yearSpan
-    const baseTimelineWidth = TIMELINE_PADDING * 2 + yearSpan * pixelsPerYear
 
-    // Minimum scale ensures timeline fills the viewport
-    // We want: baseTimelineWidth * minScale >= canvasWidth
-    return canvasWidth / baseTimelineWidth
+    // MIN SCALE (zoom out limit): full timeline fits in viewport at scale=1
+    const minScale = 1.0
+
+    // MAX SCALE (zoom in limit): ~5 visible years for clear quarter-year detail
+    // visibleYears ≈ yearSpan / (0.8 * scale), so scale = yearSpan / (0.8 * targetYears)
+    const targetVisibleYears = 5
+    const maxScale = Math.max(10, yearSpan / (0.8 * targetVisibleYears))
+
+    return { minScale, maxScale }
   }
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -1307,14 +1553,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const zoomSensitivity = Math.abs(e.deltaY) < 10 ? 0.03 : 0.001
       const delta = 1 - e.deltaY * zoomSensitivity
 
-      const minScale = calculateMinScale(rect.width)
-      const newScale = Math.max(minScale, Math.min(100, oldScale * delta))
+      const { minScale, maxScale } = calculateZoomBounds()
+      const newScale = Math.max(minScale, Math.min(maxScale, oldScale * delta))
 
       // Calculate timeline bounds
       let startYear, endYear
       if (selectedTimeline) {
-        startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-        endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+        startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+        endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
       } else {
         const range = calculateAllThinkersRange()
         startYear = range.startYear
@@ -1345,8 +1591,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       // PAN: Cmd/Ctrl + scroll
       let startYear, endYear
       if (selectedTimeline) {
-        startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-        endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+        startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+        endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
       } else {
         const range = calculateAllThinkersRange()
         startYear = range.startYear
@@ -1386,8 +1632,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       // Start dragging the note
       setDraggedNoteId(note.id)
       setHasNoteDragged(false)
-      const noteX = Math.round(note.position_x || 0)
-      const noteY = Math.round(note.position_y || 0)
+      const noteX = Math.round(note.position_x ?? 0)
+      const noteY = Math.round(note.position_y ?? 0)
       setNoteDragOffset({
         x: Math.round(coords.x - noteX),
         y: Math.round(coords.y - noteY)
@@ -1403,7 +1649,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         const canvas = canvasRef.current
         if (canvas) {
           const rect = canvas.getBoundingClientRect()
-          const calculatedPositions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height)
+          const evtPos = timelineEvents.length > 0
+            ? calculateEventPositions(timelineEvents, rect.width, rect.height)
+            : undefined
+          const calculatedPositions = calculateThinkerPositions(filteredThinkers, rect.width, rect.height, evtPos)
           const thinkerPosition = calculatedPositions.get(thinker.id)
           if (thinkerPosition) {
             setDraggedThinkerId(thinker.id)
@@ -1490,28 +1739,29 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Calculate timeline bounds to restrict panning
     let startYear, endYear
     if (selectedTimeline) {
-      startYear = selectedTimeline.start_year || DEFAULT_START_YEAR
-      endYear = selectedTimeline.end_year || DEFAULT_END_YEAR
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
     } else {
       const range = calculateAllThinkersRange()
       startYear = range.startYear
       endYear = range.endYear
     }
 
-    const timelineStartX = yearToX(startYear, canvas.width, scale)
-    const timelineEndX = yearToX(endYear, canvas.width, scale)
+    const rect = canvas.getBoundingClientRect()
+    const timelineStartX = yearToX(startYear, rect.width, scale)
+    const timelineEndX = yearToX(endYear, rect.width, scale)
 
     // Strict boundary: prevent panning beyond timeline date limits
-    const maxOffsetX = canvas.width * 0.1 - timelineStartX
-    const minOffsetX = canvas.width * 0.9 - timelineEndX
+    const maxOffsetX = rect.width * 0.1 - timelineStartX
+    const minOffsetX = rect.width * 0.9 - timelineEndX
 
     // Only apply boundaries if the timeline is wider than the viewport
     const timelineWidth = timelineEndX - timelineStartX
-    if (timelineWidth > canvas.width) {
+    if (timelineWidth > rect.width) {
       setOffsetX((prev) => Math.min(maxOffsetX, Math.max(minOffsetX, prev + dx)))
     } else {
       // If timeline fits in viewport, keep it centered or bounded lightly
-      setOffsetX((prev) => Math.min(canvas.width * 0.2, Math.max(-canvas.width * 0.2, prev + dx)))
+      setOffsetX((prev) => Math.min(rect.width * 0.2, Math.max(-rect.width * 0.2, prev + dx)))
     }
 
     setOffsetY((prev) => prev + dy)
@@ -1606,6 +1856,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Only trigger add thinker modal on Cmd/Ctrl+Click on empty space (without shift)
     if (!thinker && onCanvasClick && isCtrlClick && !isShiftClick) {
       onCanvasClick(coords)
+      return
+    }
+
+    // Clicking empty space (no thinker, note, event, or connection) deselects
+    if (!thinker && !isCtrlClick) {
+      onEmptyClick?.()
     }
   }
 
@@ -1646,16 +1902,17 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       <div className="absolute bottom-4 right-4 flex gap-2">
         <button
-          onClick={() => setScale((prev) => Math.min(100, prev * 1.1))}
+          onClick={() => {
+            const { maxScale } = calculateZoomBounds()
+            setScale((prev) => Math.min(maxScale, prev * 1.1))
+          }}
           className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
         >
           Zoom In
         </button>
         <button
           onClick={() => {
-            const canvas = canvasRef.current
-            if (!canvas) return
-            const minScale = calculateMinScale(canvas.width)
+            const { minScale } = calculateZoomBounds()
             setScale((prev) => Math.max(minScale, prev * 0.9))
           }}
           className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"

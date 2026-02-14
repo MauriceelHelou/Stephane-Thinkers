@@ -33,16 +33,21 @@ class Note(Base):
     color = Column(String, default="yellow")  # Sticky note color: yellow, pink, blue, green
     is_canvas_note = Column(Boolean, default=False)  # True for canvas notes, False for panel-only
 
+    # Optional folder organization (NULL means unfiled)
+    folder_id = Column(GUID, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     thinker = relationship("Thinker", back_populates="notes")
+    folder = relationship("Folder", back_populates="notes")
     mentioned_thinkers = relationship(
         "Thinker",
         secondary=note_mentions,
         backref="mentioned_in_notes"
     )
+    tags = relationship("Tag", secondary="note_tag_assignments", back_populates="notes")
     versions = relationship("NoteVersion", back_populates="note", cascade="all, delete-orphan", passive_deletes=True)
 
 

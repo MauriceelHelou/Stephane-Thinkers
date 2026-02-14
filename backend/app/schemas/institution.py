@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -68,6 +68,27 @@ class InstitutionUpdate(BaseModel):
             return v.strip()
         return v
 
+    @field_validator('founded_year')
+    @classmethod
+    def validate_year(cls, v):
+        if v is not None and (v < MIN_YEAR or v > MAX_YEAR):
+            raise ValueError(f'Year must be between {MIN_YEAR} and {MAX_YEAR}')
+        return v
+
+    @field_validator('latitude')
+    @classmethod
+    def validate_latitude(cls, v):
+        if v is not None and (v < -90 or v > 90):
+            raise ValueError('Latitude must be between -90 and 90')
+        return v
+
+    @field_validator('longitude')
+    @classmethod
+    def validate_longitude(cls, v):
+        if v is not None and (v < -180 or v > 180):
+            raise ValueError('Longitude must be between -180 and 180')
+        return v
+
 
 class Institution(InstitutionBase):
     model_config = ConfigDict(from_attributes=True)
@@ -95,6 +116,12 @@ class ThinkerInstitutionBase(BaseModel):
             raise ValueError(f'Year must be between {MIN_YEAR} and {MAX_YEAR}')
         return v
 
+    @model_validator(mode='after')
+    def validate_year_order(self):
+        if self.start_year is not None and self.end_year is not None and self.start_year > self.end_year:
+            raise ValueError('start_year cannot be greater than end_year')
+        return self
+
 
 class ThinkerInstitutionCreate(ThinkerInstitutionBase):
     thinker_id: UUID
@@ -109,6 +136,19 @@ class ThinkerInstitutionUpdate(BaseModel):
     is_phd_institution: Optional[bool] = None
     phd_advisor_id: Optional[UUID] = None
     notes: Optional[str] = None
+
+    @field_validator('start_year', 'end_year')
+    @classmethod
+    def validate_year(cls, v):
+        if v is not None and (v < MIN_YEAR or v > MAX_YEAR):
+            raise ValueError(f'Year must be between {MIN_YEAR} and {MAX_YEAR}')
+        return v
+
+    @model_validator(mode='after')
+    def validate_year_order(self):
+        if self.start_year is not None and self.end_year is not None and self.start_year > self.end_year:
+            raise ValueError('start_year cannot be greater than end_year')
+        return self
 
 
 class ThinkerInstitution(ThinkerInstitutionBase):
@@ -130,4 +170,4 @@ class ThinkerInstitutionWithRelations(ThinkerInstitution):
 class InstitutionWithAffiliations(Institution):
     model_config = ConfigDict(from_attributes=True)
 
-    thinker_affiliations: List[ThinkerInstitution] = []
+    thinker_affiliations: List[ThinkerInstitution] = Field(default_factory=list)

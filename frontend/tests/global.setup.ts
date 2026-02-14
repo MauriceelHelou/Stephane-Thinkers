@@ -5,8 +5,8 @@ import { FullConfig } from '@playwright/test'
  * Runs once before all tests in the test suite
  */
 async function globalSetup(config: FullConfig): Promise<void> {
-  const baseURL = config.projects[0]?.use?.baseURL || 'http://localhost:3001'
-  const apiURL = process.env.API_BASE_URL || 'http://localhost:8001'
+  const baseURL = config.projects[0]?.use?.baseURL || 'http://localhost:3010'
+  const apiURL = process.env.API_BASE_URL || 'http://localhost:8010'
 
   console.log('\n🚀 Starting global test setup...')
   console.log(`   Frontend URL: ${baseURL}`)

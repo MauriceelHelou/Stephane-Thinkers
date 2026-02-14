@@ -4,6 +4,8 @@ import { createAPIHelpers } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('Keyboard Journey: Accessibility', () => {
+  test.describe.configure({ mode: 'serial' })
+
   test.beforeEach(async ({ page, request }) => {
     const api = createAPIHelpers(request)
     await api.resetDatabase()
@@ -217,7 +219,7 @@ test.describe('Keyboard Journey: Accessibility', () => {
       await mainPage.waitForPageLoad()
 
       // Open modal with keyboard
-      await page.keyboard.press('n')
+      await page.keyboard.press('Control+t')
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Fill form with keyboard
@@ -365,8 +367,8 @@ test.describe('Keyboard Journey: Accessibility', () => {
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Submit empty form to trigger errors
-      const submitButton = page.locator('button[type="submit"]')
-        .or(page.locator('button').filter({ hasText: /save|create|add/i }))
+      const dialog = page.getByRole('dialog', { name: 'Add Thinker' })
+      const submitButton = dialog.getByRole('button', { name: /^Add Thinker$/ })
 
       if (await submitButton.isVisible()) {
         await submitButton.click()

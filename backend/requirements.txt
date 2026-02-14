@@ -12,6 +12,8 @@ psycopg2-binary>=2.9.9  # PostgreSQL adapter for Python
 openai>=1.10.0  # For both DeepSeek (OpenAI-compatible) and OpenAI embeddings
 chromadb>=0.4.22  # Vector database
 tiktoken>=0.5.2  # Token counting
+redis>=5.0.0
+rq>=1.16.0
 
 # Testing dependencies
 pytest>=8.0.0

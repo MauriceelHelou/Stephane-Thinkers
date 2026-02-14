@@ -6,7 +6,7 @@
       "slowMo": 50
     },
     "contextOptions": {
-      "baseURL": "http://localhost:3001",
+      "baseURL": "http://localhost:3010",
       "viewport": {
         "width": 1280,
         "height": 720

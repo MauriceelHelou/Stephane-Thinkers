@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/api/tags", tags=["tags"])
 
 @router.post("/", response_model=schemas.Tag, status_code=201)
 def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
-    existing_tag = db.query(Tag).filter(Tag.name == tag.name).first()
+    existing_tag = db.query(Tag).filter(func.lower(Tag.name) == tag.name.lower()).first()
     if existing_tag:
         return existing_tag
 
@@ -23,14 +24,20 @@ def create_tag(tag: schemas.TagCreate, db: Session = Depends(get_db)):
         db.refresh(db_tag)
     except IntegrityError:
         db.rollback()
-        existing_tag = db.query(Tag).filter(Tag.name == tag.name).first()
-        return existing_tag
+        existing_tag = db.query(Tag).filter(func.lower(Tag.name) == tag.name.lower()).first()
+        if existing_tag:
+            return existing_tag
+        raise HTTPException(status_code=400, detail="Tag name already exists")
 
     return db_tag
 
 @router.get("/", response_model=List[schemas.Tag])
-def get_tags(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    tags = db.query(Tag).offset(skip).limit(limit).all()
+def get_tags(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    tags = db.query(Tag).order_by(Tag.name.asc()).offset(skip).limit(limit).all()
     return tags
 
 @router.get("/{tag_id}", response_model=schemas.Tag)
@@ -49,6 +56,15 @@ def update_tag(tag_id: UUID, tag_update: schemas.TagUpdate, db: Session = Depend
         raise HTTPException(status_code=404, detail="Tag not found")
 
     update_data = tag_update.model_dump(exclude_unset=True)
+    if "name" in update_data:
+        existing_tag = (
+            db.query(Tag)
+            .filter(func.lower(Tag.name) == update_data["name"].lower(), Tag.id != tag_id)
+            .first()
+        )
+        if existing_tag:
+            raise HTTPException(status_code=400, detail="Tag name already exists")
+
     for field, value in update_data.items():
         setattr(db_tag, field, value)
 

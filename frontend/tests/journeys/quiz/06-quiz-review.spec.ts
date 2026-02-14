@@ -4,6 +4,8 @@ import { createAPIHelpers } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('Quiz Journey: Quiz Review', () => {
+  test.describe.configure({ mode: 'serial' })
+
   test.beforeEach(async ({ page, request }) => {
     const api = createAPIHelpers(request)
     await api.resetDatabase()

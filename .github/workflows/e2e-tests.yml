@@ -137,11 +137,12 @@ jobs:
       - name: Start backend server
         working-directory: backend
         run: |
-          uvicorn app.main:app --host 0.0.0.0 --port 8001 &
+          uvicorn app.main:app --host 0.0.0.0 --port 8010 &
           sleep 5
         env:
           DATABASE_URL: sqlite:///./test_db.db
-          FRONTEND_URL: http://localhost:3001
+          ENVIRONMENT: test
+          FRONTEND_URL: http://localhost:3010
 
       - name: Build and start frontend
         working-directory: frontend
@@ -150,11 +151,11 @@ jobs:
           npm start &
           sleep 10
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:8001
+          NEXT_PUBLIC_API_URL: http://localhost:8010
 
       - name: Wait for services
         run: |
-          npx wait-on http://localhost:3001 http://localhost:8001/api/health --timeout 60000
+          npx wait-on http://localhost:3010 http://localhost:8010/api/health --timeout 60000
 
       - name: Run E2E tests (shard ${{ matrix.shard }})
         working-directory: frontend
@@ -165,8 +166,8 @@ jobs:
             --reporter=blob
         env:
           CI: true
-          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3001
-          API_BASE_URL: http://localhost:8001
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3010
+          API_BASE_URL: http://localhost:8010
 
       - name: Upload blob report
         if: always()
@@ -225,13 +226,14 @@ jobs:
 
       - name: Start services
         run: |
-          cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8001 &
+          cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8010 &
           cd frontend && npm run build && npm start &
           sleep 15
         env:
           DATABASE_URL: sqlite:///./test_db.db
-          FRONTEND_URL: http://localhost:3001
-          NEXT_PUBLIC_API_URL: http://localhost:8001
+          ENVIRONMENT: test
+          FRONTEND_URL: http://localhost:3010
+          NEXT_PUBLIC_API_URL: http://localhost:8010
 
       - name: Run visual tests
         working-directory: frontend

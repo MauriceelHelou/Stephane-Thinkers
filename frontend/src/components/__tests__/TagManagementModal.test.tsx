@@ -5,7 +5,7 @@ import { TagManagementModal } from '../TagManagementModal'
 import { server } from '../../test/setup'
 import { http, HttpResponse } from 'msw'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 describe('TagManagementModal', () => {
   const defaultProps = {

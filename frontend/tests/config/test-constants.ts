@@ -1,6 +1,6 @@
 // API URLs
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
-export const FRONTEND_URL = 'http://localhost:3001'
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8010'
+export const FRONTEND_URL = 'http://localhost:3010'
 
 // Test IDs - standardized data-testid values used throughout the app
 export const TEST_IDS = {

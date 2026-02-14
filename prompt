@@ -7,8 +7,8 @@ CRITICAL CONTEXT
 STARTING STATE:
 - Empty git repository (initialize if needed)
 - No files exist yet
-- Backend will run on port 8001
-- Frontend will run on port 3001
+- Backend will run on port 8010
+- Frontend will run on port 3010
 - Standard ports (3000, 8000) are occupied - DO NOT USE THEM
 
 RESOURCE CONSTRAINTS:
@@ -42,7 +42,7 @@ TECHNICAL STACK
 
 FRONTEND:
 - Next.js 14 App Router with TypeScript strict mode
-- Port: 3001 (CRITICAL: do not use 3000)
+- Port: 3010 (CRITICAL: do not use 3000)
 - Use context7 for latest Next.js 14 patterns
 - Canvas-based rendering (HTML Canvas or SVG)
 - TailwindCSS for styling
@@ -52,7 +52,7 @@ FRONTEND:
 
 BACKEND:
 - FastAPI (Python) - lean and fast
-- Port: 8001 (CRITICAL: do not use 8000)
+- Port: 8010 (CRITICAL: do not use 8000)
 - PostgreSQL database
 - SQLAlchemy ORM
 - Pydantic for validation
@@ -280,11 +280,11 @@ PHASE 1: PROJECT SETUP (10 min)
    - Initial commit: "Initial commit"
 
 2. Create project structure:
-/ ├── frontend/ # Next.js app │ ├── src/ │ │ ├── app/ # App router │ │ ├── components/ │ │ ├── lib/ # Utils, API client │ │ └── types/ │ ├── public/ │ ├── package.json │ ├── tsconfig.json │ └── next.config.js (port 3001) │ ├── backend/ # FastAPI app │ ├── app/ │ │ ├── models/ # SQLAlchemy models │ │ ├── routes/ # API endpoints │ │ ├── schemas/ # Pydantic schemas │ │ └── main.py # FastAPI app (port 8001) │ ├── alembic/ # Migrations │ ├── requirements.txt │ └── .env.example │ ├── README.md └── docker-compose.yml (optional, for local DB)
+/ ├── frontend/ # Next.js app │ ├── src/ │ │ ├── app/ # App router │ │ ├── components/ │ │ ├── lib/ # Utils, API client │ │ └── types/ │ ├── public/ │ ├── package.json │ ├── tsconfig.json │ └── next.config.js (port 3010) │ ├── backend/ # FastAPI app │ ├── app/ │ │ ├── models/ # SQLAlchemy models │ │ ├── routes/ # API endpoints │ │ ├── schemas/ # Pydantic schemas │ │ └── main.py # FastAPI app (port 8010) │ ├── alembic/ # Migrations │ ├── requirements.txt │ └── .env.example │ ├── README.md └── docker-compose.yml (optional, for local DB)
 
 3. Initialize frontend (Next.js)
    - npx create-next-app@latest frontend --typescript --tailwind --app
-   - Configure to run on port 3001 (modify next.config.js and package.json)
+   - Configure to run on port 3010 (modify next.config.js and package.json)
    - Install dependencies:
      * @tanstack/react-query
      * zod
@@ -302,8 +302,8 @@ PHASE 1: PROJECT SETUP (10 min)
      * alembic
      * pydantic
      * python-dotenv
-   - Configure to run on port 8001 (in main.py)
-   - Set up CORS for frontend (allow localhost:3001)
+   - Configure to run on port 8010 (in main.py)
+   - Set up CORS for frontend (allow localhost:3010)
 
 5. Set up PostgreSQL
    - Create database "intellectual_graph"
@@ -556,8 +556,8 @@ AFTER EACH PHASE:
 
 BEFORE FINAL DEPLOYMENT:
 □ All features working in local development
-□ Frontend runs on port 3001
-□ Backend runs on port 8001
+□ Frontend runs on port 3010
+□ Backend runs on port 8010
 □ Database properly seeded
 □ README complete with setup instructions
 □ Environment variables documented
@@ -572,8 +572,8 @@ CONSTRAINTS & REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════
 
 CRITICAL:
-- Backend MUST use port 8001 (not 8000)
-- Frontend MUST use port 3001 (not 3000)
+- Backend MUST use port 8010 (not 8000)
+- Frontend MUST use port 3010 (not 3000)
 - Start from empty repository, create ALL files
 - Keep dependencies minimal (lean principle)
 - Database queries optimized (no N+1 problems)

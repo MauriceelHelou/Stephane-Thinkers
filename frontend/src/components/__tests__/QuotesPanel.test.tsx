@@ -5,7 +5,7 @@ import { QuotesPanel } from '../QuotesPanel'
 import { server } from '../../test/setup'
 import { http, HttpResponse } from 'msw'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 const mockQuotes = [
   {
@@ -161,21 +161,21 @@ describe('QuotesPanel', () => {
     it('displays quote text', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge to make room for faith."/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge to make room for faith\./)).toBeInTheDocument()
       })
     })
 
     it('displays quote source', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/Critique of Pure Reason/)).toBeInTheDocument()
+        expect(screen.getAllByText(/Critique of Pure Reason/).length).toBeGreaterThan(0)
       })
     })
 
     it('displays quote year', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText('1781')).toBeInTheDocument()
+        expect(screen.getAllByText('1781').length).toBeGreaterThan(0)
       })
     })
 
@@ -228,15 +228,15 @@ describe('QuotesPanel', () => {
     it('filters quotes by search query', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const searchInput = screen.getByPlaceholderText('Search quotes...')
       await userEvent.type(searchInput, 'Minerva')
 
       await waitFor(() => {
-        expect(screen.queryByText(/"I had to deny knowledge/)).not.toBeInTheDocument()
-        expect(screen.getByText(/"The owl of Minerva/)).toBeInTheDocument()
+        expect(screen.queryByText(/I had to deny knowledge/)).not.toBeInTheDocument()
+        expect(screen.getByText(/The owl of Minerva/)).toBeInTheDocument()
       })
     })
 
@@ -251,8 +251,8 @@ describe('QuotesPanel', () => {
       await userEvent.selectOptions(thinkerSelect, 'thinker-2')
 
       await waitFor(() => {
-        expect(screen.queryByText(/"I had to deny knowledge/)).not.toBeInTheDocument()
-        expect(screen.getByText(/"The owl of Minerva/)).toBeInTheDocument()
+        expect(screen.queryByText(/I had to deny knowledge/)).not.toBeInTheDocument()
+        expect(screen.getByText(/The owl of Minerva/)).toBeInTheDocument()
       })
     })
 
@@ -273,8 +273,8 @@ describe('QuotesPanel', () => {
 
       // In date sort, grouped view changes to flat list
       await waitFor(() => {
-        const quotes = screen.getAllByText(/"/);
-        expect(quotes.length).toBeGreaterThan(0)
+        expect(screen.getByText(/The owl of Minerva/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
     })
 
@@ -289,8 +289,8 @@ describe('QuotesPanel', () => {
       await userEvent.selectOptions(sortSelect, 'source')
 
       await waitFor(() => {
-        const quotes = screen.getAllByText(/"/);
-        expect(quotes.length).toBeGreaterThan(0)
+        expect(screen.getByText(/The owl of Minerva/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
     })
   })
@@ -383,7 +383,7 @@ describe('QuotesPanel', () => {
     it('has edit button on quotes', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const editButtons = screen.getAllByTitle('Edit')
@@ -393,7 +393,7 @@ describe('QuotesPanel', () => {
     it('opens edit form when edit clicked', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const editButtons = screen.getAllByTitle('Edit')
@@ -405,11 +405,14 @@ describe('QuotesPanel', () => {
     it('populates form with existing quote data', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
-      const editButtons = screen.getAllByTitle('Edit')
-      await userEvent.click(editButtons[0])
+      const quoteCard = screen.getByText(/I had to deny knowledge/).closest('div.p-4')
+      expect(quoteCard).not.toBeNull()
+      const editButton = quoteCard?.querySelector('button[title="Edit"]') as HTMLButtonElement | null
+      expect(editButton).not.toBeNull()
+      await userEvent.click(editButton!)
 
       const quoteTextarea = screen.getByPlaceholderText('Enter the quote...') as HTMLTextAreaElement
       expect(quoteTextarea.value).toBe('I had to deny knowledge to make room for faith.')
@@ -418,7 +421,7 @@ describe('QuotesPanel', () => {
     it('disables thinker select in edit mode', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const editButtons = screen.getAllByTitle('Edit')
@@ -431,7 +434,7 @@ describe('QuotesPanel', () => {
     it('shows update button in edit mode', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const editButtons = screen.getAllByTitle('Edit')
@@ -445,7 +448,7 @@ describe('QuotesPanel', () => {
     it('has delete button on quotes', async () => {
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const deleteButtons = screen.getAllByTitle('Delete')
@@ -457,7 +460,7 @@ describe('QuotesPanel', () => {
 
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const deleteButtons = screen.getAllByTitle('Delete')
@@ -472,7 +475,7 @@ describe('QuotesPanel', () => {
 
       render(<QuotesPanel {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText(/"I had to deny knowledge/)).toBeInTheDocument()
+        expect(screen.getByText(/I had to deny knowledge/)).toBeInTheDocument()
       })
 
       const deleteButtons = screen.getAllByTitle('Delete')

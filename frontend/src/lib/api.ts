@@ -39,6 +39,45 @@ import type {
   NoteCreate,
   NoteUpdate,
   NoteVersion,
+  Folder,
+  FolderWithChildren,
+  FolderCreate,
+  FolderUpdate,
+  ReorderItem,
+  ThinkerDetectionResult,
+  YearAnnotationResult,
+  CriticalTermWithCount,
+  CriticalTermCreate,
+  CriticalTermUpdate,
+  TermOccurrence,
+  ScanResult,
+  SynthesisMode,
+  TermEvidenceMap,
+  SynthesisRun,
+  SynthesisRunSummary,
+  TermQualityReport,
+  ThesisCandidateResponse,
+  TermAlias,
+  TermDefinition,
+  TermDefinitionFilters,
+  TermThinkerMatrix,
+  CoOccurrencePair,
+  ConnectionSuggestionFromNotes,
+  ArgumentMap,
+  PremiseGap,
+  SemanticSearchResult,
+  RelatedExcerpt,
+  ConnectionExplanation,
+  ResearchSprintPlan,
+  AdvisorBrief,
+  VivaPractice,
+  WeeklyDigest,
+  AIUsage,
+  DraftFromExcerptsRequest,
+  DraftFromExcerptsResponse,
+  IngestionRequest,
+  IngestionResponse,
+  JobStatus,
   ResearchQuestion,
   ResearchQuestionWithRelations,
   ResearchQuestionCreate,
@@ -55,13 +94,40 @@ import type {
   QuizGenerationParams,
 } from '@/types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+const DEFAULT_API_URL = 'http://localhost:8010'
+
+function resolveApiUrl(rawUrl?: string): string {
+  const candidate = rawUrl?.trim()
+  if (!candidate) {
+    return DEFAULT_API_URL
+  }
+
+  try {
+    return new URL(candidate).toString().replace(/\/$/, '')
+  } catch {
+    return DEFAULT_API_URL
+  }
+}
+
+export const API_URL = resolveApiUrl(process.env.NEXT_PUBLIC_API_URL)
 
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+})
+
+// Request interceptor to attach auth token for protected backend routes.
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = sessionStorage.getItem('auth_token')
+    if (token) {
+      config.headers = config.headers || {}
+      ;(config.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`
+    }
+  }
+  return config
 })
 
 // Response interceptor to transform API errors into user-friendly Error objects
@@ -167,7 +233,8 @@ const thinkersBase = createCrudApi<Thinker, ThinkerCreate, ThinkerUpdate>('think
 export const thinkersApi = {
   ...thinkersBase,
   getAll: async (timelineId?: string): Promise<Thinker[]> => {
-    const params = timelineId ? { timeline_id: timelineId } : {}
+    const params: Record<string, string | number> = { limit: 200 }
+    if (timelineId) params.timeline_id = timelineId
     const response = await api.get('/api/thinkers/', { params })
     return response.data
   },
@@ -178,7 +245,14 @@ export const thinkersApi = {
 }
 
 // Connections API
-export const connectionsApi = createCrudApi<Connection, ConnectionCreate, ConnectionUpdate>('connections')
+const connectionsBase = createCrudApi<Connection, ConnectionCreate, ConnectionUpdate>('connections')
+export const connectionsApi = {
+  ...connectionsBase,
+  getAll: async (): Promise<Connection[]> => {
+    const response = await api.get('/api/connections/', { params: { limit: 500 } })
+    return response.data
+  },
+}
 
 // Publications API (with thinker_id filter support and citation formatting)
 const publicationsBase = createCrudApi<Publication, PublicationCreate, PublicationUpdate>('publications')
@@ -207,7 +281,33 @@ export const quotesApi = {
 }
 
 // Tags API
-export const tagsApi = createCrudApi<Tag, TagCreate, TagUpdate>('tags')
+const tagsBase = createCrudApi<Tag, TagCreate, TagUpdate>('tags')
+const getAllTags = async (): Promise<Tag[]> => {
+  const limit = 200
+  const maxPages = 50
+  const allTags: Tag[] = []
+  let skip = 0
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const response = await api.get('/api/tags/', { params: { skip, limit } })
+    const pageData = response.data as Tag[]
+    allTags.push(...pageData)
+    if (pageData.length < limit) {
+      break
+    }
+    skip += limit
+  }
+
+  return allTags
+}
+
+export const tagsApi = {
+  ...tagsBase,
+  getAll: getAllTags,
+}
+
+// Legacy compatibility alias. Notes and timeline now share one tag pool.
+export const noteTagsApi = tagsApi
 
 // Combined Views API (with custom getEvents)
 const combinedViewsBase = createCrudApi<CombinedTimelineView, CombinedTimelineViewCreate, CombinedTimelineViewUpdate>('combined-views')
@@ -266,10 +366,19 @@ export const thinkerInstitutionsApi = {
 
 // Notes API (with wiki-style linking and backlinks)
 export const notesApi = {
-  getAll: async (thinkerId?: string, noteType?: string): Promise<Note[]> => {
+  getAll: async (
+    thinkerId?: string,
+    noteType?: string,
+    folderId?: string,
+    includeArchived?: boolean,
+    tagIds?: string[]
+  ): Promise<Note[]> => {
     const params: Record<string, string> = {}
     if (thinkerId) params.thinker_id = thinkerId
     if (noteType) params.note_type = noteType
+    if (folderId) params.folder_id = folderId
+    if (includeArchived) params.include_archived = 'true'
+    if (tagIds && tagIds.length > 0) params.tag_ids = tagIds.join(',')
     const response = await api.get('/api/notes/', { params })
     return response.data
   },
@@ -298,6 +407,254 @@ export const notesApi = {
   },
   getCanvasNotes: async (): Promise<Note[]> => {
     const response = await api.get('/api/notes/', { params: { is_canvas_note: true } })
+    return response.data
+  },
+  draftFromExcerpts: async (data: DraftFromExcerptsRequest): Promise<DraftFromExcerptsResponse> => {
+    const response = await api.post('/api/notes/draft-from-excerpts', data)
+    return response.data
+  },
+}
+
+// Folders API (hierarchical note organization)
+export const foldersApi = {
+  getAll: async (parentId?: string): Promise<Folder[]> => {
+    const params: Record<string, string> = {}
+    if (parentId) params.parent_id = parentId
+    const response = await api.get('/api/folders/', { params })
+    return response.data
+  },
+  getOne: async (id: string): Promise<FolderWithChildren> => {
+    const response = await api.get(`/api/folders/${id}`)
+    return response.data
+  },
+  getTree: async (includeArchived?: boolean): Promise<FolderWithChildren[]> => {
+    const params: Record<string, string> = {}
+    if (includeArchived) params.include_archived = 'true'
+    const response = await api.get('/api/folders/tree', { params })
+    return response.data
+  },
+  create: async (data: FolderCreate): Promise<Folder> => {
+    const response = await api.post('/api/folders/', data)
+    return response.data
+  },
+  update: async (id: string, data: FolderUpdate): Promise<Folder> => {
+    const response = await api.put(`/api/folders/${id}`, data)
+    return response.data
+  },
+  delete: async (id: string, moveNotesTo?: string): Promise<void> => {
+    const params: Record<string, string> = {}
+    if (moveNotesTo) params.move_notes_to = moveNotesTo
+    await api.delete(`/api/folders/${id}`, { params })
+  },
+  reorder: async (items: ReorderItem[]): Promise<Folder[]> => {
+    const response = await api.put('/api/folders/reorder', { items })
+    return response.data
+  },
+  archive: async (id: string): Promise<Folder> => {
+    const response = await api.post(`/api/folders/${id}/archive`)
+    return response.data
+  },
+  unarchive: async (id: string): Promise<Folder> => {
+    const response = await api.post(`/api/folders/${id}/unarchive`)
+    return response.data
+  },
+}
+
+// Critical Terms API
+export const criticalTermsApi = {
+  getAll: async (isActive?: boolean): Promise<CriticalTermWithCount[]> => {
+    const params: Record<string, unknown> = {}
+    if (isActive !== undefined) params.is_active = isActive
+    const response = await api.get('/api/critical-terms/', { params })
+    return response.data
+  },
+  getOne: async (id: string): Promise<CriticalTermWithCount> => {
+    const response = await api.get(`/api/critical-terms/${id}`)
+    return response.data
+  },
+  create: async (data: CriticalTermCreate): Promise<CriticalTermWithCount> => {
+    const response = await api.post('/api/critical-terms/', data)
+    return response.data
+  },
+  update: async (id: string, data: CriticalTermUpdate): Promise<CriticalTermWithCount> => {
+    const response = await api.put(`/api/critical-terms/${id}`, data)
+    return response.data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/api/critical-terms/${id}`)
+  },
+  scanAll: async (termId: string): Promise<ScanResult> => {
+    const response = await api.post(`/api/critical-terms/${termId}/scan-all`)
+    return response.data
+  },
+  getOccurrences: async (
+    termId: string,
+    filters?: {
+      folder_id?: string
+      thinker_id?: string
+      limit?: number
+      offset?: number
+    }
+  ): Promise<TermOccurrence[]> => {
+    const response = await api.get(`/api/critical-terms/${termId}/occurrences`, { params: filters })
+    return response.data
+  },
+  getDefinition: async (termId: string, filters?: TermDefinitionFilters): Promise<TermDefinition> => {
+    const params: Record<string, unknown> = {}
+    if (filters?.folder_id) params.folder_id = filters.folder_id
+    if (filters?.thinker_id) params.thinker_id = filters.thinker_id
+    if (filters?.synthesize) params.synthesize = filters.synthesize
+    const response = await api.get(`/api/critical-terms/${termId}/definition`, { params })
+    return response.data
+  },
+  getEvidenceMap: async (
+    termId: string,
+    filters?: { folder_id?: string; thinker_id?: string }
+  ): Promise<TermEvidenceMap> => {
+    const response = await api.get(`/api/critical-terms/${termId}/evidence-map`, { params: filters })
+    return response.data
+  },
+  getSynthesis: async (
+    termId: string,
+    mode: SynthesisMode,
+    filters?: { folder_id?: string; thinker_id?: string }
+  ): Promise<SynthesisRun> => {
+    const params: Record<string, unknown> = { mode }
+    if (filters?.folder_id) params.folder_id = filters.folder_id
+    if (filters?.thinker_id) params.thinker_id = filters.thinker_id
+    const response = await api.get(`/api/critical-terms/${termId}/synthesis`, { params })
+    return response.data
+  },
+  getSynthesisRuns: async (termId: string, limit = 20): Promise<SynthesisRunSummary[]> => {
+    const response = await api.get(`/api/critical-terms/${termId}/synthesis-runs`, { params: { limit } })
+    return response.data
+  },
+  getQualityReport: async (termId: string, runId?: string): Promise<TermQualityReport> => {
+    const params: Record<string, unknown> = {}
+    if (runId) params.run_id = runId
+    const response = await api.get(`/api/critical-terms/${termId}/quality-report`, { params })
+    return response.data
+  },
+  getThesisCandidates: async (termId: string): Promise<ThesisCandidateResponse> => {
+    const response = await api.post(`/api/critical-terms/${termId}/thesis-candidates`)
+    return response.data
+  },
+  proposeAlias: async (termId: string, aliasName: string): Promise<TermAlias> => {
+    const response = await api.post(`/api/critical-terms/${termId}/aliases/propose`, {
+      alias_name: aliasName,
+    })
+    return response.data
+  },
+  approveAlias: async (termId: string, aliasId: string): Promise<TermAlias> => {
+    const response = await api.post(`/api/critical-terms/${termId}/aliases/${aliasId}/approve`)
+    return response.data
+  },
+}
+
+// Analysis API (thinker detection + matrix + co-occurrence)
+export const analysisApi = {
+  detectThinkers: async (noteId: string): Promise<ThinkerDetectionResult> => {
+    const response = await api.post(`/api/notes/${noteId}/detect-thinkers`)
+    return response.data
+  },
+  annotateYears: async (noteId: string): Promise<YearAnnotationResult> => {
+    const response = await api.post(`/api/notes/${noteId}/annotate-years`)
+    return response.data
+  },
+  searchThinkers: async (query: string): Promise<Thinker[]> => {
+    const response = await api.get('/api/thinkers/', {
+      params: { search: query, limit: 10 },
+    })
+    return response.data
+  },
+  getTermThinkerMatrix: async (filters?: { folder_id?: string; term_id?: string }): Promise<TermThinkerMatrix> => {
+    const response = await api.get('/api/analysis/term-thinker-matrix', { params: filters })
+    return response.data
+  },
+  getCoOccurrences: async (filters?: { min_count?: number; folder_id?: string }): Promise<CoOccurrencePair[]> => {
+    const response = await api.get('/api/analysis/co-occurrences', { params: filters })
+    return response.data
+  },
+  getConnectionSuggestions: async (filters?: { limit?: number; folder_id?: string }): Promise<ConnectionSuggestionFromNotes[]> => {
+    const response = await api.get('/api/analysis/connection-suggestions', { params: filters })
+    return response.data
+  },
+  getArgumentMap: async (note_ids: string[], title?: string): Promise<ArgumentMap> => {
+    const response = await api.post('/api/analysis/argument-map', { note_ids, title })
+    return response.data
+  },
+  getPremiseGaps: async (note_ids: string[]): Promise<{ gaps: PremiseGap[] }> => {
+    const response = await api.post('/api/analysis/premise-gap-check', { note_ids })
+    return response.data
+  },
+  semanticSearch: async (q: string, folder_id?: string, limit = 10): Promise<SemanticSearchResult[]> => {
+    const params: Record<string, unknown> = { q, limit }
+    if (folder_id) params.folder_id = folder_id
+    const response = await api.get('/api/analysis/semantic-search', { params })
+    return response.data
+  },
+  getRelatedExcerpts: async (occurrence_id: string, limit = 8): Promise<RelatedExcerpt[]> => {
+    const response = await api.get('/api/analysis/related-excerpts', {
+      params: { occurrence_id, limit },
+    })
+    return response.data
+  },
+  getConnectionExplanations: async (folder_id?: string, limit = 10): Promise<ConnectionExplanation[]> => {
+    const params: Record<string, unknown> = { limit }
+    if (folder_id) params.folder_id = folder_id
+    const response = await api.get('/api/analysis/connection-explanations', { params })
+    return response.data
+  },
+  getResearchSprintPlan: async (focus = 'all notes'): Promise<ResearchSprintPlan> => {
+    const response = await api.post('/api/analysis/research-sprint-plan', null, { params: { focus } })
+    return response.data
+  },
+  getAdvisorBrief: async (date_window = 'last 7 days'): Promise<AdvisorBrief> => {
+    const response = await api.post('/api/analysis/advisor-brief', null, { params: { date_window } })
+    return response.data
+  },
+  getVivaPractice: async (topic = 'general'): Promise<VivaPractice> => {
+    const response = await api.post('/api/analysis/viva-practice', null, { params: { topic } })
+    return response.data
+  },
+  createWeeklyDigest: async (period_start: string, period_end: string): Promise<WeeklyDigest> => {
+    const response = await api.post('/api/analysis/weekly-digest', null, {
+      params: { period_start, period_end },
+    })
+    return response.data
+  },
+  getLatestWeeklyDigest: async (): Promise<WeeklyDigest> => {
+    const response = await api.get('/api/analysis/weekly-digest/latest')
+    return response.data
+  },
+  getAiUsage: async (): Promise<AIUsage> => {
+    const response = await api.get('/api/analysis/ai-usage')
+    return response.data
+  },
+}
+
+export const ingestionApi = {
+  ingestTranscript: async (payload: IngestionRequest): Promise<IngestionResponse> => {
+    const response = await api.post('/api/ingestion/transcript', payload)
+    return response.data
+  },
+  ingestPdfHighlights: async (payload: IngestionRequest): Promise<IngestionResponse> => {
+    const response = await api.post('/api/ingestion/pdf-highlights', payload)
+    return response.data
+  },
+}
+
+export const jobsApi = {
+  getStatus: async (jobId: string): Promise<JobStatus> => {
+    const response = await api.get(`/api/jobs/${jobId}`)
+    return response.data
+  },
+  cancel: async (jobId: string): Promise<JobStatus> => {
+    const response = await api.post(`/api/jobs/${jobId}/cancel`)
+    return response.data
+  },
+  retry: async (jobId: string): Promise<JobStatus> => {
+    const response = await api.post(`/api/jobs/${jobId}/retry`)
     return response.data
   },
 }
@@ -540,6 +897,7 @@ export const quizApi = {
 export interface LoginResponse {
   success: boolean
   message: string
+  token?: string | null
 }
 
 export const authApi = {
@@ -547,8 +905,61 @@ export const authApi = {
     const response = await api.post('/api/auth/login', { password })
     return response.data
   },
-  checkAuth: async (): Promise<{ auth_required: boolean }> => {
+  checkAuth: async (): Promise<{ auth_required: boolean; configured?: boolean }> => {
     const response = await api.get('/api/auth/check')
+    return response.data
+  },
+}
+
+// Backup/Restore API
+export interface BackupMetadata {
+  version: string
+  api_version: string
+  exported_at: string
+  database_type: string
+  counts: Record<string, number>
+}
+
+export interface ImportResult {
+  success: boolean
+  message: string
+  counts: Record<string, number>
+}
+
+export interface ImportPreview {
+  valid: boolean
+  metadata?: BackupMetadata
+  warnings: string[]
+}
+
+export const backupApi = {
+  exportDatabase: async (): Promise<Blob> => {
+    const response = await api.get('/api/backup/export', {
+      responseType: 'blob',
+    })
+    return response.data
+  },
+
+  importDatabase: async (file: File): Promise<ImportResult> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post('/api/backup/import', formData, {
+      headers: {
+        'Content-Type': undefined,  // Remove default JSON header
+      },
+      timeout: 120000, // 2 minute timeout
+    })
+    return response.data
+  },
+
+  previewImport: async (file: File): Promise<ImportPreview> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post('/api/backup/import/preview', formData, {
+      headers: {
+        'Content-Type': undefined,  // Remove default JSON header
+      },
+    })
     return response.data
   },
 }

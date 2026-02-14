@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from uuid import UUID
@@ -50,8 +50,12 @@ def create_combined_view(view: schemas.CombinedTimelineViewCreate, db: Session =
     return db_view
 
 @router.get("/", response_model=List[schemas.CombinedTimelineViewSimple])
-def get_combined_views(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    views = db.query(CombinedTimelineView).offset(skip).limit(limit).all()
+def get_combined_views(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    views = db.query(CombinedTimelineView).order_by(CombinedTimelineView.created_at.desc()).offset(skip).limit(limit).all()
     return views
 
 @router.get("/{view_id}", response_model=schemas.CombinedTimelineView)
@@ -142,6 +146,6 @@ def get_combined_view_events(view_id: UUID, db: Session = Depends(get_db)):
     # Query all events from all member timelines
     events = db.query(TimelineEvent).filter(
         TimelineEvent.timeline_id.in_(timeline_ids)
-    ).all()
+    ).order_by(TimelineEvent.year.asc(), TimelineEvent.created_at.asc()).all()
 
     return events

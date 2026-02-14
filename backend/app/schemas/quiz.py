@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 from uuid import UUID
+from pydantic import Field
 
 
 # Type literals for enums
@@ -63,7 +64,7 @@ class QuizQuestionResponse(BaseModel):
     options: Optional[List[str]] = None
     correct_answer: str
     difficulty: DifficultyStr
-    related_thinker_ids: List[str] = []
+    related_thinker_ids: List[str] = Field(default_factory=list)
     explanation: str = ""
     from_pool: bool = True
     times_asked: Optional[int] = None
@@ -109,7 +110,7 @@ class QuizSession(QuizSessionBase):
 
 class QuizSessionWithQuestions(QuizSession):
     """Quiz session with full question list."""
-    questions: List[QuizQuestionResponse] = []
+    questions: List[QuizQuestionResponse] = Field(default_factory=list)
 
 
 class QuizSessionSummary(BaseModel):
@@ -172,17 +173,21 @@ class SpacedRepetitionEntry(BaseModel):
 class QuestionGenerationParams(BaseModel):
     """Parameters for generating a quiz question."""
     timeline_id: Optional[str] = None
-    question_categories: List[QuestionCategoryStr] = ["birth_year", "quote", "connection"]
+    question_categories: List[QuestionCategoryStr] = Field(
+        default_factory=lambda: ["birth_year", "quote", "connection"]
+    )
     difficulty: DifficultyStr = "medium"
     question_type: Literal["multiple_choice", "short_answer", "auto"] = "auto"
-    exclude_question_ids: List[str] = []
+    exclude_question_ids: List[UUID] = Field(default_factory=list)
     use_spaced_repetition: bool = False
 
 
 class QuizGenerationParams(BaseModel):
     """Parameters for generating a full quiz."""
     timeline_id: Optional[str] = None
-    question_categories: List[QuestionCategoryStr] = ["birth_year", "quote", "connection"]
+    question_categories: List[QuestionCategoryStr] = Field(
+        default_factory=lambda: ["birth_year", "quote", "connection"]
+    )
     difficulty: DifficultyStr = "medium"
     question_count: int = 10
     multiple_choice_ratio: float = 0.7  # 0.0 to 1.0

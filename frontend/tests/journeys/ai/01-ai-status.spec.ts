@@ -4,6 +4,9 @@ import { createAPIHelpers } from '../../helpers/api-helpers'
 import { TIMEOUTS } from '../../config/test-constants'
 
 test.describe('AI Journey: AI Status', () => {
+  test.describe.configure({ mode: 'serial' })
+  test.setTimeout(120000)
+
   test.beforeEach(async ({ page, request }) => {
     const api = createAPIHelpers(request)
     await api.resetDatabase()
@@ -33,20 +36,18 @@ test.describe('AI Journey: AI Status', () => {
       await mainPage.waitForPageLoad()
 
       // Open AI panel
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      // Status indicator should be visible
-      const statusIndicator = page.locator('[data-testid="ai-status"]')
-        .or(page.locator('[class*="ai-status"]'))
-        .or(page.locator('text=/ai.*enabled|ai.*available|ai.*offline/i'))
+      await page.getByRole('button', { name: /status/i }).click()
+      await expect(page.getByText(/AI Features Enabled|AI Features Available/i)).toBeVisible()
     })
 
     test('should show enabled status when AI is available', async ({ page }) => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // If AI is enabled, should show positive indicator
@@ -58,7 +59,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // If AI is disabled, should show warning indicator
@@ -72,7 +73,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // AI panel should be visible
@@ -84,8 +85,10 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      // AI button should be visible
-      await expect(mainPage.aiButton).toBeVisible()
+      // AI options are available in the More menu.
+      await mainPage.openMoreMenu()
+      await expect(page.getByRole('button', { name: /AI Assistant/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /AI Suggestions/i })).toBeVisible()
     })
 
     test('should toggle AI panel visibility', async ({ page }) => {
@@ -93,11 +96,11 @@ test.describe('AI Journey: AI Status', () => {
       await mainPage.waitForPageLoad()
 
       // Open
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
-      // Close by clicking again
-      await mainPage.aiButton.click()
+      // Close via modal close button
+      await page.locator('div.fixed.inset-0.bg-black\\/30.z-50 button:has-text("×")').click()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Panel should be closed
@@ -109,18 +112,19 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Status tab should be visible
-      const statusTab = page.locator('button, [role="tab"]').filter({ hasText: /status/i })
+      const statusTab = page.locator('button, [role="tab"]').filter({ hasText: /status/i }).first()
+      await expect(statusTab).toBeVisible()
     })
 
     test('should display AI configuration info', async ({ page }) => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Should show model info or configuration
@@ -131,7 +135,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Should show when AI was last checked
@@ -143,7 +147,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Chat and suggestions should be accessible
@@ -156,7 +160,7 @@ test.describe('AI Journey: AI Status', () => {
       await mainPage.waitForPageLoad()
 
       // If AI is disabled, features should be grayed out or hidden
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Check if features are disabled
@@ -166,7 +170,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // If unavailable, should explain why and how to enable
@@ -179,7 +183,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       // Find refresh button
@@ -196,7 +200,7 @@ test.describe('AI Journey: AI Status', () => {
       const mainPage = createMainPage(page)
       await mainPage.waitForPageLoad()
 
-      await mainPage.openAIPanel()
+      await mainPage.openAISuggestionsPanel()
       await page.waitForTimeout(TIMEOUTS.animation)
 
       const refreshButton = page.locator('button').filter({ hasText: /refresh|check/i })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { timelinesApi, combinedViewsApi, tagsApi, thinkersApi, notesApi } from '@/lib/api'
 import type { Tag, Note } from '@/types'
@@ -155,7 +156,8 @@ export default function Home() {
 
   // Check authentication on mount
   useEffect(() => {
-    const isAuth = sessionStorage.getItem('authenticated') === 'true'
+    const token = sessionStorage.getItem('auth_token')
+    const isAuth = sessionStorage.getItem('authenticated') === 'true' && !!token
     setIsAuthenticated(isAuth)
   }, [])
 
@@ -202,24 +204,17 @@ export default function Home() {
   // Connection type visibility handlers
   const handleToggleConnectionType = (type: ConnectionStyleType) => {
     setVisibleConnectionTypes(prev => {
-      const newTypes = prev.includes(type)
+      return prev.includes(type)
         ? prev.filter(t => t !== type)
         : [...prev, type]
-
-      console.log(`Toggle ${type}: was ${prev.includes(type) ? 'visible' : 'hidden'}, now ${!prev.includes(type) ? 'visible' : 'hidden'}`)
-      console.log('New visible types:', newTypes)
-
-      return newTypes
     })
   }
 
   const handleToggleAllConnectionTypes = (visible: boolean) => {
     if (visible) {
       const allTypes = Object.keys(CONNECTION_STYLES) as ConnectionStyleType[]
-      console.log('Showing all connection types:', allTypes)
       setVisibleConnectionTypes(allTypes)
     } else {
-      console.log('Hiding all connection types')
       setVisibleConnectionTypes([])
     }
   }
@@ -330,6 +325,75 @@ export default function Home() {
       window.removeEventListener('resize', checkScrollOverflow)
     }
   }, [timelines, combinedViews]) // Re-check when tabs change
+
+  // Keep the currently selected tab visible on narrow screens.
+  useEffect(() => {
+    const container = tabsScrollRef.current
+    if (!container) return
+    const mainContainer = container.closest('main[role="main"]') as HTMLElement | null
+
+    const getActiveTabSelector = () => {
+      if (selectedCombinedViewId) {
+        return `[data-tab-type=\"combined\"][data-tab-id=\"${selectedCombinedViewId}\"]`
+      }
+      if (selectedTimelineId) {
+        return `[data-tab-type=\"timeline\"][data-tab-id=\"${selectedTimelineId}\"]`
+      }
+      return '[data-tab-type=\"all\"]'
+    }
+
+    const resetMainScroll = () => {
+      if (mainContainer && mainContainer.scrollLeft !== 0) {
+        mainContainer.scrollTo({ left: 0, behavior: 'auto' })
+      }
+    }
+
+    const scrollActiveTabIntoView = (behavior: ScrollBehavior) => {
+      const activeTab = container.querySelector<HTMLElement>(getActiveTabSelector())
+      if (!activeTab) return
+
+      const containerRect = container.getBoundingClientRect()
+      const activeTabRect = activeTab.getBoundingClientRect()
+      const currentLeft = container.scrollLeft
+      const currentRight = currentLeft + container.clientWidth
+      const tabLeft = activeTabRect.left - containerRect.left + currentLeft
+      const tabRight = activeTabRect.right - containerRect.left + currentLeft
+      const edgePadding = 16
+
+      let targetLeft = currentLeft
+      if (tabLeft < currentLeft + edgePadding) {
+        targetLeft = Math.max(0, tabLeft - edgePadding)
+      } else if (tabRight > currentRight - edgePadding) {
+        targetLeft = tabRight - container.clientWidth + edgePadding
+      }
+
+      if (Math.abs(targetLeft - currentLeft) > 1) {
+        container.scrollTo({ left: targetLeft, behavior })
+      }
+    }
+
+    requestAnimationFrame(() => {
+      resetMainScroll()
+      scrollActiveTabIntoView('smooth')
+    })
+
+    const resizeObserver = new ResizeObserver(() => {
+      resetMainScroll()
+      scrollActiveTabIntoView('auto')
+    })
+    resizeObserver.observe(container)
+
+    const handleResize = () => {
+      resetMainScroll()
+      scrollActiveTabIntoView('auto')
+    }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [selectedTimelineId, selectedCombinedViewId, timelines, combinedViews])
 
   // Scroll tabs programmatically
   const scrollTabs = useCallback((direction: 'left' | 'right') => {
@@ -681,16 +745,7 @@ export default function Home() {
         Skip to timeline
       </a>
 
-      {/* Click outside detail panel to close it */}
-      {selectedThinkerId && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => setSelectedThinkerId(null)}
-          aria-hidden="true"
-        />
-      )}
-
-      <header className="flex items-center justify-between px-3 sm:px-6 py-2 border-b border-timeline flex-shrink-0 bg-background z-20 relative">
+      <header className="flex items-center justify-between px-3 sm:px-6 py-2 border-b border-timeline flex-shrink-0 bg-background z-40 relative">
         <div className="flex items-center gap-2">
           <h1 className="font-serif text-base sm:text-xl font-semibold text-primary truncate">
             <span className="hidden sm:inline">Intellectual Genealogy Mapper</span>
@@ -823,6 +878,13 @@ export default function Home() {
           >
             Tags
           </button>
+          <Link
+            href="/notes"
+            className="px-3 py-1.5 font-sans text-xs font-medium border border-accent text-accent rounded hover:bg-accent hover:text-white transition-colors"
+            title="Notes Workspace"
+          >
+            Notes
+          </Link>
           <div className="relative">
             <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
@@ -1266,47 +1328,35 @@ export default function Home() {
       )}
 
       {/* Timeline Tabs */}
-      <div className="flex items-center px-2 sm:px-4 py-2 sm:py-3 border-b border-timeline bg-gray-50 flex-shrink-0 z-10 relative">
+      <div className="flex items-center px-2 sm:px-4 py-2 sm:py-3 border-b border-timeline bg-gray-50 flex-shrink-0 z-40 relative">
         {/* Fixed action buttons on the left */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setIsAddTimelineModalOpen(true)}
-            className="px-3 py-1.5 font-sans text-sm border border-timeline border-dashed rounded hover:bg-white hover:border-solid"
+            className="px-2 sm:px-3 py-1.5 font-sans text-sm border border-timeline border-dashed rounded hover:bg-white hover:border-solid"
             title="New Timeline"
             data-testid="new-timeline-button"
           >
-            +new
+            <span className="sm:hidden">+</span>
+            <span className="hidden sm:inline">+new</span>
           </button>
           <button
             onClick={() => setIsCreateCombinedViewModalOpen(true)}
-            className="px-3 py-1.5 font-sans text-sm border border-blue-300 border-dashed rounded hover:bg-blue-50 hover:border-solid text-blue-700"
+            className="px-2 sm:px-3 py-1.5 font-sans text-sm border border-blue-300 border-dashed rounded hover:bg-blue-50 hover:border-solid text-blue-700"
             title="Combined View"
             data-testid="combine-button"
           >
-            +combine
+            <span className="sm:hidden">+c</span>
+            <span className="hidden sm:inline">+combine</span>
           </button>
-          <div className="border-l border-timeline h-6 mx-2"></div>
+          <div className="hidden sm:block border-l border-timeline h-6 mx-2"></div>
         </div>
 
-        {/* Scrollable tabs area with scroll indicators */}
-        <div className="relative flex-1 flex items-center">
-          {/* Left scroll indicator */}
-          {showLeftArrow && (
-            <button
-              onClick={() => scrollTabs('left')}
-              className="absolute left-0 z-10 w-8 h-8 flex items-center justify-center bg-gradient-to-r from-background via-background to-transparent text-gray-600 hover:text-gray-900"
-              aria-label="Scroll tabs left"
-              data-testid="scroll-tabs-left"
-            >
-              <span className="text-lg">‹</span>
-            </button>
-          )}
-
+        {/* Scrollable tabs area - edge-to-edge horizontal scroll */}
+        <div className="flex-1 min-w-0">
           <div
             ref={tabsScrollRef}
-            className={`flex items-center gap-1 sm:gap-2 overflow-x-auto flex-1 scrollbar-hide ${
-              showLeftArrow ? 'pl-6' : ''
-            } ${showRightArrow ? 'pr-6' : ''}`}
+            className="flex items-center gap-1 sm:gap-2 overflow-x-auto flex-1 min-w-0 tabs-scrollbar"
             data-testid="tabs-scroll-container"
           >
             <button
@@ -1316,6 +1366,7 @@ export default function Home() {
                   ? 'bg-accent text-white'
                   : 'bg-white border border-timeline hover:bg-gray-100'
               }`}
+              data-tab-type="all"
             >
               All Thinkers
             </button>
@@ -1329,6 +1380,8 @@ export default function Home() {
                     : 'bg-white border border-timeline hover:bg-gray-100'
                 }`}
                 data-testid={`timeline-tab-${timeline.id}`}
+                data-tab-type="timeline"
+                data-tab-id={timeline.id}
               >
                 {timeline.name}
               </button>
@@ -1380,7 +1433,9 @@ export default function Home() {
                     ? 'bg-blue-600 text-white'
                     : 'bg-blue-50 border border-blue-200 hover:bg-blue-100'
                 }`}
-                data-testid="combined-view-tab"
+                data-testid={`combined-view-tab-${view.id}`}
+                data-tab-type="combined"
+                data-tab-id={view.id}
               >
                 {view.name}
               </button>
@@ -1420,63 +1475,65 @@ export default function Home() {
           ))}
           </div>
 
-          {/* Right scroll indicator */}
-          {showRightArrow && (
-            <button
-              onClick={() => scrollTabs('right')}
-              className="absolute right-0 z-10 w-8 h-8 flex items-center justify-center bg-gradient-to-l from-background via-background to-transparent text-gray-600 hover:text-gray-900"
-              aria-label="Scroll tabs right"
-              data-testid="scroll-tabs-right"
-            >
-              <span className="text-lg">›</span>
-            </button>
-          )}
         </div>
 
-        {/* Repopulate button - show when not in combined view */}
-        {!selectedCombinedViewId && (
-          <div className="flex items-center gap-1 flex-shrink-0 ml-2 pl-2 border-l border-timeline">
-            <button
-              onClick={handleRepopulate}
-              disabled={isRepopulating}
-              className={`px-3 py-1.5 font-sans text-sm border rounded transition-colors flex items-center gap-1.5 ${
-                isRepopulating
-                  ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'border-green-400 text-green-700 hover:bg-green-50 hover:border-green-500'
-              }`}
-              title={selectedTimelineId
-                ? "Auto-position all thinkers on this timeline using force-directed layout"
-                : "Auto-position all thinkers using force-directed layout"
-              }
-            >
-              {isRepopulating ? (
-                <>
-                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Repositioning...
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Repopulate
-                </>
-              )}
-            </button>
-          </div>
-        )}
+        {/* Repopulate button - always visible */}
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2 pl-2 border-l border-timeline">
+          <button
+            onClick={handleRepopulate}
+            disabled={isRepopulating}
+            className={`px-3 py-1.5 font-sans text-sm border rounded transition-colors flex items-center gap-1.5 ${
+              isRepopulating
+                ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'border-green-400 text-green-700 hover:bg-green-50 hover:border-green-500'
+            }`}
+            title={selectedTimelineId
+              ? "Auto-position all thinkers on this timeline using force-directed layout"
+              : "Auto-position all thinkers using force-directed layout"
+            }
+          >
+            {isRepopulating ? (
+              <>
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Repositioning...
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Repopulate
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      <div id="timeline-canvas" className="flex-1 overflow-hidden relative z-0" tabIndex={-1}>
+      <div id="timeline-canvas" className="flex-1 overflow-hidden relative z-[35]" tabIndex={-1}>
+        {/* Click outside detail panel to close it - scoped to canvas area */}
+        {selectedThinkerId && (
+          <div
+            className="absolute inset-0 z-30"
+            onClick={() => setSelectedThinkerId(null)}
+            aria-hidden="true"
+          />
+        )}
         {selectedCombinedViewId ? (
           <CombinedTimelineCanvas
             viewId={selectedCombinedViewId}
             onThinkerClick={handleThinkerClick}
+            onCanvasClick={handleCanvasClick}
             onConnectionClick={handleConnectionClick}
             selectedThinkerId={selectedThinkerId}
+            visibleConnectionTypes={visibleConnectionTypes}
+            filterByTagIds={filterTagIds}
+            searchQuery={debouncedSearchQuery}
+            filterByField={filterField}
+            filterByYearStart={filterYearStart ? parseInt(filterYearStart, 10) : null}
+            filterByYearEnd={filterYearEnd ? parseInt(filterYearEnd, 10) : null}
           />
         ) : (
           <Timeline
@@ -1485,6 +1542,7 @@ export default function Home() {
             onConnectionClick={handleConnectionClick}
             onEventClick={handleEventClick}
             onThinkerDrag={handleThinkerDrag}
+            onEmptyClick={handleCloseDetailPanel}
             canvasNotes={showStickyNotes ? canvasNotes : []}
             onNoteClick={handleNoteClick}
             onNoteDrag={handleNoteDrag}

@@ -5,7 +5,7 @@ import { ConnectionMapView } from '../ConnectionMapView'
 import { server } from '../../test/setup'
 import { http, HttpResponse } from 'msw'
 
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 const mockThinkers = [
   {
@@ -100,12 +100,12 @@ describe('ConnectionMapView', () => {
   describe('Panel Rendering', () => {
     it('renders panel when isOpen is true', async () => {
       render(<ConnectionMapView {...defaultProps} />)
-      expect(screen.getByText('Connection Map')).toBeInTheDocument()
+      expect(screen.getByText('Connection Network Map')).toBeInTheDocument()
     })
 
     it('does not render panel when isOpen is false', () => {
       render(<ConnectionMapView {...defaultProps} isOpen={false} />)
-      expect(screen.queryByText('Connection Map')).not.toBeInTheDocument()
+      expect(screen.queryByText('Connection Network Map')).not.toBeInTheDocument()
     })
 
     it('displays centered thinker name', async () => {
@@ -204,7 +204,7 @@ describe('ConnectionMapView', () => {
     it('displays click instruction', async () => {
       render(<ConnectionMapView {...defaultProps} />)
       await waitFor(() => {
-        expect(screen.getByText('Click on a connected thinker to re-center the map')).toBeInTheDocument()
+        expect(screen.getByText(/Click connection types to show\/hide/)).toBeInTheDocument()
       })
     })
   })

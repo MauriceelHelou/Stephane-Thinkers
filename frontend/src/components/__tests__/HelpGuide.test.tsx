@@ -16,24 +16,24 @@ describe('HelpGuide', () => {
   describe('Rendering', () => {
     it('renders when isOpen is true', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText('How to Use')).toBeInTheDocument()
+      expect(screen.getByText('Help & Keyboard Shortcuts')).toBeInTheDocument()
     })
 
     it('does not render when isOpen is false', () => {
       render(<HelpGuide isOpen={false} onClose={vi.fn()} />)
-      expect(screen.queryByText('How to Use')).not.toBeInTheDocument()
+      expect(screen.queryByText('Help & Keyboard Shortcuts')).not.toBeInTheDocument()
     })
   })
 
   describe('Content sections', () => {
     it('displays Navigation section', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText('Navigation')).toBeInTheDocument()
+      expect(screen.getByText('Navigation & Zoom')).toBeInTheDocument()
     })
 
     it('displays Adding Items section', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText('Adding Items')).toBeInTheDocument()
+      expect(screen.getByText('Adding Thinkers')).toBeInTheDocument()
     })
 
     it('displays Creating Connections section', () => {
@@ -43,7 +43,7 @@ describe('HelpGuide', () => {
 
     it('displays Viewing Details section', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText('Viewing Details')).toBeInTheDocument()
+      expect(screen.getByText('Detail Panel')).toBeInTheDocument()
     })
 
     it('displays Timelines section', () => {
@@ -71,7 +71,8 @@ describe('HelpGuide', () => {
 
     it('shows zoom instructions', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText(/Scroll\/Pinch/)).toBeInTheDocument()
+      expect(screen.getByText(/Zoom in\/out on timeline/)).toBeInTheDocument()
+      expect(screen.getByText(/Zoom \(trackpad\)/)).toBeInTheDocument()
     })
 
     it('shows pan instructions', () => {
@@ -115,7 +116,7 @@ describe('HelpGuide', () => {
 
     it('shows War symbol', () => {
       render(<HelpGuide isOpen={true} onClose={vi.fn()} />)
-      expect(screen.getByText('◇ War')).toBeInTheDocument()
+      expect(screen.getByText('◇ War/Conflict')).toBeInTheDocument()
     })
 
     it('shows Invention symbol', () => {

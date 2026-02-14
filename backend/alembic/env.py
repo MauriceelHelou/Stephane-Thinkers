@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), '..'
 load_dotenv()
 
 from app.database import Base
-from app.models import thinker, publication, quote, tag, connection
+import app.models  # noqa: F401 - ensures all model metadata is registered
 
 config = context.config
 

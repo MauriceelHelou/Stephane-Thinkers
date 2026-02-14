@@ -390,9 +390,15 @@ export interface MentionedThinker {
   name: string
 }
 
+export type NoteTag = Tag
+export type NoteTagCreate = TagCreate
+export type NoteTagUpdate = TagUpdate
+
 export interface Note {
   id: string
   thinker_id?: string | null
+  folder_id?: string | null
+  tags: Tag[]
   title?: string | null
   content: string
   content_html?: string | null
@@ -412,8 +418,11 @@ export interface NoteWithMentions extends Note {
 
 export interface NoteCreate {
   thinker_id?: string | null
+  folder_id?: string | null
+  tag_ids?: string[]
   title?: string | null
   content: string
+  content_html?: string | null
   note_type?: NoteType | null
   // Canvas sticky note fields
   position_x?: number | null
@@ -425,7 +434,10 @@ export interface NoteCreate {
 export interface NoteUpdate {
   title?: string | null
   content?: string
+  content_html?: string | null
   note_type?: NoteType | null
+  folder_id?: string | null
+  tag_ids?: string[]
   // Canvas sticky note fields
   position_x?: number | null
   position_y?: number | null
@@ -439,6 +451,395 @@ export interface NoteVersion {
   content: string
   version_number: number
   created_at: string
+}
+
+// Folder types for hierarchical note organization
+
+export interface Folder {
+  id: string
+  name: string
+  parent_id?: string | null
+  sort_order?: number | null
+  color?: string | null
+  is_archived?: boolean
+  archived_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FolderWithChildren extends Folder {
+  children: FolderWithChildren[]
+  note_count: number
+}
+
+export interface FolderCreate {
+  name: string
+  parent_id?: string | null
+  sort_order?: number | null
+  color?: string | null
+}
+
+export interface FolderUpdate {
+  name?: string
+  parent_id?: string | null
+  sort_order?: number | null
+  color?: string | null
+}
+
+export interface ReorderItem {
+  id: string
+  sort_order: number
+  parent_id?: string | null
+}
+
+// Thinker auto-detection types
+
+export interface DetectedThinker {
+  id: string
+  name: string
+  birth_year?: number | null
+  death_year?: number | null
+  field?: string | null
+  mention_count: number
+  paragraph_indices: number[]
+}
+
+export interface ThinkerDetectionResult {
+  known_thinkers: DetectedThinker[]
+  unknown_names: string[]
+  total_mentions: number
+}
+
+export interface YearAnnotationResult {
+  content_modified: boolean
+  updated_content?: string | null
+  updated_content_html?: string | null
+}
+
+// Critical terms and definition types
+
+export interface CriticalTerm {
+  id: string
+  name: string
+  description?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CriticalTermWithCount extends CriticalTerm {
+  occurrence_count: number
+}
+
+export interface CriticalTermCreate {
+  name: string
+  description?: string | null
+  is_active?: boolean
+}
+
+export interface CriticalTermUpdate {
+  name?: string
+  description?: string | null
+  is_active?: boolean
+}
+
+export interface TermOccurrence {
+  id: string
+  term_id?: string | null
+  note_id: string
+  context_snippet: string
+  paragraph_index?: number | null
+  char_offset?: number | null
+  created_at: string
+  note_title?: string | null
+  folder_name?: string | null
+  thinker_names: string[]
+  note_folder_name?: string | null
+  note_folder_id?: string | null
+  associated_thinkers?: { id: string; name: string }[] | null
+}
+
+export interface ScanResult {
+  term_id: string
+  term_name: string
+  occurrence_count: number
+  message: string
+}
+
+export interface ExcerptGroup {
+  group_name: string
+  group_id?: string | null
+  excerpts: TermOccurrence[]
+  excerpt_count: number
+}
+
+export interface SynthesisCitation {
+  citation_key: string
+  note_id: string
+  note_title: string
+  folder_name?: string | null
+  context_snippet: string
+}
+
+export interface TermDefinition {
+  term: CriticalTerm
+  excerpts_by_thinker: ExcerptGroup[]
+  excerpts_by_folder: ExcerptGroup[]
+  total_occurrences: number
+  synthesis?: string | null
+  synthesis_citations: SynthesisCitation[]
+  filter_context: string
+  available_folders: { id: string; name: string }[]
+  available_thinkers: { id: string; name: string }[]
+}
+
+export interface TermDefinitionFilters {
+  folder_id?: string
+  thinker_id?: string
+  synthesize?: boolean
+}
+
+export type SynthesisMode = 'definition' | 'comparative' | 'critical'
+
+export interface EvidenceStats {
+  total_occurrences: number
+  total_notes: number
+  thinker_distribution: Record<string, number>
+  folder_distribution: Record<string, number>
+  co_terms: string[]
+}
+
+export interface TermEvidenceMap {
+  term: CriticalTerm
+  excerpts: TermOccurrence[]
+  stats: EvidenceStats
+}
+
+export interface SynthesisRunSummary {
+  id: string
+  term_id: string
+  mode: SynthesisMode
+  filter_context: string
+  synthesis_text: string
+  coverage_rate?: number | null
+  created_at: string
+}
+
+export interface SynthesisRun {
+  run: SynthesisRunSummary
+  citations: SynthesisCitation[]
+}
+
+export interface ContradictionSignal {
+  summary: string
+  evidence_a: string
+  evidence_b: string
+}
+
+export interface TermQualityReport {
+  coverage_rate: number
+  unsupported_claims: string[]
+  contradiction_signals: ContradictionSignal[]
+  uncertainty_label: 'low' | 'medium' | 'high'
+}
+
+export interface ThesisCandidate {
+  claim: string
+  support: string
+  confidence: number
+  citation_note_id: string
+}
+
+export interface ThesisCandidateResponse {
+  term_id: string
+  candidates: ThesisCandidate[]
+}
+
+export interface TermAlias {
+  id: string
+  term_id: string
+  alias_name: string
+  status: string
+  created_at: string
+}
+
+// Constellation / analysis types
+
+export interface TermThinkerBubble {
+  term_id: string
+  term_name: string
+  thinker_id: string
+  thinker_name: string
+  thinker_birth_year?: number | null
+  thinker_death_year?: number | null
+  frequency: number
+  sample_snippets: string[]
+}
+
+export interface TermThinkerMatrix {
+  bubbles: TermThinkerBubble[]
+  terms: string[]
+  thinkers: string[]
+  total_bubbles: number
+  max_frequency: number
+}
+
+// Co-occurrence and connection suggestion types
+
+export interface CoOccurrencePair {
+  thinker_a_id: string
+  thinker_a_name: string
+  thinker_a_birth_year?: number | null
+  thinker_a_death_year?: number | null
+  thinker_b_id: string
+  thinker_b_name: string
+  thinker_b_birth_year?: number | null
+  thinker_b_death_year?: number | null
+  co_occurrence_count: number
+  same_paragraph_count: number
+  has_existing_connection: boolean
+  existing_connection_type?: string | null
+}
+
+export interface ConnectionSuggestionFromNotes {
+  thinker_a_id: string
+  thinker_a_name: string
+  thinker_a_birth_year?: number | null
+  thinker_a_death_year?: number | null
+  thinker_b_id: string
+  thinker_b_name: string
+  thinker_b_birth_year?: number | null
+  thinker_b_death_year?: number | null
+  co_occurrence_count: number
+  same_paragraph_count: number
+  sample_note_titles: string[]
+  sample_excerpts: string[]
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface ArgumentNode {
+  id: string
+  node_type: 'claim' | 'evidence' | 'counterclaim'
+  label: string
+  confidence: number
+}
+
+export interface ArgumentEdge {
+  id: string
+  from_node_id: string
+  to_node_id: string
+  edge_type: string
+  weight: number
+}
+
+export interface PremiseGap {
+  message: string
+  severity: 'low' | 'medium' | 'high'
+}
+
+export interface ArgumentMap {
+  map_id: string
+  title: string
+  nodes: ArgumentNode[]
+  edges: ArgumentEdge[]
+  premise_gaps: PremiseGap[]
+}
+
+export interface SemanticSearchResult {
+  note_id: string
+  note_title: string
+  excerpt: string
+  score: number
+}
+
+export interface RelatedExcerpt {
+  occurrence_id: string
+  note_id: string
+  note_title: string
+  context_snippet: string
+  similarity: number
+}
+
+export interface ConnectionExplanation {
+  thinker_a_id: string
+  thinker_b_id: string
+  evidence_count: number
+  confidence: 'high' | 'medium' | 'low'
+  rationale: string
+  sample_excerpts: string[]
+}
+
+export interface PlanTask {
+  title: string
+  rationale: string
+  evidence_refs: string[]
+}
+
+export interface ResearchSprintPlan {
+  focus: string
+  tasks: PlanTask[]
+}
+
+export interface AdvisorBrief {
+  date_window: string
+  highlights: string[]
+  decisions_needed: string[]
+  open_risks: string[]
+}
+
+export interface VivaQuestion {
+  question: string
+  expected_answer_rubric: string
+  evidence_refs: string[]
+}
+
+export interface VivaPractice {
+  topic: string
+  questions: VivaQuestion[]
+}
+
+export interface WeeklyDigest {
+  id: string
+  period_start: string
+  period_end: string
+  digest_markdown: string
+}
+
+export interface AIUsage {
+  day: string
+  used_tokens: number
+  daily_quota_tokens: number
+  cost_controls_enabled: boolean
+}
+
+export interface DraftFromExcerptsRequest {
+  excerpt_ids: string[]
+  tone?: string
+  max_length?: number
+}
+
+export interface DraftFromExcerptsResponse {
+  draft: string
+  citations: string[]
+}
+
+export interface IngestionRequest {
+  file_name: string
+  content: string
+}
+
+export interface IngestionResponse {
+  job_id: string
+  status: string
+  artifact_count: number
+}
+
+export interface JobStatus {
+  job_id: string
+  job_type: string
+  status: string
+  result_json?: string | null
+  error_message?: string | null
 }
 
 // Research Question types for tracking intellectual investigations

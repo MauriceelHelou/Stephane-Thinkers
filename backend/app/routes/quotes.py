@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.database import get_db
@@ -30,11 +30,16 @@ def create_quote(quote: schemas.QuoteCreate, db: Session = Depends(get_db)):
     return db_quote
 
 @router.get("/", response_model=List[schemas.Quote])
-def get_quotes(thinker_id: UUID = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_quotes(
+    thinker_id: Optional[UUID] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Quote)
     if thinker_id:
         query = query.filter(Quote.thinker_id == thinker_id)
-    quotes = query.offset(skip).limit(limit).all()
+    quotes = query.order_by(Quote.created_at.desc()).offset(skip).limit(limit).all()
     return quotes
 
 @router.get("/{quote_id}", response_model=schemas.Quote)

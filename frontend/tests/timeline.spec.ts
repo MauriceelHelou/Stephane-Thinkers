@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { primeAuthenticatedSession } from './helpers/auth-helpers'
 
 test.describe('Timeline', () => {
   test.beforeEach(async ({ page }) => {
+    await primeAuthenticatedSession(page)
     await page.goto('/')
   })
 

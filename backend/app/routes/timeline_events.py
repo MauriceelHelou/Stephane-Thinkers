@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
@@ -26,14 +26,14 @@ def create_timeline_event(event: schemas.TimelineEventCreate, db: Session = Depe
 @router.get("/", response_model=List[schemas.TimelineEvent])
 def get_timeline_events(
     timeline_id: UUID | None = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(TimelineEvent)
     if timeline_id:
         query = query.filter(TimelineEvent.timeline_id == timeline_id)
-    events = query.offset(skip).limit(limit).all()
+    events = query.order_by(TimelineEvent.year.asc(), TimelineEvent.created_at.asc()).offset(skip).limit(limit).all()
     return events
 
 @router.get("/{event_id}", response_model=schemas.TimelineEvent)

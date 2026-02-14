@@ -36,13 +36,13 @@
     }
   },
 
-  "forwardPorts": [3001, 8001],
+  "forwardPorts": [3010, 8010],
   "portsAttributes": {
-    "3001": {
+    "3010": {
       "label": "Frontend (Next.js)",
       "onAutoForward": "notify"
     },
-    "8001": {
+    "8010": {
       "label": "Backend (FastAPI)",
       "onAutoForward": "notify"
     }

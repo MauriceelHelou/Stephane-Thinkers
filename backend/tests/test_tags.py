@@ -42,6 +42,14 @@ class TestTagsAPI:
         # Should return the existing tag
         assert data["id"] == sample_tag["id"]
 
+    def test_create_tag_duplicate_name_case_insensitive_returns_existing(self, client: TestClient):
+        """Case variants should resolve to the same canonical tag."""
+        first = client.post("/api/tags/", json={"name": "Phenomenology"})
+        assert first.status_code == 201
+        second = client.post("/api/tags/", json={"name": "phenomenology"})
+        assert second.status_code == 201
+        assert second.json()["id"] == first.json()["id"]
+
     def test_get_all_tags(self, client: TestClient, sample_tag: dict):
         """Test getting all tags."""
         response = client.get("/api/tags/")
@@ -49,6 +57,11 @@ class TestTagsAPI:
         data = response.json()
         assert isinstance(data, list)
         assert len(data) >= 1
+
+    def test_get_tags_limit_validation(self, client: TestClient):
+        """Test list limit guardrails."""
+        response = client.get("/api/tags/?limit=500")
+        assert response.status_code == 422
 
     def test_get_tag_by_id(self, client: TestClient, sample_tag: dict):
         """Test getting a specific tag."""

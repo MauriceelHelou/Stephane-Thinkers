@@ -67,7 +67,7 @@ HTMLCanvasElement.prototype.toBlob = vi.fn((callback) => {
 Element.prototype.scrollIntoView = vi.fn()
 
 // Mock API base URL
-const API_URL = 'http://localhost:8001'
+const API_URL = 'http://localhost:8010'
 
 // Default mock handlers
 export const handlers = [
@@ -236,7 +236,8 @@ export const handlers = [
   // Tag handlers
   http.get(`${API_URL}/api/tags/`, () => {
     return HttpResponse.json([
-      { id: 'tag-1', name: 'Philosophy', color: '#FF0000' }
+      { id: 'tag-1', name: 'Philosophy', color: '#FF0000', created_at: new Date().toISOString() },
+      { id: 'note-tag-1', name: 'Exam: General 1', color: '#64748b', created_at: new Date().toISOString() },
     ])
   }),
 
@@ -244,8 +245,38 @@ export const handlers = [
     const body = await request.json() as Record<string, unknown>
     return HttpResponse.json({
       id: 'new-tag-id',
+      created_at: new Date().toISOString(),
       ...body
     })
+  }),
+
+  // Note tag handlers
+  http.get(`${API_URL}/api/note-tags/`, () => {
+    return HttpResponse.json([
+      { id: 'note-tag-1', name: 'Exam: General 1', color: '#64748b', created_at: new Date().toISOString() }
+    ])
+  }),
+
+  http.post(`${API_URL}/api/note-tags/`, async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>
+    return HttpResponse.json({
+      id: 'new-note-tag-id',
+      created_at: new Date().toISOString(),
+      ...body
+    })
+  }),
+
+  http.put(`${API_URL}/api/note-tags/:id`, async ({ params, request }) => {
+    const body = await request.json() as Record<string, unknown>
+    return HttpResponse.json({
+      id: params.id,
+      created_at: new Date().toISOString(),
+      ...body
+    })
+  }),
+
+  http.delete(`${API_URL}/api/note-tags/:id`, () => {
+    return new HttpResponse(null, { status: 204 })
   }),
 
   // AI handlers

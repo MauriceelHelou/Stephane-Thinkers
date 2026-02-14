@@ -19,7 +19,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3001',
+    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3010',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -106,14 +106,14 @@ export default defineConfig({
     ? undefined
     : [
         {
-          command: 'cd ../backend && uvicorn app.main:app --port 8001',
-          url: 'http://localhost:8001/api/health',
+          command: 'cd ../backend && ENVIRONMENT=test uvicorn app.main:app --port 8010',
+          url: 'http://localhost:8010/api/health',
           reuseExistingServer: true,
           timeout: 120000,
         },
         {
           command: 'npm run dev',
-          url: 'http://localhost:3001',
+          url: 'http://localhost:3010',
           reuseExistingServer: true,
           timeout: 120000,
         },

@@ -284,8 +284,9 @@ export function QuotesPanel({ isOpen, onClose, onThinkerSelect }: QuotesPanelPro
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Thinker *</label>
+                  <label htmlFor="quote-thinker-select" className="block text-sm font-medium text-gray-700 mb-1">Thinker *</label>
                   <select
+                    id="quote-thinker-select"
                     value={formData.thinker_id}
                     onChange={(e) => setFormData({ ...formData, thinker_id: e.target.value })}
                     required
@@ -300,8 +301,9 @@ export function QuotesPanel({ isOpen, onClose, onThinkerSelect }: QuotesPanelPro
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Quote Text *</label>
+                  <label htmlFor="quote-text-input" className="block text-sm font-medium text-gray-700 mb-1">Quote Text *</label>
                   <textarea
+                    id="quote-text-input"
                     value={formData.text}
                     onChange={(e) => setFormData({ ...formData, text: e.target.value })}
                     required
@@ -313,8 +315,9 @@ export function QuotesPanel({ isOpen, onClose, onThinkerSelect }: QuotesPanelPro
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                    <label htmlFor="quote-source-input" className="block text-sm font-medium text-gray-700 mb-1">Source</label>
                     <input
+                      id="quote-source-input"
                       type="text"
                       value={formData.source || ''}
                       onChange={(e) => setFormData({ ...formData, source: e.target.value })}
@@ -323,8 +326,9 @@ export function QuotesPanel({ isOpen, onClose, onThinkerSelect }: QuotesPanelPro
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                    <label htmlFor="quote-year-input" className="block text-sm font-medium text-gray-700 mb-1">Year</label>
                     <input
+                      id="quote-year-input"
                       type="number"
                       value={formData.year || ''}
                       onChange={(e) => setFormData({ ...formData, year: e.target.value ? parseInt(e.target.value) : undefined })}
@@ -335,8 +339,9 @@ export function QuotesPanel({ isOpen, onClose, onThinkerSelect }: QuotesPanelPro
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Context</label>
+                  <label htmlFor="quote-context-input" className="block text-sm font-medium text-gray-700 mb-1">Context</label>
                   <textarea
+                    id="quote-context-input"
                     value={formData.context_notes || ''}
                     onChange={(e) => setFormData({ ...formData, context_notes: e.target.value })}
                     rows={2}

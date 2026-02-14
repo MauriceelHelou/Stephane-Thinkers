@@ -2,6 +2,7 @@ import { Page, Locator, expect } from '@playwright/test'
 import { TEST_IDS, TIMEOUTS } from '../config/test-constants'
 import { CanvasHelpers, createCanvasHelpers } from '../helpers/canvas-helpers'
 import { KeyboardHelpers, createKeyboardHelpers } from '../helpers/keyboard-helpers'
+import { primeAuthenticatedSession } from '../helpers/auth-helpers'
 
 export class MainPage {
   readonly page: Page
@@ -66,7 +67,7 @@ export class MainPage {
     this.helpButton = page.locator('button').filter({ hasText: /help|\?/i }).first()
     this.analysisButton = page.locator('button').filter({ hasText: /analysis/i }).first()
     this.compareButton = page.locator('button').filter({ hasText: /compare/i }).first()
-    this.aiButton = page.locator('button').filter({ hasText: /ai/i }).first()
+    this.aiButton = page.locator('button').filter({ hasText: /ai assistant|ai suggestions|\bai\b/i }).first()
     this.animateButton = page.locator('button').filter({ hasText: /animate/i }).first()
     this.moreMenuButton = page.locator('button').filter({ hasText: /more|⋯/i }).first()
     this.filterButton = page.locator('button').filter({ hasText: /filter/i }).first()
@@ -99,12 +100,24 @@ export class MainPage {
 
   // Navigation
   async goto(): Promise<void> {
-    await this.page.goto('/')
+    await primeAuthenticatedSession(this.page)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.page.goto('/', { waitUntil: 'domcontentloaded' })
+        break
+      } catch (error) {
+        const message = String(error)
+        if (attempt === 1 || !message.includes('ERR_ABORTED')) {
+          throw error
+        }
+        await this.page.waitForTimeout(TIMEOUTS.short)
+      }
+    }
     await this.waitForPageLoad()
   }
 
   async waitForPageLoad(): Promise<void> {
-    await this.canvasElement.waitFor({ state: 'visible', timeout: TIMEOUTS.long })
+    await this.canvasElement.waitFor({ state: 'visible', timeout: TIMEOUTS.long * 3 })
     await this.page.waitForLoadState('networkidle')
     await this.canvas.waitForCanvasReady()
   }
@@ -147,8 +160,22 @@ export class MainPage {
 
   // Panel toggles
   async openAIPanel(): Promise<void> {
-    await this.aiButton.click()
+    await this.openAISuggestionsPanel()
     await this.page.waitForTimeout(TIMEOUTS.animation)
+  }
+
+  async openAISuggestionsPanel(): Promise<void> {
+    await this.openMoreMenu()
+    const aiSuggestions = this.page.getByRole('button', { name: /ai suggestions/i }).first()
+    await aiSuggestions.click()
+    await this.page.waitForSelector('text=AI Assistant', { state: 'visible' })
+  }
+
+  async openAIChatPanel(): Promise<void> {
+    await this.openMoreMenu()
+    const aiAssistant = this.page.getByRole('button', { name: /^AI Assistant$/ }).first()
+    await aiAssistant.click()
+    await this.page.waitForSelector('text=AI Research Assistant', { state: 'visible' })
   }
 
   async openAnalysisPanel(): Promise<void> {

@@ -32,8 +32,15 @@ async function apiRequest(method: string, endpoint: string, body?: any) {
   return { response, data }
 }
 
-test.describe('Thinker API - CRUD Operations', () => {
-  let createdThinkerId: string
+test.describe.serial('Thinker API - CRUD Operations', () => {
+  let createdThinkerId: string | null = null
+
+  const requireThinkerId = () => {
+    if (!createdThinkerId) {
+      throw new Error('Thinker ID was not created before this test step')
+    }
+    return createdThinkerId
+  }
 
   test('POST /api/thinkers - Create a new thinker', async () => {
     const thinkerData = {
@@ -62,31 +69,34 @@ test.describe('Thinker API - CRUD Operations', () => {
 
   test('GET /api/thinkers - Retrieve all thinkers', async () => {
     const { response, data } = await apiRequest('GET', '/api/thinkers')
+    const thinkerId = requireThinkerId()
 
     expect(response.status).toBe(200)
     expect(Array.isArray(data)).toBe(true)
 
     // Find our created thinker
-    const foundThinker = data.find((t: any) => t.id === createdThinkerId)
+    const foundThinker = data.find((t: any) => t.id === thinkerId)
     expect(foundThinker).toBeTruthy()
     expect(foundThinker.name).toBe('Test Philosopher')
   })
 
   test('GET /api/thinkers/:id - Retrieve single thinker', async () => {
-    const { response, data } = await apiRequest('GET', `/api/thinkers/${createdThinkerId}`)
+    const thinkerId = requireThinkerId()
+    const { response, data } = await apiRequest('GET', `/api/thinkers/${thinkerId}`)
 
     expect(response.status).toBe(200)
-    expect(data.id).toBe(createdThinkerId)
+    expect(data.id).toBe(thinkerId)
     expect(data.name).toBe('Test Philosopher')
   })
 
   test('PUT /api/thinkers/:id - Update thinker', async () => {
+    const thinkerId = requireThinkerId()
     const updateData = {
       name: 'Updated Philosopher',
       biography_notes: 'Updated bio for testing',
     }
 
-    const { response, data } = await apiRequest('PUT', `/api/thinkers/${createdThinkerId}`, updateData)
+    const { response, data } = await apiRequest('PUT', `/api/thinkers/${thinkerId}`, updateData)
 
     expect(response.status).toBe(200)
     expect(data.name).toBe('Updated Philosopher')
@@ -94,7 +104,8 @@ test.describe('Thinker API - CRUD Operations', () => {
   })
 
   test('GET /api/thinkers/:id - Verify update persisted', async () => {
-    const { response, data } = await apiRequest('GET', `/api/thinkers/${createdThinkerId}`)
+    const thinkerId = requireThinkerId()
+    const { response, data } = await apiRequest('GET', `/api/thinkers/${thinkerId}`)
 
     expect(response.status).toBe(200)
     expect(data.name).toBe('Updated Philosopher')
@@ -102,13 +113,15 @@ test.describe('Thinker API - CRUD Operations', () => {
   })
 
   test('DELETE /api/thinkers/:id - Delete thinker', async () => {
-    const { response } = await apiRequest('DELETE', `/api/thinkers/${createdThinkerId}`)
+    const thinkerId = requireThinkerId()
+    const { response } = await apiRequest('DELETE', `/api/thinkers/${thinkerId}`)
 
     expect(response.status).toBe(204) // DELETE returns 204
   })
 
   test('GET /api/thinkers/:id - Verify deletion', async () => {
-    const { response } = await apiRequest('GET', `/api/thinkers/${createdThinkerId}`)
+    const thinkerId = requireThinkerId()
+    const { response } = await apiRequest('GET', `/api/thinkers/${thinkerId}`)
 
     expect(response.status).toBe(404)
   })
@@ -426,6 +439,58 @@ test.describe.serial('Tag API - CRUD Operations', () => {
   })
 })
 
+test.describe.serial('Note Tag API - CRUD Operations', () => {
+  let noteTagId: string
+  const noteTagRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const noteTagName = `Exam: General 1 ${noteTagRunId}`
+  const noteTagUpdatedName = `Exam: General 1 Updated ${noteTagRunId}`
+
+  test('POST /api/note-tags - Create note tag', async () => {
+    const { response, data } = await apiRequest('POST', '/api/note-tags', {
+      name: noteTagName,
+      color: '#64748b',
+    })
+    expect(response.status).toBe(201)
+    expect(data.name).toBe(noteTagName)
+    noteTagId = data.id
+  })
+
+  test('POST /api/note-tags - Duplicate case-insensitive returns existing', async () => {
+    const { response, data } = await apiRequest('POST', '/api/note-tags', {
+      name: noteTagName.toLowerCase(),
+    })
+    expect(response.status).toBe(201)
+    expect(data.id).toBe(noteTagId)
+  })
+
+  test('GET /api/note-tags - Retrieve all note tags', async () => {
+    const { response, data } = await apiRequest('GET', '/api/note-tags')
+    expect(response.status).toBe(200)
+    expect(Array.isArray(data)).toBe(true)
+  })
+
+  test('GET /api/note-tags/:id - Retrieve single note tag', async () => {
+    const { response, data } = await apiRequest('GET', `/api/note-tags/${noteTagId}`)
+    expect(response.status).toBe(200)
+    expect(data.id).toBe(noteTagId)
+  })
+
+  test('PUT /api/note-tags/:id - Update note tag', async () => {
+    const { response, data } = await apiRequest('PUT', `/api/note-tags/${noteTagId}`, {
+      name: noteTagUpdatedName,
+      color: '#334155',
+    })
+    expect(response.status).toBe(200)
+    expect(data.name).toBe(noteTagUpdatedName)
+    expect(data.color).toBe('#334155')
+  })
+
+  test('DELETE /api/note-tags/:id - Delete note tag', async () => {
+    const { response } = await apiRequest('DELETE', `/api/note-tags/${noteTagId}`)
+    expect(response.status).toBe(204)
+  })
+})
+
 test.describe.serial('Institution API - CRUD Operations', () => {
   let institutionId: string
 
@@ -596,6 +661,92 @@ test.describe.serial('Notes API - CRUD Operations', () => {
     const { response } = await apiRequest('DELETE', `/api/notes/${noteId}`)
 
     expect(response.status).toBe(204)
+  })
+})
+
+test.describe.serial('Notes API - Tag Filtering', () => {
+  let thinkerId: string
+  let folderId: string
+  let tagExamId: string
+  let tagDissId: string
+  let noteExamOnlyId: string
+  let noteBothId: string
+  const filterRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const filterThinkerName = `Tag Filter Thinker ${filterRunId}`
+  const filterFolderName = `Exam Folder ${filterRunId}`
+  const filterExamTagName = `Exam: General 1 ${filterRunId}`
+  const filterDissTagName = `Diss: Ch 1 ${filterRunId}`
+
+  test.beforeAll(async () => {
+    const thinker = await apiRequest('POST', '/api/thinkers', {
+      name: filterThinkerName,
+      birth_year: 1901,
+      field: 'Philosophy',
+    })
+    thinkerId = thinker.data.id
+
+    const folder = await apiRequest('POST', '/api/folders/', {
+      name: filterFolderName,
+    })
+    folderId = folder.data.id
+
+    const examTag = await apiRequest('POST', '/api/note-tags', { name: filterExamTagName })
+    const dissTag = await apiRequest('POST', '/api/note-tags', { name: filterDissTagName })
+    tagExamId = examTag.data.id
+    tagDissId = dissTag.data.id
+
+    const noteExamOnly = await apiRequest('POST', '/api/notes', {
+      title: 'Exam only',
+      content: 'Exam-only content',
+      thinker_id: thinkerId,
+      tag_ids: [tagExamId],
+    })
+    noteExamOnlyId = noteExamOnly.data.id
+
+    const noteBoth = await apiRequest('POST', '/api/notes', {
+      title: 'Exam and dissertation',
+      content: 'Both tags content',
+      thinker_id: thinkerId,
+      folder_id: folderId,
+      tag_ids: [tagExamId, tagDissId],
+    })
+    noteBothId = noteBoth.data.id
+  })
+
+  test.afterAll(async () => {
+    await apiRequest('DELETE', `/api/notes/${noteExamOnlyId}`)
+    await apiRequest('DELETE', `/api/notes/${noteBothId}`)
+    await apiRequest('DELETE', `/api/note-tags/${tagExamId}`)
+    await apiRequest('DELETE', `/api/note-tags/${tagDissId}`)
+    await apiRequest('DELETE', `/api/folders/${folderId}`)
+    await apiRequest('DELETE', `/api/thinkers/${thinkerId}`)
+  })
+
+  test('GET /api/notes?tag_ids=<tag> - Returns notes with that tag', async () => {
+    const { response, data } = await apiRequest('GET', `/api/notes?tag_ids=${tagExamId}`)
+    expect(response.status).toBe(200)
+    const ids = (data || []).map((note: any) => note.id)
+    expect(ids).toContain(noteExamOnlyId)
+    expect(ids).toContain(noteBothId)
+  })
+
+  test('GET /api/notes?tag_ids=<tag1,tag2> - Uses ALL semantics', async () => {
+    const { response, data } = await apiRequest('GET', `/api/notes?tag_ids=${tagExamId},${tagDissId}`)
+    expect(response.status).toBe(200)
+    expect(Array.isArray(data)).toBe(true)
+    expect(data.length).toBe(1)
+    expect(data[0].id).toBe(noteBothId)
+  })
+
+  test('GET /api/notes with folder_id + tag_ids combines filters with AND', async () => {
+    const { response, data } = await apiRequest(
+      'GET',
+      `/api/notes?folder_id=${folderId}&tag_ids=${tagExamId}`
+    )
+    expect(response.status).toBe(200)
+    expect(Array.isArray(data)).toBe(true)
+    expect(data.length).toBe(1)
+    expect(data[0].id).toBe(noteBothId)
   })
 })
 

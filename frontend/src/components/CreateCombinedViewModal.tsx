@@ -122,8 +122,9 @@ export function CreateCombinedViewModal({ isOpen, onClose, editingViewId }: Crea
     <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Combined View' : 'Create Combined Timeline View'}>
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         <div>
-          <label className="block text-sm font-sans font-medium text-primary mb-1">View Name *</label>
+          <label htmlFor="combined-view-name" className="block text-sm font-sans font-medium text-primary mb-1">View Name *</label>
           <input
+            id="combined-view-name"
             type="text"
             value={formData.name}
             onChange={(e) => handleChange('name', e.target.value)}
@@ -134,8 +135,9 @@ export function CreateCombinedViewModal({ isOpen, onClose, editingViewId }: Crea
         </div>
 
         <div>
-          <label className="block text-sm font-sans font-medium text-primary mb-1">Description</label>
+          <label htmlFor="combined-view-description" className="block text-sm font-sans font-medium text-primary mb-1">Description</label>
           <textarea
+            id="combined-view-description"
             value={formData.description || ''}
             onChange={(e) => handleChange('description', e.target.value || null)}
             rows={2}

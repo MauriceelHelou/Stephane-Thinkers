@@ -2,10 +2,12 @@
 
 Complete API reference for AI-powered features in the Intellectual Genealogy Mapper.
 
+For Notes AI endpoints introduced in Plan 9 (phases 0-F), see `PLAN9-API.md`.
+
 ## Base URL
 
 ```
-http://localhost:8001/api/ai
+http://localhost:8010/api/ai
 ```
 
 ## Authentication
@@ -75,7 +77,7 @@ Search for thinkers using natural language queries.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8001/api/ai/search \
+curl -X POST http://localhost:8010/api/ai/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "German idealists who influenced Hegel",
@@ -137,7 +139,7 @@ Chat interface for asking questions about your research database.
 For real-time streaming responses:
 
 ```javascript
-const response = await fetch('http://localhost:8001/api/ai/chat/stream', {
+const response = await fetch('http://localhost:8010/api/ai/chat/stream', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ message: "Who influenced Rawls?" })
@@ -153,7 +155,7 @@ while (true) {
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8001/api/ai/chat \
+curl -X POST http://localhost:8010/api/ai/chat \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Compare Kant and Hegel on ethics",
@@ -240,7 +242,7 @@ Get AI-powered suggestions for potential connections between thinkers.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8001/api/ai/suggest/uuid-rawls?limit=3
+curl -X POST http://localhost:8010/api/ai/suggest/uuid-rawls?limit=3
 ```
 
 **Errors**:
@@ -343,7 +345,7 @@ AI-powered validation of database quality and consistency.
 
 **Example**:
 ```bash
-curl -X POST "http://localhost:8001/api/ai/validate?check_types=dates&check_types=connections"
+curl -X POST "http://localhost:8010/api/ai/validate?check_types=dates&check_types=connections"
 ```
 
 ---
@@ -404,7 +406,7 @@ Generate AI summaries of timelines, thinkers, or movements.
 **Examples**:
 ```bash
 # Summarize a timeline
-curl -X POST http://localhost:8001/api/ai/summarize \
+curl -X POST http://localhost:8010/api/ai/summarize \
   -H "Content-Type: application/json" \
   -d '{
     "type": "timeline",
@@ -413,7 +415,7 @@ curl -X POST http://localhost:8001/api/ai/summarize \
   }'
 
 # Summarize a time period
-curl -X POST http://localhost:8001/api/ai/summarize \
+curl -X POST http://localhost:8010/api/ai/summarize \
   -H "Content-Type: application/json" \
   -d '{
     "type": "period",
@@ -473,7 +475,7 @@ Parse free-text citations into structured publication data.
 
 **Example**:
 ```bash
-curl -X POST http://localhost:8001/api/ai/import-citation \
+curl -X POST http://localhost:8010/api/ai/import-citation \
   -H "Content-Type: application/json" \
   -d '{
     "citation": "Kant, I. (1781). Critique of Pure Reason."
@@ -728,7 +730,7 @@ For long-running operations, webhooks can be configured:
 import axios from 'axios';
 
 const aiClient = axios.create({
-  baseURL: 'http://localhost:8001/api/ai'
+  baseURL: 'http://localhost:8010/api/ai'
 });
 
 export const aiApi = {
@@ -756,7 +758,7 @@ export const aiApi = {
 import requests
 
 class AIClient:
-    def __init__(self, base_url="http://localhost:8001/api/ai"):
+    def __init__(self, base_url="http://localhost:8010/api/ai"):
         self.base_url = base_url
 
     def search(self, query, limit=10, filters=None):

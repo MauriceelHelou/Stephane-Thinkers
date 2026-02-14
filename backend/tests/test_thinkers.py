@@ -107,6 +107,13 @@ class TestThinkersAPI:
         assert data["position_x"] == 100.5
         assert data["position_y"] == 200.5
 
+    def test_update_thinker_invalid_year_merge(self, client: TestClient, sample_thinker: dict):
+        """Test year-order validation on partial thinker updates."""
+        response = client.put(f"/api/thinkers/{sample_thinker['id']}", json={
+            "birth_year": 2100
+        })
+        assert response.status_code == 422
+
     def test_update_thinker_not_found(self, client: TestClient):
         """Test updating non-existent thinker returns 404."""
         fake_id = "00000000-0000-0000-0000-000000000000"

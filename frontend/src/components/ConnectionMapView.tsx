@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi } from '@/lib/api'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
@@ -16,31 +16,129 @@ interface ConnectionMapViewProps {
 
 interface NodePosition {
   id: string
+  name: string
   x: number
   y: number
-  vx: number
-  vy: number
-  name: string
   isCenter: boolean
-  connectionType?: ConnectionStyleType
-  isInfluencer?: boolean // true = influenced the center, false = influenced by center
-  distance?: number // BFS distance from center
+}
+
+interface NodeVisual {
+  label: string
+  width: number
+  height: number
+  font: string
+}
+
+interface NodeHitArea {
+  id: string
+  x: number
+  y: number
+  halfWidth: number
+  halfHeight: number
 }
 
 const ALL_CONNECTION_TYPES = Object.values(ConnectionType) as ConnectionStyleType[]
+const NODE_MAX_LABEL_WIDTH = 96
+const PANEL_PADDING = 72
+const NODE_PADDING_X = 10
+const CENTER_NODE_PADDING_X = 12
+const NODE_HEIGHT = 24
+const CENTER_NODE_HEIGHT = 28
+
+function simpleHash(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function truncateLabel(ctx: CanvasRenderingContext2D, label: string, maxWidth: number): string {
+  let displayName = label
+  if (ctx.measureText(displayName).width <= maxWidth) return displayName
+
+  while (ctx.measureText(`${displayName}...`).width > maxWidth && displayName.length > 3) {
+    displayName = displayName.slice(0, -1)
+  }
+  return `${displayName}...`
+}
+
+function drawArrowhead(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  size: number,
+  color: string
+) {
+  ctx.beginPath()
+  ctx.moveTo(x, y)
+  ctx.lineTo(x - size * Math.cos(angle - Math.PI / 7), y - size * Math.sin(angle - Math.PI / 7))
+  ctx.lineTo(x - size * Math.cos(angle + Math.PI / 7), y - size * Math.sin(angle + Math.PI / 7))
+  ctx.closePath()
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+function getRectEdgePoint(
+  cx: number,
+  cy: number,
+  tx: number,
+  ty: number,
+  halfWidth: number,
+  halfHeight: number
+) {
+  const vx = tx - cx
+  const vy = ty - cy
+  const scale = Math.min(
+    halfWidth / Math.max(Math.abs(vx), 0.001),
+    halfHeight / Math.max(Math.abs(vy), 0.001)
+  )
+
+  return {
+    x: cx + vx * scale,
+    y: cy + vy * scale,
+  }
+}
+
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
 
 export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinkerSelect }: ConnectionMapViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const nodeHitAreasRef = useRef<NodeHitArea[]>([])
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [centerThinker, setCenterThinker] = useState<string | null>(centeredThinkerId)
-  const [nodes, setNodes] = useState<NodePosition[]>([])
-  const animationRef = useRef<number | null>(null)
-
-  // New controls: depth slider and connection type filters
-  const [maxDepth, setMaxDepth] = useState<number>(10) // 10 = unlimited for practical purposes
+  const [maxDepth, setMaxDepth] = useState<number>(10)
   const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<Set<ConnectionStyleType>>(
     new Set(ALL_CONNECTION_TYPES)
   )
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
 
   const { data: thinkers = [] } = useQuery({
     queryKey: ['thinkers'],
@@ -54,64 +152,59 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     enabled: isOpen,
   })
 
-  // Update center when prop changes and reset when modal closes
   useEffect(() => {
-    if (centeredThinkerId) {
-      setCenterThinker(centeredThinkerId)
-    }
+    if (centeredThinkerId) setCenterThinker(centeredThinkerId)
   }, [centeredThinkerId])
 
-  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      lastCenterRef.current = null
-      setNodes([])
+      setHoveredNode(null)
+      nodeHitAreasRef.current = []
     }
   }, [isOpen])
 
   const centeredThinkerData = thinkers.find((t: Thinker) => t.id === centerThinker)
 
-  // Filter connections by visible types
   const filteredConnections = useMemo(() => {
     return connections.filter((c: Connection) =>
       visibleConnectionTypes.has(c.connection_type as ConnectionStyleType)
     )
   }, [connections, visibleConnectionTypes])
 
-  // Build full network using BFS - find all thinkers connected (directly or indirectly)
-  // Now respects maxDepth and only uses visible connection types
   const buildFullNetwork = useCallback(() => {
-    if (!centerThinker) return { networkThinkerIds: new Set<string>(), networkConnections: [] as Connection[], distanceMap: new Map<string, number>() }
+    if (!centerThinker) {
+      return {
+        networkThinkerIds: new Set<string>(),
+        networkConnections: [] as Connection[],
+        distanceMap: new Map<string, number>()
+      }
+    }
 
-    const visited = new Set<string>()
-    const distanceMap = new Map<string, number>()
+    const visited = new Set<string>([centerThinker])
+    const distanceMap = new Map<string, number>([[centerThinker, 0]])
     const queue: { id: string; depth: number }[] = [{ id: centerThinker, depth: 0 }]
-    visited.add(centerThinker)
-    distanceMap.set(centerThinker, 0)
 
-    // BFS to find all connected thinkers within maxDepth
     while (queue.length > 0) {
-      const { id: current, depth } = queue.shift()!
-
-      // Stop expanding if we've reached maxDepth
-      if (depth >= maxDepth) continue
+      const current = queue.shift()
+      if (!current) break
+      if (current.depth >= maxDepth) continue
 
       filteredConnections.forEach((c: Connection) => {
         let neighbor: string | null = null
-        if (c.from_thinker_id === current && !visited.has(c.to_thinker_id)) {
+        if (c.from_thinker_id === current.id && !visited.has(c.to_thinker_id)) {
           neighbor = c.to_thinker_id
-        } else if (c.to_thinker_id === current && !visited.has(c.from_thinker_id)) {
+        } else if (c.to_thinker_id === current.id && !visited.has(c.from_thinker_id)) {
           neighbor = c.from_thinker_id
         }
+
         if (neighbor) {
           visited.add(neighbor)
-          distanceMap.set(neighbor, depth + 1)
-          queue.push({ id: neighbor, depth: depth + 1 })
+          distanceMap.set(neighbor, current.depth + 1)
+          queue.push({ id: neighbor, depth: current.depth + 1 })
         }
       })
     }
 
-    // Get all connections within the network (only visible types between visited nodes)
     const networkConnections = filteredConnections.filter(
       (c: Connection) => visited.has(c.from_thinker_id) && visited.has(c.to_thinker_id)
     )
@@ -122,246 +215,107 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
   const { networkThinkerIds, networkConnections, distanceMap } = buildFullNetwork()
   const networkThinkers = thinkers.filter((t: Thinker) => networkThinkerIds.has(t.id) && t.id !== centerThinker)
 
-  // Compute max actual depth in the current network for slider reference
   const actualMaxDepth = useMemo(() => {
     if (distanceMap.size === 0) return 0
     return Math.max(...Array.from(distanceMap.values()))
   }, [distanceMap])
 
-  // Get direct connections for layout purposes (to determine relative positions)
-  const directConnections = filteredConnections.filter(
-    (c: Connection) => c.from_thinker_id === centerThinker || c.to_thinker_id === centerThinker
-  )
-
-  // Track which thinkers have direct relationship with center
-  const connectedThinkersInfo = new Map<string, { isInfluencer: boolean; connectionType: ConnectionStyleType; distance: number }>()
-
-  directConnections.forEach((c: Connection) => {
-    if (c.from_thinker_id !== centerThinker) {
-      connectedThinkersInfo.set(c.from_thinker_id, {
-        isInfluencer: true,
-        connectionType: c.connection_type as ConnectionStyleType,
-        distance: 1
-      })
-    }
-    if (c.to_thinker_id !== centerThinker) {
-      connectedThinkersInfo.set(c.to_thinker_id, {
-        isInfluencer: false,
-        connectionType: c.connection_type as ConnectionStyleType,
-        distance: 1
-      })
-    }
-  })
-
-  const connectedThinkers = networkThinkers
-
-  // Toggle a connection type visibility
-  const toggleConnectionType = useCallback((type: ConnectionStyleType) => {
-    setVisibleConnectionTypes(prev => {
-      const next = new Set(prev)
-      if (next.has(type)) {
-        // Don't allow hiding all types
-        if (next.size > 1) {
-          next.delete(type)
-        }
-      } else {
-        next.add(type)
-      }
-      return next
-    })
-  }, [])
-
-  // Simple hash function for deterministic positioning
-  const simpleHash = (str: string): number => {
-    let hash = 0
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    return Math.abs(hash)
-  }
-
-  // Initialize nodes with radial layout based on distance from center
-  const initializeNodes = useCallback((width: number, height: number): NodePosition[] => {
-    const positions: NodePosition[] = []
+  const mapGeometry = useMemo(() => {
+    const width = canvasSize.width
+    const height = canvasSize.height
     const centerX = width / 2
     const centerY = height / 2
-    const margin = 80 // Keep nodes away from edges
+    const rawRadius = (Math.min(width, height) / 2) - PANEL_PADDING
+    const mapRadius = Math.max(70, rawRadius)
 
-    // Center node (fixed position)
-    if (centeredThinkerData) {
-      positions.push({
+    return {
+      centerX,
+      centerY,
+      mapRadius,
+      minX: centerX - mapRadius,
+      maxX: centerX + mapRadius,
+      minY: centerY - mapRadius,
+      maxY: centerY + mapRadius,
+    }
+  }, [canvasSize])
+
+  const nodes = useMemo<NodePosition[]>(() => {
+    if (!centeredThinkerData) return []
+
+    const { centerX, centerY, mapRadius, minX, maxX, minY, maxY } = mapGeometry
+    const items: NodePosition[] = [
+      {
         id: centeredThinkerData.id,
+        name: centeredThinkerData.name,
         x: centerX,
         y: centerY,
-        vx: 0,
-        vy: 0,
-        name: centeredThinkerData.name,
         isCenter: true,
-      })
-    }
-
-    // Group thinkers by distance from center
-    const distances = Array.from(distanceMap.values()).filter(d => d > 0)
-    const maxDistance = Math.max(...distances, 1)
-    const thinkersByDistance = new Map<number, Thinker[]>()
-
-    connectedThinkers.forEach((thinker: Thinker) => {
-      const distance = distanceMap.get(thinker.id) || 1
-      if (!thinkersByDistance.has(distance)) {
-        thinkersByDistance.set(distance, [])
       }
-      thinkersByDistance.get(distance)!.push(thinker)
+    ]
+
+    const grouped = new Map<number, Thinker[]>()
+    networkThinkers.forEach((thinker: Thinker) => {
+      const distance = distanceMap.get(thinker.id) || 1
+      if (!grouped.has(distance)) grouped.set(distance, [])
+      grouped.get(distance)!.push(thinker)
     })
 
-    // Calculate available radius range
-    const minRadius = 100 // Minimum distance from center
-    const maxRadius = Math.min(width, height) / 2 - margin
+    const distances = Array.from(grouped.keys()).sort((a, b) => a - b)
+    const maxDistance = Math.max(...distances, 1)
 
-    thinkersByDistance.forEach((thinkersAtDist, distance) => {
-      // Scale radius based on distance level
-      const radiusFraction = distance / maxDistance
-      const radius = minRadius + radiusFraction * (maxRadius - minRadius)
+    distances.forEach((distance) => {
+      const thinkersAtDistance = (grouped.get(distance) || []).sort((a, b) => a.name.localeCompare(b.name))
+      if (thinkersAtDistance.length === 0) return
 
-      // Distribute thinkers evenly around the ring
-      const angleStep = (2 * Math.PI) / thinkersAtDist.length
-      // Use hash to add deterministic offset to starting angle (avoid stacking at same angle)
-      const startAngle = (simpleHash(String(distance)) % 100) / 100 * Math.PI * 2
+      const minRing = mapRadius * 0.34
+      const maxRing = mapRadius * 0.84
+      const ringRadius = maxDistance <= 1
+        ? mapRadius * 0.52
+        : minRing + ((distance - 1) / (maxDistance - 1)) * (maxRing - minRing)
 
-      thinkersAtDist.forEach((thinker: Thinker, index: number) => {
-        const info = connectedThinkersInfo.get(thinker.id)
+      const angleStep = (2 * Math.PI) / thinkersAtDistance.length
+      const startAngle = (simpleHash(`distance-${distance}`) % 360) * (Math.PI / 180)
+
+      thinkersAtDistance.forEach((thinker, index) => {
         const angle = startAngle + index * angleStep
-        // Small deterministic offset for variety (max 10% of radius)
-        const hashOffset = ((simpleHash(thinker.id) % 20) - 10) * 0.05 * radius
+        const jitter = ((simpleHash(thinker.id) % 11) - 5) * 0.012 * ringRadius
+        const radiusFromCenter = ringRadius + jitter
 
-        // Calculate position and clamp to bounds
-        const x = Math.max(margin, Math.min(width - margin, centerX + Math.cos(angle) * (radius + hashOffset)))
-        const y = Math.max(margin, Math.min(height - margin, centerY + Math.sin(angle) * (radius + hashOffset)))
+        const x = clamp(centerX + Math.cos(angle) * radiusFromCenter, minX, maxX)
+        const y = clamp(centerY + Math.sin(angle) * radiusFromCenter, minY, maxY)
 
-        positions.push({
+        items.push({
           id: thinker.id,
+          name: thinker.name,
           x,
           y,
-          vx: 0,
-          vy: 0,
-          name: thinker.name,
           isCenter: false,
-          connectionType: info?.connectionType,
-          isInfluencer: info?.isInfluencer,
         })
       })
     })
 
-    return positions
-  }, [centeredThinkerData, connectedThinkers, connectedThinkersInfo, distanceMap])
+    return items
+  }, [centeredThinkerData, mapGeometry, networkThinkers, distanceMap])
 
-  // Force simulation (adapted for radial layout)
-  const simulateForces = useCallback((nodes: NodePosition[], width: number, height: number): NodePosition[] => {
-    const centerX = width / 2
-    const centerY = height / 2
-    const repulsionStrength = 5000
-    const damping = 0.85
-    const minDistance = 130 // Increased to prevent label overlaps for rectangular nodes
-
-    return nodes.map((node, i) => {
-      if (node.isCenter) return node // Center node is fixed
-
-      let fx = 0
-      let fy = 0
-
-      // Repulsion from other nodes
-      nodes.forEach((other, j) => {
-        if (i === j) return
-        const dx = node.x - other.x
-        const dy = node.y - other.y
-        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-        if (dist < minDistance * 2.5) {
-          const force = repulsionStrength / (dist * dist)
-          fx += (dx / dist) * force
-          fy += (dy / dist) * force
-        }
-      })
-
-      // Boundary forces
-      const margin = 60
-      if (node.x < margin) fx += (margin - node.x) * 0.15
-      if (node.x > width - margin) fx -= (node.x - (width - margin)) * 0.15
-      if (node.y < margin) fy += (margin - node.y) * 0.15
-      if (node.y > height - margin) fy -= (node.y - (height - margin)) * 0.15
-
-      const newVx = (node.vx + fx) * damping
-      const newVy = (node.vy + fy) * damping
-
-      return {
-        ...node,
-        x: node.x + newVx,
-        y: node.y + newVy,
-        vx: newVx,
-        vy: newVy,
-      }
-    })
-  }, [])
-
-  // Track if we need to reinitialize
-  const lastCenterRef = useRef<string | null>(null)
-  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
-
-  // Handle resize
   useEffect(() => {
-    if (!isOpen || !canvasRef.current) return
+    if (!isOpen || !viewportRef.current) return
 
-    const canvas = canvasRef.current
+    const viewport = viewportRef.current
     const updateSize = () => {
-      const rect = canvas.getBoundingClientRect()
+      const rect = viewport.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) {
-        setCanvasSize({ width: rect.width, height: rect.height })
+        const side = Math.floor(Math.min(rect.width, rect.height))
+        if (side > 0) {
+          setCanvasSize({ width: side, height: side })
+        }
       }
     }
 
     updateSize()
     window.addEventListener('resize', updateSize)
     return () => window.removeEventListener('resize', updateSize)
-  }, [isOpen])
+  }, [isOpen, networkThinkers.length])
 
-  // Create a network key that changes when filters change
-  const networkKey = useMemo(() => {
-    const typesKey = Array.from(visibleConnectionTypes).sort().join(',')
-    return `${centerThinker}-${maxDepth}-${typesKey}`
-  }, [centerThinker, maxDepth, visibleConnectionTypes])
-
-  // Initialize and run force simulation when center thinker or network config changes
-  useEffect(() => {
-    if (!isOpen || !centerThinker) return
-    if (canvasSize.width === 0 || canvasSize.height === 0) return
-
-    // Only reinitialize if the network key changed
-    if (lastCenterRef.current === networkKey && nodes.length > 0) return
-    lastCenterRef.current = networkKey
-
-    // Initialize nodes
-    const initialNodes = initializeNodes(canvasSize.width, canvasSize.height)
-
-    // Run simulation synchronously for a fixed number of iterations (no animation)
-    let simulationNodes = initialNodes
-    for (let i = 0; i < 80; i++) {
-      simulationNodes = simulateForces(simulationNodes, canvasSize.width, canvasSize.height)
-    }
-    setNodes(simulationNodes)
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
-    }
-  }, [isOpen, centerThinker, canvasSize, initializeNodes, simulateForces, networkKey])
-
-  // Calculate positions for hit detection
-  const calculatePositions = useCallback((width: number, height: number): NodePosition[] => {
-    return nodes
-  }, [nodes])
-
-  // Draw the map
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !isOpen || !centerThinker || nodes.length === 0) return
@@ -370,174 +324,197 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = canvasSize.width * dpr
-    canvas.height = canvasSize.height * dpr
-    ctx.scale(dpr, dpr)
-
     const width = canvasSize.width
     const height = canvasSize.height
+    const dpr = window.devicePixelRatio || 1
 
-    // Clear
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
+    canvas.width = Math.floor(width * dpr)
+    canvas.height = Math.floor(height * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.imageSmoothingEnabled = true
+
+    ctx.clearRect(0, 0, width, height)
     ctx.fillStyle = '#FAFAF8'
     ctx.fillRect(0, 0, width, height)
 
-    // Draw network info
     ctx.font = '12px Inter, sans-serif'
-    ctx.fillStyle = '#999999'
     ctx.textAlign = 'left'
-    const networkSize = nodes.length
-    const connectionCount = networkConnections.length
-    ctx.fillText(`Network: ${networkSize} thinkers, ${connectionCount} connections`, 20, 25)
+    ctx.fillStyle = '#7F7F7F'
+    ctx.fillText(`Network: ${nodes.length} thinkers, ${networkConnections.length} connections`, 20, 24)
 
-    const positionMap = new Map(nodes.map(p => [p.id, p]))
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]))
+    const nodeVisualMap = new Map<string, NodeVisual>()
+    nodes.forEach((node) => {
+      const font = node.isCenter ? '600 13px "Crimson Text", serif' : '12px "Crimson Text", serif'
+      ctx.font = font
+      const label = truncateLabel(ctx, node.name, NODE_MAX_LABEL_WIDTH + (node.isCenter ? 18 : 0))
+      const paddingX = node.isCenter ? CENTER_NODE_PADDING_X : NODE_PADDING_X
+      const textWidth = ctx.measureText(label).width
+      const width = Math.ceil(textWidth + paddingX * 2)
+      const height = node.isCenter ? CENTER_NODE_HEIGHT : NODE_HEIGHT
 
-    // Group connections by thinker pair to handle dual connections
+      nodeVisualMap.set(node.id, {
+        label,
+        width,
+        height,
+        font,
+      })
+    })
+
     const pairConnectionCount = new Map<string, { total: number; current: number }>()
     networkConnections.forEach((conn: Connection) => {
       const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
       const pairKey = `${ids[0]}-${ids[1]}`
       const existing = pairConnectionCount.get(pairKey)
       if (existing) {
-        existing.total++
+        existing.total += 1
       } else {
         pairConnectionCount.set(pairKey, { total: 1, current: 0 })
       }
     })
 
-    // Draw all connections in the network
     networkConnections.forEach((conn: Connection) => {
-      const fromPos = positionMap.get(conn.from_thinker_id)
-      const toPos = positionMap.get(conn.to_thinker_id)
-      if (!fromPos || !toPos) return
+      const from = nodeMap.get(conn.from_thinker_id)
+      const to = nodeMap.get(conn.to_thinker_id)
+      if (!from || !to) return
 
-      // Calculate offset for dual connections
       const ids = [conn.from_thinker_id, conn.to_thinker_id].sort()
       const pairKey = `${ids[0]}-${ids[1]}`
-      const pairInfo = pairConnectionCount.get(pairKey)!
-      const connectionIndex = pairInfo.current++
-      const totalConnections = pairInfo.total
+      const pair = pairConnectionCount.get(pairKey)
+      if (!pair) return
 
-      // Calculate perpendicular offset for parallel lines
-      const offsetStep = 12 // Pixels between parallel connections
-      const totalOffset = (totalConnections - 1) * offsetStep
-      const lineOffset = connectionIndex * offsetStep - totalOffset / 2
+      const connectionIndex = pair.current++
+      const lineOffset = (connectionIndex - (pair.total - 1) / 2) * 9
+      const fromVisual = nodeVisualMap.get(from.id)
+      const toVisual = nodeVisualMap.get(to.id)
+      if (!fromVisual || !toVisual) return
 
-      // Calculate perpendicular vector
-      const dx = toPos.x - fromPos.x
-      const dy = toPos.y - fromPos.y
-      const length = Math.sqrt(dx * dx + dy * dy)
-      const perpX = -dy / length * lineOffset
-      const perpY = dx / length * lineOffset
+      const fromHalfWidth = fromVisual.width / 2
+      const fromHalfHeight = fromVisual.height / 2
+      const toHalfWidth = toVisual.width / 2
+      const toHalfHeight = toVisual.height / 2
+
+      const startBase = getRectEdgePoint(from.x, from.y, to.x, to.y, fromHalfWidth, fromHalfHeight)
+      const endBase = getRectEdgePoint(to.x, to.y, from.x, from.y, toHalfWidth, toHalfHeight)
+
+      const rawDx = endBase.x - startBase.x
+      const rawDy = endBase.y - startBase.y
+      const distance = Math.hypot(rawDx, rawDy)
+      if (distance < 1) return
+
+      const unitX = rawDx / distance
+      const unitY = rawDy / distance
+      const perpX = -unitY * lineOffset
+      const perpY = unitX * lineOffset
+
+      const startTipX = startBase.x + perpX
+      const startTipY = startBase.y + perpY
+      const endTipX = endBase.x + perpX
+      const endTipY = endBase.y + perpY
 
       const style = CONNECTION_STYLES[conn.connection_type as ConnectionStyleType] || CONNECTION_STYLES.influenced
       const isHighlighted = hoveredNode === conn.from_thinker_id || hoveredNode === conn.to_thinker_id
+      const strokeColor = isHighlighted ? style.highlightColor : style.color
+      const arrowSize = isHighlighted ? 8 : 7
+      const arrowGap = arrowSize + 1.25
+      const startGap = conn.bidirectional ? arrowGap : 0
 
-      ctx.strokeStyle = isHighlighted ? style.highlightColor : style.color
-      ctx.lineWidth = isHighlighted ? 2.5 : 1.5
+      const lineStartX = startTipX + unitX * startGap
+      const lineStartY = startTipY + unitY * startGap
+      const lineEndX = endTipX - unitX * arrowGap
+      const lineEndY = endTipY - unitY * arrowGap
+      const angle = Math.atan2(endTipY - startTipY, endTipX - startTipX)
+
+      ctx.strokeStyle = strokeColor
+      ctx.lineWidth = isHighlighted ? 2.3 : 1.5
       ctx.setLineDash(style.dashPattern)
-      ctx.globalAlpha = isHighlighted ? 1 : 0.5
+      ctx.globalAlpha = isHighlighted ? 1 : 0.62
 
-      // Calculate start and end points at rectangle edges
-      // Use half-width and half-height based on node dimensions
-      const fromHalfWidth = 40  // Approximate half-width of label
-      const fromHalfHeight = 11
-      const toHalfWidth = 40
-      const toHalfHeight = 11
-
-      // Find intersection with rectangle edge
-      const getEdgePoint = (cx: number, cy: number, tx: number, ty: number, hw: number, hh: number) => {
-        const vx = tx - cx
-        const vy = ty - cy
-        const scale = Math.min(hw / Math.abs(vx || 0.01), hh / Math.abs(vy || 0.01))
-        return { x: cx + vx * scale, y: cy + vy * scale }
+      if (Math.hypot(lineEndX - lineStartX, lineEndY - lineStartY) > 2) {
+        ctx.beginPath()
+        ctx.moveTo(lineStartX, lineStartY)
+        ctx.lineTo(lineEndX, lineEndY)
+        ctx.stroke()
       }
 
-      const fromEdge = getEdgePoint(fromPos.x, fromPos.y, toPos.x, toPos.y, fromHalfWidth, fromHalfHeight)
-      const toEdge = getEdgePoint(toPos.x, toPos.y, fromPos.x, fromPos.y, toHalfWidth, toHalfHeight)
-
-      const adjustedFromX = fromEdge.x + perpX
-      const adjustedFromY = fromEdge.y + perpY
-      const adjustedToX = toEdge.x + perpX
-      const adjustedToY = toEdge.y + perpY
-
-      ctx.beginPath()
-      ctx.moveTo(adjustedFromX, adjustedFromY)
-      ctx.lineTo(adjustedToX, adjustedToY)
-      ctx.stroke()
-
-      // Arrow - draw at the line end (already at circle edge)
       ctx.setLineDash([])
-      ctx.globalAlpha = isHighlighted ? 1 : 0.7
-      const angle = Math.atan2(adjustedToY - adjustedFromY, adjustedToX - adjustedFromX)
-      const arrowSize = 8
-      ctx.beginPath()
-      ctx.moveTo(adjustedToX, adjustedToY)
-      ctx.lineTo(
-        adjustedToX - arrowSize * Math.cos(angle - Math.PI / 7),
-        adjustedToY - arrowSize * Math.sin(angle - Math.PI / 7)
-      )
-      ctx.lineTo(
-        adjustedToX - arrowSize * Math.cos(angle + Math.PI / 7),
-        adjustedToY - arrowSize * Math.sin(angle + Math.PI / 7)
-      )
-      ctx.closePath()
-      ctx.fillStyle = isHighlighted ? style.highlightColor : style.color
-      ctx.fill()
+      ctx.globalAlpha = isHighlighted ? 1 : 0.88
+      drawArrowhead(ctx, endTipX, endTipY, angle, arrowSize, strokeColor)
+      if (conn.bidirectional) {
+        drawArrowhead(ctx, startTipX, startTipY, angle + Math.PI, arrowSize, strokeColor)
+      }
     })
 
     ctx.globalAlpha = 1
     ctx.setLineDash([])
 
-    // Draw nodes as labeled rectangles (names are the nodes)
-    nodes.forEach((node) => {
+    const sortedNodes = [...nodes].sort((a, b) => {
+      if (a.isCenter && !b.isCenter) return 1
+      if (!a.isCenter && b.isCenter) return -1
+      return a.name.localeCompare(b.name)
+    })
+
+    const hitAreas: NodeHitArea[] = []
+    sortedNodes.forEach((node) => {
       const isHovered = hoveredNode === node.id
+      const visual = nodeVisualMap.get(node.id)
+      if (!visual) return
 
-      // Set font and measure text
-      ctx.font = node.isCenter ? 'bold 13px "Crimson Text", serif' : '12px "Crimson Text", serif'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
+      const boxX = node.x - visual.width / 2
+      const boxY = node.y - visual.height / 2
 
-      // Truncate long names
-      const maxLabelWidth = 100
-      let displayName = node.name
-      if (ctx.measureText(displayName).width > maxLabelWidth) {
-        while (ctx.measureText(displayName + '...').width > maxLabelWidth && displayName.length > 3) {
-          displayName = displayName.slice(0, -1)
-        }
-        displayName += '...'
-      }
-
-      const textWidth = ctx.measureText(displayName).width
-      const padding = 8
-      const bgWidth = textWidth + padding * 2
-      const bgHeight = 22
-
-      // Draw background rectangle
+      drawRoundedRect(ctx, boxX, boxY, visual.width, visual.height, 8)
       if (node.isCenter) {
         ctx.fillStyle = '#8B4513'
-        ctx.strokeStyle = '#6B3410'
-        ctx.lineWidth = 2
+        ctx.strokeStyle = '#65320F'
+        ctx.lineWidth = 1.8
       } else if (isHovered) {
         ctx.fillStyle = '#FEF3C7'
         ctx.strokeStyle = '#D97706'
-        ctx.lineWidth = 2
+        ctx.lineWidth = 1.7
       } else {
         ctx.fillStyle = '#FFFFFF'
-        ctx.strokeStyle = '#CCCCCC'
-        ctx.lineWidth = 1
+        ctx.strokeStyle = '#CBCBCB'
+        ctx.lineWidth = 1.1
       }
+      ctx.fill()
+      ctx.stroke()
 
-      ctx.fillRect(node.x - bgWidth / 2, node.y - bgHeight / 2, bgWidth, bgHeight)
-      ctx.strokeRect(node.x - bgWidth / 2, node.y - bgHeight / 2, bgWidth, bgHeight)
+      ctx.font = visual.font
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = node.isCenter ? '#5B2C0F' : '#222222'
+      ctx.fillText(visual.label, node.x, node.y)
 
-      // Draw text
-      ctx.fillStyle = node.isCenter ? '#FFFFFF' : '#1A1A1A'
-      ctx.fillText(displayName, node.x, node.y)
+      hitAreas.push({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        halfWidth: visual.width / 2,
+        halfHeight: visual.height / 2,
+      })
     })
-  }, [isOpen, centerThinker, networkConnections, nodes, hoveredNode, canvasSize])
+    nodeHitAreasRef.current = hitAreas
+  }, [isOpen, centerThinker, nodes, networkConnections, hoveredNode, canvasSize, mapGeometry])
 
-  // Handle mouse interactions
+  const findNodeAtPoint = useCallback((x: number, y: number): string | null => {
+    const areas = nodeHitAreasRef.current
+    for (let i = areas.length - 1; i >= 0; i--) {
+      const area = areas[i]
+      if (
+        x >= area.x - area.halfWidth - 4 &&
+        x <= area.x + area.halfWidth + 4 &&
+        y >= area.y - area.halfHeight - 4 &&
+        y <= area.y + area.halfHeight + 4
+      ) {
+        return area.id
+      }
+    }
+    return null
+  }, [])
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -545,20 +522,10 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+    const hitId = findNodeAtPoint(x, y)
 
-    let foundNode: string | null = null
-    for (const node of nodes) {
-      // Check if point is inside rectangle (with padding for easier clicking)
-      const halfWidth = 50  // Approximate half-width including padding
-      const halfHeight = 15
-      if (Math.abs(x - node.x) <= halfWidth && Math.abs(y - node.y) <= halfHeight) {
-        foundNode = node.id
-        break
-      }
-    }
-
-    setHoveredNode(foundNode)
-    canvas.style.cursor = foundNode && foundNode !== centerThinker ? 'pointer' : 'default'
+    setHoveredNode(hitId)
+    canvas.style.cursor = hitId && hitId !== centerThinker ? 'pointer' : 'default'
   }
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -568,24 +535,30 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
+    const hitId = findNodeAtPoint(x, y)
 
-    for (const node of nodes) {
-      // Check if point is inside rectangle (with padding for easier clicking)
-      const halfWidth = 50  // Approximate half-width including padding
-      const halfHeight = 15
-      if (Math.abs(x - node.x) <= halfWidth && Math.abs(y - node.y) <= halfHeight && node.id !== centerThinker) {
-        setCenterThinker(node.id)
-        break
-      }
+    if (hitId && hitId !== centerThinker) {
+      setCenterThinker(hitId)
     }
   }
+
+  const toggleConnectionType = useCallback((type: ConnectionStyleType) => {
+    setVisibleConnectionTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) {
+        if (next.size > 1) next.delete(type)
+      } else {
+        next.add(type)
+      }
+      return next
+    })
+  }, [])
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="px-4 py-3 border-b border-timeline flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
@@ -593,9 +566,9 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
               {centeredThinkerData && (
                 <p className="text-sm text-secondary">
                   Full network centered on <span className="font-medium text-accent">{centeredThinkerData.name}</span>
-                  {connectedThinkers.length > 0 && (
+                  {networkThinkers.length > 0 && (
                     <span className="ml-2 text-gray-400">
-                      ({connectedThinkers.length} thinkers, {networkConnections.length} connections)
+                      ({networkThinkers.length} thinkers, {networkConnections.length} connections)
                     </span>
                   )}
                 </p>
@@ -622,8 +595,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
             </div>
           </div>
 
-          {/* Controls: Depth slider */}
-          {centerThinker && connectedThinkers.length > 0 && (
+          {centerThinker && networkThinkers.length > 0 && (
             <div className="mt-3 flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-600 whitespace-nowrap">Depth:</label>
@@ -648,13 +620,12 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
           )}
         </div>
 
-        {/* Canvas */}
         <div className="flex-1 relative min-h-0">
           {!centerThinker ? (
             <div className="flex items-center justify-center h-full text-secondary">
               <p>Select a thinker to view their connections</p>
             </div>
-          ) : connectedThinkers.length === 0 ? (
+          ) : networkThinkers.length === 0 ? (
             <div className="flex items-center justify-center h-full text-secondary">
               <div className="text-center">
                 <p className="text-lg mb-2">{centeredThinkerData?.name}</p>
@@ -662,16 +633,17 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
               </div>
             </div>
           ) : (
-            <canvas
-              ref={canvasRef}
-              className="w-full h-full"
-              onMouseMove={handleMouseMove}
-              onClick={handleClick}
-            />
+            <div ref={viewportRef} className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+              <canvas
+                ref={canvasRef}
+                className="block rounded"
+                onMouseMove={handleMouseMove}
+                onClick={handleClick}
+              />
+            </div>
           )}
         </div>
 
-        {/* Legend with connection type filters */}
         <div className="px-4 py-2 border-t border-timeline bg-gray-50 flex-shrink-0">
           <div className="flex flex-wrap gap-4 justify-center text-xs">
             {Object.entries(CONNECTION_STYLES).map(([type, style]) => {
@@ -706,7 +678,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
             })}
           </div>
           <p className="text-center text-xs text-gray-400 mt-1">
-            Click connection types to show/hide • Click on a thinker to re-center
+            Click connection types to show/hide • Click a name box to re-center
           </p>
         </div>
       </div>

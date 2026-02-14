@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { primeAuthenticatedSession } from './helpers/auth-helpers'
+
+test.beforeEach(async ({ page }) => {
+  await primeAuthenticatedSession(page)
+})
 
 test.describe('Application E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
@@ -316,10 +321,13 @@ test.describe('Accessibility', () => {
 
   test('should have clickable buttons', async ({ page }) => {
     await page.goto('/')
-    
-    const buttons = page.locator('button')
+
+    // Ensure the authenticated app shell has rendered before counting controls.
+    await expect(page.locator('canvas').first()).toBeVisible()
+
+    const buttons = page.locator('header button')
     const count = await buttons.count()
-    
+
     expect(count).toBeGreaterThan(0)
   })
 

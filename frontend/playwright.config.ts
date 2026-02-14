@@ -1,27 +1,29 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const isCI = !!process.env.CI
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : 4,
+  retries: isCI ? 2 : 0,
+  workers: isCI ? 2 : 4,
   reporter: [
     ['html', { open: 'never' }],
     ['list'],
-    ...(process.env.CI ? [['github' as const]] : []),
+    ...(isCI ? [['github' as const]] : []),
   ],
   timeout: 30000,
   expect: {
     timeout: 5000,
   },
   use: {
-    baseURL: 'http://localhost:3001',
+    baseURL: 'http://localhost:3010',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     // Disable animations for consistent screenshots
-    ...(process.env.CI ? {} : {}),
+    ...(isCI ? {} : {}),
   },
   // Global setup and teardown
   globalSetup: './tests/config/global-setup.ts',
@@ -84,9 +86,11 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3001',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    command: isCI
+      ? `node -e "require('fs').rmSync('.next',{recursive:true,force:true})" && npx next dev --turbo -p 3010`
+      : 'npx next dev --turbo -p 3010',
+    url: 'http://localhost:3010',
+    reuseExistingServer: !isCI,
+    timeout: isCI ? 180000 : 120000,
   },
 })

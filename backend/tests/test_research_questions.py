@@ -120,6 +120,13 @@ class TestResearchQuestionsAPI:
         assert data["status"] == "in_progress"
         assert data["priority"] == 5
 
+    def test_update_research_question_invalid_priority(self, client: TestClient, sample_research_question: dict):
+        """Test update validation for invalid priority."""
+        response = client.put(f"/api/research-questions/{sample_research_question['id']}", json={
+            "priority": 9
+        })
+        assert response.status_code == 422
+
     def test_update_research_question_not_found(self, client: TestClient):
         """Test updating non-existent question returns 404."""
         fake_id = "00000000-0000-0000-0000-000000000000"
