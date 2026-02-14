@@ -89,3 +89,33 @@ def test_enrich_thinker_years_disabled_in_strict_grounding_mode(monkeypatch):
     assert by_name["rene descartes"]["fields"]["death_year"] is None
     assert enriched["summary"]["thinker_year_enrichment"]["disabled_reason"] == "strict_grounding_mode"
     assert any("strict grounding mode" in warning.lower() for warning in enriched["warnings"])
+
+
+def test_extract_enrichment_map_parses_reasoning_prefixed_json():
+    raw = (
+        "I will reason briefly first.\n"
+        'Final JSON: {"thinkers":[{"name":"Rene Descartes","birth_year":1596,"death_year":1650,"confidence":0.94}]}\n'
+    )
+    parsed = enrichment._extract_enrichment_map(raw)
+    assert parsed["rene descartes"]["birth_year"] == 1596
+    assert parsed["rene descartes"]["death_year"] == 1650
+
+
+def test_run_enrichment_query_falls_back_to_chat_model(monkeypatch):
+    monkeypatch.setattr(enrichment, "ENRICH_MODEL", "deepseek-reasoner")
+    monkeypatch.setattr(enrichment, "_is_dev_test_environment", lambda: False)
+    monkeypatch.setattr(enrichment, "is_ai_enabled", lambda: True)
+
+    calls = []
+
+    async def _fake_call(messages, temperature, max_tokens, model=None):
+        calls.append(model)
+        if model == "deepseek-reasoner":
+            return "reasoning without json"
+        return '{"thinkers":[{"name":"Rene Descartes","birth_year":1596,"death_year":1650,"confidence":0.99}]}'
+
+    monkeypatch.setattr(enrichment, "_call_deepseek_api", _fake_call)
+
+    result = enrichment._run_enrichment_query(["Rene Descartes"])
+    assert result["rene descartes"]["birth_year"] == 1596
+    assert calls == ["deepseek-reasoner", "deepseek-chat"]

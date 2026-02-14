@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +32,7 @@ ENRICH_MAX_THINKERS = max(1, int(os.getenv("TIMELINE_BOOTSTRAP_ENRICH_MAX_THINKE
 ENRICH_MIN_CONFIDENCE = float(os.getenv("TIMELINE_BOOTSTRAP_ENRICH_MIN_CONFIDENCE", "0.78"))
 ENRICH_MIN_YEAR = int(os.getenv("TIMELINE_BOOTSTRAP_ENRICH_MIN_YEAR", "-3000"))
 ENRICH_MAX_YEAR = int(os.getenv("TIMELINE_BOOTSTRAP_ENRICH_MAX_YEAR", str(datetime.utcnow().year + 5)))
+ENRICH_MODEL = (os.getenv("TIMELINE_BOOTSTRAP_ENRICH_MODEL") or "").strip()
 
 
 def _strip_markdown_fence(raw: str) -> str:
@@ -80,9 +82,8 @@ def _extract_enrichment_map(raw: str) -> Dict[str, Dict[str, Any]]:
     if not raw:
         return {}
 
-    try:
-        payload = json.loads(_strip_markdown_fence(raw))
-    except Exception:
+    payload = _extract_json_payload(raw)
+    if not isinstance(payload, dict):
         return {}
 
     thinkers = payload.get("thinkers", []) if isinstance(payload, dict) else []
@@ -116,6 +117,46 @@ def _extract_enrichment_map(raw: str) -> Dict[str, Dict[str, Any]]:
         }
 
     return results
+
+
+def _extract_json_payload(raw: str) -> Optional[Dict[str, Any]]:
+    cleaned = _strip_markdown_fence(raw)
+    if not cleaned:
+        return None
+
+    # Fast path: response is already valid JSON.
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    # Parse any fenced JSON blocks.
+    for block in re.findall(r"```json\s*(.*?)\s*```", raw or "", flags=re.IGNORECASE | re.DOTALL):
+        try:
+            parsed = json.loads(block.strip())
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+
+    # Recover JSON object embedded in mixed reasoning/content output.
+    decoder = json.JSONDecoder()
+    start = 0
+    while True:
+        brace_index = cleaned.find("{", start)
+        if brace_index < 0:
+            break
+        try:
+            parsed, _ = decoder.raw_decode(cleaned[brace_index:])
+            if isinstance(parsed, dict) and isinstance(parsed.get("thinkers"), list):
+                return parsed
+        except Exception:
+            pass
+        start = brace_index + 1
+
+    return None
 
 
 def _build_enrichment_prompt(names: List[str]) -> List[Dict[str, str]]:
@@ -156,14 +197,33 @@ def _run_enrichment_query(names: List[str]) -> Dict[str, Dict[str, Any]]:
     except RuntimeError:
         pass
 
-    try:
-        raw = asyncio.run(_call_deepseek_api(messages=messages, temperature=0.0, max_tokens=900))
-    except AIServiceError:
-        return {}
-    except Exception:
-        return {}
+    preferred_model = ENRICH_MODEL or None
 
-    return _extract_enrichment_map(raw or "")
+    def _query(model: Optional[str]) -> Dict[str, Dict[str, Any]]:
+        try:
+            raw = asyncio.run(
+                _call_deepseek_api(
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=900,
+                    model=model,
+                )
+            )
+        except AIServiceError:
+            return {}
+        except Exception:
+            return {}
+        return _extract_enrichment_map(raw or "")
+
+    result = _query(preferred_model)
+    if result:
+        return result
+
+    # If preferred model is reasoner (or custom) and parse failed, fall back to chat.
+    if preferred_model and preferred_model != "deepseek-chat":
+        return _query("deepseek-chat")
+
+    return {}
 
 
 def enrich_thinker_years(graph: Dict[str, Any]) -> Dict[str, Any]:

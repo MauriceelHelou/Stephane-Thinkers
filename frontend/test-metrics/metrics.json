@@ -1,0 +1,69 @@
+{
+  "totalTests": 48,
+  "passed": 48,
+  "failed": 0,
+  "skipped": 0,
+  "flaky": 0,
+  "duration": 33395,
+  "slowestTests": [
+    {
+      "title": "should fetch connections on load",
+      "duration": 11104,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should fetch thinkers on load",
+      "duration": 10728,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should fetch timelines on load",
+      "duration": 10700,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should work on mobile viewport",
+      "duration": 2857,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should handle API errors gracefully",
+      "duration": 1197,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should show keyboard shortcuts help with ? key",
+      "duration": 1155,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/timeline.spec.ts"
+    },
+    {
+      "title": "should show new timeline modal with N key",
+      "duration": 1103,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/timeline.spec.ts"
+    },
+    {
+      "title": "should load the main page",
+      "duration": 1065,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    },
+    {
+      "title": "should have zoom controls",
+      "duration": 1003,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/timeline.spec.ts"
+    },
+    {
+      "title": "should show AI status tab",
+      "duration": 959,
+      "file": "/Users/mauriceelhelou/Projects/Stephane-Thinkers/frontend/tests/app.spec.ts"
+    }
+  ],
+  "failedTests": [],
+  "categories": {
+    "other": {
+      "total": 48,
+      "passed": 48,
+      "failed": 0,
+      "duration": 65065
+    }
+  }
+}

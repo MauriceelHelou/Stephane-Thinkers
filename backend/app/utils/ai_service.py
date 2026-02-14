@@ -138,7 +138,12 @@ def estimate_token_count(text: str) -> int:
     return max(1, int(len(text) / 4))
 
 
-def build_ai_telemetry(messages: List[Dict[str, str]], response_text: Optional[str], elapsed_ms: int) -> Dict[str, Any]:
+def build_ai_telemetry(
+    messages: List[Dict[str, str]],
+    response_text: Optional[str],
+    elapsed_ms: int,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     prompt_chars = sum(len((msg or {}).get("content", "")) for msg in messages)
     completion_chars = len(response_text or "")
     return {
@@ -147,7 +152,7 @@ def build_ai_telemetry(messages: List[Dict[str, str]], response_text: Optional[s
         "completion_tokens_estimate": estimate_token_count(response_text or ""),
         "prompt_chars": prompt_chars,
         "completion_chars": completion_chars,
-        "model": DEEPSEEK_MODEL,
+        "model": model or DEEPSEEK_MODEL,
     }
 
 
@@ -180,9 +185,9 @@ def _cache_key(payload_hash: str) -> str:
     return f"ai:cache:{payload_hash}"
 
 
-def _cache_payload_hash(messages: List[Dict[str, str]], temperature: float, max_tokens: int) -> str:
+def _cache_payload_hash(messages: List[Dict[str, str]], temperature: float, max_tokens: int, model: str) -> str:
     payload = {
-        "model": DEEPSEEK_MODEL,
+        "model": model,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "messages": messages,
@@ -303,14 +308,21 @@ async def _call_deepseek_api(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
     max_tokens: int = 1000,
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """Call the DeepSeek API for text generation."""
     if not is_ai_enabled():
         raise AIServiceError("AI features not enabled", "DEEPSEEK_API_KEY environment variable is not set")
 
     try:
+        resolved_model = (model or DEEPSEEK_MODEL or "deepseek-chat").strip()
         capped_max_tokens = _enforce_cost_controls(messages=messages, requested_max_tokens=max_tokens)
-        payload_hash = _cache_payload_hash(messages=messages, temperature=temperature, max_tokens=capped_max_tokens)
+        payload_hash = _cache_payload_hash(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=capped_max_tokens,
+            model=resolved_model,
+        )
         cached_response = _get_cached_response(payload_hash)
         if cached_response is not None:
             return cached_response
@@ -324,7 +336,7 @@ async def _call_deepseek_api(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": DEEPSEEK_MODEL,
+                    "model": resolved_model,
                     "messages": messages,
                     "temperature": temperature,
                     "max_tokens": capped_max_tokens,
@@ -342,6 +354,7 @@ async def _call_deepseek_api(
                 messages=messages,
                 response_text=content,
                 elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+                model=resolved_model,
             )
             print(f"AI_TELEMETRY: {json.dumps(telemetry, sort_keys=True)}")
             return content

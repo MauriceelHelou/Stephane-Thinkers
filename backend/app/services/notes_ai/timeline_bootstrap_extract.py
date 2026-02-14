@@ -63,6 +63,27 @@ STOP_NAMES = {
     "Chapter", "Section", "Part", "University", "Journal", "Philosophy", "History",
 }
 
+NON_PERSON_SINGLE_TOKENS = {
+    "stoic",
+    "stoics",
+    "epicurean",
+    "epicureans",
+    "christian",
+    "christians",
+    "greek",
+    "greeks",
+    "roman",
+    "romans",
+    "marxism",
+    "aristotelian",
+    "platonist",
+    "platonic",
+    "academy",
+    "lyceum",
+    "neoplatonic",
+}
+NON_PERSON_SUFFIXES = ("ism", "ist", "ists", "ian", "ians", "ology", "ologies")
+
 RELATION_VERB_TO_TYPE = {
     "influenced": "influenced",
     "inspired": "influenced",
@@ -205,6 +226,11 @@ def _looks_like_name(value: str) -> bool:
         if token.title() in STOP_NAMES:
             return False
         if len(token) < 3:
+            return False
+        lowered_token = re.sub(r"[^a-z0-9]", "", token.lower())
+        if lowered_token in NON_PERSON_SINGLE_TOKENS:
+            return False
+        if any(lowered_token.endswith(suffix) for suffix in NON_PERSON_SUFFIXES):
             return False
     return True
 
@@ -463,23 +489,23 @@ def _heuristic_extract(chunk: TextChunk) -> Dict[str, Any]:
     # Thinkers
     thinker_matches = list(re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b", text))
     seen_thinkers = set()
-    for match in thinker_matches:
-        name = match.group(1).strip()
-        if name in STOP_NAMES:
-            continue
-        if len(name.split()) < 2:
-            continue
+
+    def _push_thinker(
+        name: str,
+        start: int,
+        end: int,
+        *,
+        confidence: float = 0.58,
+        birth_year: Optional[int] = None,
+        death_year: Optional[int] = None,
+    ) -> None:
+        name = str(name or "").strip()
+        if not _looks_like_name(name):
+            return
         lowered = name.lower()
         if lowered in seen_thinkers:
-            continue
+            return
         seen_thinkers.add(lowered)
-
-        context_start = max(0, match.start() - 80)
-        context_end = min(len(text), match.end() + 80)
-        context = text[context_start:context_end]
-        years_match = re.search(r"(\d{3,4})\s*[\-–]\s*(\d{3,4})", context)
-        birth_year = _safe_int(years_match.group(1)) if years_match else None
-        death_year = _safe_int(years_match.group(2)) if years_match else None
 
         output["thinkers"].append(
             {
@@ -489,21 +515,59 @@ def _heuristic_extract(chunk: TextChunk) -> Dict[str, Any]:
                 "field": None,
                 "active_period": None,
                 "biography_notes": None,
-                "confidence": 0.58,
-                "evidence": [_build_evidence(chunk, match.start(), match.end())],
+                "confidence": confidence,
+                "evidence": [_build_evidence(chunk, start, end)],
             }
+        )
+
+    for match in thinker_matches:
+        name = match.group(1).strip()
+        if name in STOP_NAMES:
+            continue
+        if len(name.split()) < 2:
+            continue
+
+        context_start = max(0, match.start() - 80)
+        context_end = min(len(text), match.end() + 80)
+        context = text[context_start:context_end]
+        years_match = re.search(r"(\d{3,4})\s*[\-–]\s*(\d{3,4})", context)
+        birth_year = _safe_int(years_match.group(1)) if years_match else None
+        death_year = _safe_int(years_match.group(2)) if years_match else None
+
+        _push_thinker(
+            name,
+            match.start(),
+            match.end(),
+            confidence=0.58,
+            birth_year=birth_year,
+            death_year=death_year,
         )
 
     # Connections
     seen_connections: Set[Tuple[str, str, str]] = set()
 
-    def _push_connection(from_name: str, to_name: str, verb: str, start: int, end: int, confidence: float) -> None:
+    def _push_connection(
+        from_name: str,
+        to_name: str,
+        verb: str,
+        start: int,
+        end: int,
+        confidence: float,
+        *,
+        from_span: Optional[Tuple[int, int]] = None,
+        to_span: Optional[Tuple[int, int]] = None,
+    ) -> None:
         from_name = str(from_name or "").strip()
         to_name = str(to_name or "").strip()
         if not _looks_like_name(from_name) or not _looks_like_name(to_name):
             return
         if from_name.lower() == to_name.lower():
             return
+
+        if from_span is not None:
+            _push_thinker(from_name, from_span[0], from_span[1], confidence=0.54)
+        if to_span is not None:
+            _push_thinker(to_name, to_span[0], to_span[1], confidence=0.54)
 
         connection_type = _normalize_relation_verb(verb)
         key = (from_name.lower(), to_name.lower(), connection_type)
@@ -530,6 +594,8 @@ def _heuristic_extract(chunk: TextChunk) -> Dict[str, Any]:
             match.start(),
             match.end(),
             confidence=0.66,
+            from_span=(match.start("from"), match.end("from")),
+            to_span=(match.start("to"), match.end("to")),
         )
 
     for match in RELATION_WITH_PATTERN.finditer(text):
@@ -540,6 +606,8 @@ def _heuristic_extract(chunk: TextChunk) -> Dict[str, Any]:
             match.start(),
             match.end(),
             confidence=0.62,
+            from_span=(match.start("from"), match.end("from")),
+            to_span=(match.start("to"), match.end("to")),
         )
 
     # Sentence-level event/publication extraction

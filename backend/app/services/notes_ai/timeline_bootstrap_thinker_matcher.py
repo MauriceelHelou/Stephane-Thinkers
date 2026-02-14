@@ -1,9 +1,16 @@
+import os
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.models.thinker import Thinker
+
+AUTOPOPULATE_CANONICAL_FIELDS = (
+    os.getenv("TIMELINE_BOOTSTRAP_AUTOFILL_MATCHED_METADATA", "true").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+AUTOPOPULATE_MIN_SCORE = float(os.getenv("TIMELINE_BOOTSTRAP_AUTOFILL_MATCHED_METADATA_MIN_SCORE", "0.9"))
 
 
 def _normalize_name(name: str) -> str:
@@ -73,6 +80,19 @@ def _build_metadata_delta(candidate_fields: Dict[str, Any], thinker: Thinker) ->
     return delta
 
 
+def _autofill_from_canonical(candidate_fields: Dict[str, Any], thinker: Thinker) -> Dict[str, Any]:
+    autofilled: Dict[str, Any] = {}
+    for field_name in ["birth_year", "death_year", "active_period", "field", "biography_notes"]:
+        if candidate_fields.get(field_name) is not None:
+            continue
+        canonical_value = getattr(thinker, field_name)
+        if canonical_value is None:
+            continue
+        candidate_fields[field_name] = canonical_value
+        autofilled[field_name] = canonical_value
+    return autofilled
+
+
 def apply_thinker_matching(db: Session, graph: Dict[str, Any]) -> Dict[str, Any]:
     thinkers = graph.get("thinkers", []) or []
     if not thinkers:
@@ -132,7 +152,19 @@ def apply_thinker_matching(db: Session, graph: Dict[str, Any]) -> Dict[str, Any]
         candidate["matched_thinker_id"] = str(best.id)
         candidate["match_score"] = best_score
         candidate["match_reasons"] = reasons
-        candidate["metadata_delta"] = _build_metadata_delta(fields, best)
+        metadata_delta = _build_metadata_delta(fields, best)
+
+        can_autofill = best_score >= AUTOPOPULATE_MIN_SCORE or (
+            len(exact_name_matches) == 1 and exact_name_matches[0].id == best.id
+        )
+        if AUTOPOPULATE_CANONICAL_FIELDS and can_autofill:
+            autofilled = _autofill_from_canonical(fields, best)
+            if autofilled:
+                metadata_delta["autofilled_from_canonical"] = autofilled
+                candidate["match_reasons"] = list(candidate["match_reasons"]) + ["autofilled canonical metadata"]
+                candidate["fields"] = fields
+
+        candidate["metadata_delta"] = metadata_delta
 
     graph["thinkers"] = thinkers
     return graph

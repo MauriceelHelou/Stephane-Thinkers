@@ -205,3 +205,37 @@ def test_extract_chunk_entities_drops_event_without_name_grounding(monkeypatch):
         for row in payload.get("events", [])
     )
     assert any("Dropped 1 ungrounded events candidate" in warning for warning in payload.get("warnings", []))
+
+
+def test_heuristic_extract_promotes_relation_endpoints_to_thinkers():
+    chunk = TextChunk(
+        index=0,
+        text="Epicurus critiqued Zeno in letters.",
+        char_start=0,
+        char_end=34,
+        token_estimate=10,
+        paragraphs=[],
+    )
+
+    payload = extract._heuristic_extract(chunk)
+    thinker_names = {row.get("name") for row in payload.get("thinkers", [])}
+    assert "Epicurus" in thinker_names
+    assert "Zeno" in thinker_names
+    assert any(
+        row.get("from_name") == "Epicurus" and row.get("to_name") == "Zeno"
+        for row in payload.get("connections", [])
+    )
+
+
+def test_heuristic_extract_filters_non_person_relation_endpoints():
+    chunk = TextChunk(
+        index=0,
+        text="Epicurus critiqued Stoic austerity.",
+        char_start=0,
+        char_end=34,
+        token_estimate=10,
+        paragraphs=[],
+    )
+
+    payload = extract._heuristic_extract(chunk)
+    assert payload.get("connections", []) == []

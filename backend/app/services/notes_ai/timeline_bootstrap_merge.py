@@ -53,6 +53,18 @@ def _default_include(confidence: float) -> bool:
     return confidence >= 0.45
 
 
+def _dedupe_warnings(values: Iterable[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for value in values:
+        warning = str(value or "").strip()
+        if not warning or warning in seen:
+            continue
+        seen.add(warning)
+        deduped.append(warning)
+    return deduped
+
+
 def _coerce_year(value: Any) -> Optional[int]:
     if value is None:
         return None
@@ -631,6 +643,6 @@ def merge_extraction_outputs(
         "connections": connections,
         "publications": publications,
         "quotes": quotes,
-        "warnings": warnings,
+        "warnings": _dedupe_warnings(warnings),
     }
     return graph

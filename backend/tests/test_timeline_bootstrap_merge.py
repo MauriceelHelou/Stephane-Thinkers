@@ -184,3 +184,11 @@ def test_merge_coerces_string_years_without_sort_crash():
     assert graph["events"][0]["fields"]["year"] == 1637
     assert graph["publications"][0]["fields"]["year"] == 1637
     assert graph["quotes"][0]["fields"]["year"] == 1637
+
+
+def test_merge_dedupes_repeated_warnings():
+    output = _base_output()
+    output["warnings"] = ["Repeated warning", "Repeated warning"]
+
+    graph = merge_extraction_outputs([output], timeline_name_hint="Test")
+    assert graph["warnings"] == ["Repeated warning"]
