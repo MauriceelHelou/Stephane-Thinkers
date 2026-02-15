@@ -9,6 +9,13 @@ from app.utils.ai_service import AIServiceError, _call_deepseek_api, estimate_to
 
 MAX_EXCERPT_LEN = 280
 TEST_ENV = os.getenv("ENVIRONMENT", "development") == "test"
+COMPONENT_PROMPTS_ENABLED = os.getenv("TIMELINE_BOOTSTRAP_COMPONENT_PROMPTS", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+COMPONENT_PASS_ORDER = ["thinkers", "connections", "events", "publications", "quotes"]
 
 CONNECTION_TYPE_ALIASES = {
     "influenced": "influenced",
@@ -152,6 +159,43 @@ def _strip_markdown_fence(raw: str) -> str:
     if cleaned.endswith("```"):
         cleaned = cleaned[:-3]
     return cleaned.strip()
+
+
+def _extract_json_payload(raw: str) -> Optional[Dict[str, Any]]:
+    cleaned = _strip_markdown_fence(raw)
+    if not cleaned:
+        return None
+
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    for block in re.findall(r"```json\s*(.*?)\s*```", raw or "", flags=re.IGNORECASE | re.DOTALL):
+        try:
+            parsed = json.loads(block.strip())
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+
+    decoder = json.JSONDecoder()
+    start = 0
+    while True:
+        brace_index = cleaned.find("{", start)
+        if brace_index < 0:
+            break
+        try:
+            parsed, _ = decoder.raw_decode(cleaned[brace_index:])
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        start = brace_index + 1
+
+    return None
 
 
 def _safe_int(value: Any) -> Optional[int]:
@@ -344,6 +388,8 @@ def _ground_candidate(
         to_name = str(item.get("to_name", "")).strip()
         connection_type = _normalize_connection_type(item.get("connection_type"))
         item["connection_type"] = connection_type
+        if not _looks_like_name(from_name) or not _looks_like_name(to_name):
+            return None
         if not from_name or not to_name or from_name.lower() == to_name.lower():
             return None
         if not _contains_phrase(chunk.text, from_name) or not _contains_phrase(chunk.text, to_name):
@@ -688,15 +734,184 @@ def _heuristic_extract(chunk: TextChunk) -> Dict[str, Any]:
     return output
 
 
-def _llm_extract(
+def _ensure_payload_keys(payload: Dict[str, Any]) -> Dict[str, Any]:
+    for key in ["thinkers", "events", "connections", "publications", "quotes", "warnings"]:
+        if key not in payload:
+            payload[key] = [] if key != "warnings" else []
+    return payload
+
+
+def _call_llm_with_messages(
+    messages: List[Dict[str, str]],
+    *,
+    max_tokens: int,
+    temperature: float = 0.1,
+) -> Optional[Dict[str, Any]]:
+    try:
+        asyncio.get_running_loop()
+        return None
+    except RuntimeError:
+        pass
+
+    try:
+        raw = asyncio.run(_call_deepseek_api(messages=messages, temperature=temperature, max_tokens=max_tokens))
+    except AIServiceError:
+        return None
+    except Exception:
+        return None
+
+    if not raw:
+        return None
+
+    parsed = _extract_json_payload(raw)
+    if not isinstance(parsed, dict):
+        return None
+
+    return _ensure_payload_keys(parsed)
+
+
+def _merge_llm_payloads(payloads: List[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = _empty_payload()
+    for payload in payloads:
+        for key in ["thinkers", "events", "connections", "publications", "quotes"]:
+            for item in payload.get(key, []) or []:
+                if isinstance(item, dict):
+                    merged[key].append(item)
+        merged["warnings"].extend([str(item) for item in (payload.get("warnings") or []) if str(item).strip()])
+    return merged
+
+
+def _component_completion_tokens(component: str, total_completion_tokens: int) -> int:
+    if total_completion_tokens >= 2400:
+        defaults = {
+            "thinkers": 700,
+            "connections": 1000,
+            "events": 650,
+            "publications": 650,
+            "quotes": 650,
+        }
+    else:
+        defaults = {
+            "thinkers": 520,
+            "connections": 820,
+            "events": 500,
+            "publications": 500,
+            "quotes": 500,
+        }
+    return int(defaults.get(component, max(400, total_completion_tokens // 4)))
+
+
+def _build_component_messages(
+    chunk: TextChunk,
+    *,
+    component: str,
+    scope_label: str,
+    known_thinker_names: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    common_rules = (
+        "Ground every candidate in this source text only.\n"
+        "If explicit evidence excerpt and char span cannot be provided, omit the candidate.\n"
+        "Return strict JSON only with keys: thinkers, events, connections, publications, quotes, warnings."
+    )
+
+    if component == "thinkers":
+        instructions = (
+            "Extract only thinker candidates.\n"
+            "Include thinker names only when they refer to people, not schools/movements/institutions.\n"
+            "Keep uncertain birth/death years as null."
+        )
+    elif component == "connections":
+        thinker_hint_text = ""
+        if known_thinker_names:
+            thinker_hint_text = (
+                "\nKnown thinker names (prefer these when endpoints are ambiguous):\n"
+                + json.dumps(known_thinker_names[:60], ensure_ascii=False)
+            )
+        instructions = (
+            "Extract only thinker-to-thinker connections.\n"
+            "Keep distinct relation types as separate candidates.\n"
+            "Use only connection_type in influenced|critiqued|built_upon|synthesized.\n"
+            "Do not emit endpoint names that are schools, movements, demonyms, or institutions.\n"
+            "Do not infer implicit links; keep explicit relation claims only."
+            + thinker_hint_text
+        )
+    elif component == "events":
+        instructions = (
+            "Extract only events.\n"
+            "Prefer events with explicit years; if year is missing set year to null."
+        )
+    elif component == "publications":
+        instructions = (
+            "Extract only publications.\n"
+            "Require publication title text to appear in source."
+        )
+    else:  # quotes
+        instructions = (
+            "Extract only direct quotes.\n"
+            "Prefer quotes with explicit thinker attribution; avoid unattributed paraphrases."
+        )
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are an information extraction engine for timeline ingestion. "
+                "Never hallucinate. Output valid JSON only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"{common_rules}\n\n"
+                f"Target component: {component}\n"
+                f"{instructions}\n\n"
+                f"Source {scope_label}:\n{chunk.text}\n\n"
+                "Schema hints:\n"
+                "thinkers[]: {name,birth_year,death_year,field,active_period,biography_notes,confidence,evidence:[{char_start,char_end,excerpt}]}\n"
+                "events[]: {name,year,event_type,description,confidence,evidence:[...]}\n"
+                "connections[]: {from_name,to_name,connection_type,name,notes,confidence,evidence:[...]}\n"
+                "publications[]: {thinker_name,title,year,publication_type,citation,notes,confidence,evidence:[...]}\n"
+                "quotes[]: {thinker_name,text,source,year,context_notes,confidence,evidence:[...]}\n"
+                "warnings[]: strings"
+            ),
+        },
+    ]
+
+
+def _llm_extract_component(
+    chunk: TextChunk,
+    *,
+    component: str,
+    scope_label: str,
+    completion_tokens: int,
+    known_thinker_names: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    messages = _build_component_messages(
+        chunk,
+        component=component,
+        scope_label=scope_label,
+        known_thinker_names=known_thinker_names,
+    )
+    parsed = _call_llm_with_messages(
+        messages,
+        max_tokens=_component_completion_tokens(component, completion_tokens),
+        temperature=0.0 if component == "connections" else 0.1,
+    )
+    if parsed is None:
+        return None
+
+    for key in ["thinkers", "events", "connections", "publications", "quotes"]:
+        if key != component:
+            parsed[key] = []
+    return parsed
+
+
+def _llm_extract_single_pass(
     chunk: TextChunk,
     *,
     scope_label: str = "chunk",
     completion_tokens: int = 1800,
 ) -> Optional[Dict[str, Any]]:
-    if TEST_ENV or not is_ai_enabled():
-        return None
-
     messages = [
         {
             "role": "system",
@@ -729,36 +944,84 @@ def _llm_extract(
             ),
         },
     ]
+    return _call_llm_with_messages(messages, max_tokens=completion_tokens, temperature=0.1)
 
-    try:
-        asyncio.get_running_loop()
-        return None
-    except RuntimeError:
-        pass
 
-    try:
-        raw = asyncio.run(_call_deepseek_api(messages=messages, temperature=0.1, max_tokens=completion_tokens))
-    except AIServiceError:
-        return None
-    except Exception:
+def _llm_extract_multi_pass(
+    chunk: TextChunk,
+    *,
+    scope_label: str = "chunk",
+    completion_tokens: int = 1800,
+) -> Optional[Dict[str, Any]]:
+    if not COMPONENT_PROMPTS_ENABLED:
         return None
 
-    if not raw:
+    payloads: List[Dict[str, Any]] = []
+    failed_components: List[str] = []
+
+    thinker_payload = _llm_extract_component(
+        chunk,
+        component="thinkers",
+        scope_label=scope_label,
+        completion_tokens=completion_tokens,
+    )
+    if thinker_payload is not None:
+        payloads.append(thinker_payload)
+    else:
+        failed_components.append("thinkers")
+
+    known_thinker_names = [
+        str(item.get("name", "")).strip()
+        for item in (thinker_payload or {}).get("thinkers", []) or []
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    ]
+
+    for component in [value for value in COMPONENT_PASS_ORDER if value != "thinkers"]:
+        component_payload = _llm_extract_component(
+            chunk,
+            component=component,
+            scope_label=scope_label,
+            completion_tokens=completion_tokens,
+            known_thinker_names=known_thinker_names,
+        )
+        if component_payload is None:
+            failed_components.append(component)
+            continue
+        payloads.append(component_payload)
+
+    if not payloads:
         return None
 
-    try:
-        parsed = json.loads(_strip_markdown_fence(raw))
-    except json.JSONDecodeError:
+    merged = _merge_llm_payloads(payloads)
+    if failed_components:
+        merged["warnings"].append(
+            "Component extraction pass failed for: " + ", ".join(sorted(set(failed_components))) + "."
+        )
+    return merged
+
+
+def _llm_extract(
+    chunk: TextChunk,
+    *,
+    scope_label: str = "chunk",
+    completion_tokens: int = 1800,
+) -> Optional[Dict[str, Any]]:
+    if TEST_ENV or not is_ai_enabled():
         return None
 
-    if not isinstance(parsed, dict):
-        return None
+    payload = _llm_extract_multi_pass(
+        chunk,
+        scope_label=scope_label,
+        completion_tokens=completion_tokens,
+    )
+    if payload is not None:
+        return payload
 
-    for key in ["thinkers", "events", "connections", "publications", "quotes", "warnings"]:
-        if key not in parsed:
-            parsed[key] = [] if key != "warnings" else []
-
-    return parsed
+    return _llm_extract_single_pass(
+        chunk,
+        scope_label=scope_label,
+        completion_tokens=completion_tokens,
+    )
 
 
 def extract_chunk_entities(chunk: TextChunk) -> Dict[str, Any]:
@@ -856,17 +1119,11 @@ def extract_relation_salvage_entities(content: str, thinker_names: List[str]) ->
     if not raw:
         return heuristic_only_relations
 
-    try:
-        parsed = json.loads(_strip_markdown_fence(raw))
-    except json.JSONDecodeError:
-        return heuristic_only_relations
-
+    parsed = _extract_json_payload(raw)
     if not isinstance(parsed, dict):
         return heuristic_only_relations
 
-    for key in ["thinkers", "events", "connections", "publications", "quotes", "warnings"]:
-        if key not in parsed:
-            parsed[key] = [] if key != "warnings" else []
+    parsed = _ensure_payload_keys(parsed)
 
     normalized = _normalize_llm_payload(parsed, chunk)
     normalized["thinkers"] = []

@@ -6,7 +6,7 @@ import os
 import time
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 
@@ -37,7 +37,14 @@ def _b64url_encode(data: bytes) -> str:
 
 def _b64url_decode(data: str) -> bytes:
     padded = data + "=" * ((4 - len(data) % 4) % 4)
-    return base64.urlsafe_b64decode(padded.encode("ascii"))
+    decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+
+    # Reject non-canonical encodings so token tampering via ignored trailing bits
+    # cannot pass signature checks.
+    if _b64url_encode(decoded) != data:
+        raise ValueError("Invalid base64url encoding")
+
+    return decoded
 
 
 def _current_epoch_seconds() -> int:
@@ -176,4 +183,28 @@ def require_auth(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
+        )
+
+
+def require_operator_token(
+    request: Request,
+    *,
+    token_env_var: str,
+    scope: str,
+) -> None:
+    """
+    Optional second factor for sensitive operator routes.
+
+    When `token_env_var` is configured, callers must provide the matching
+    `X-Operator-Token` header in addition to normal bearer auth.
+    """
+    expected = os.getenv(token_env_var, "").strip()
+    if not expected:
+        return
+
+    provided = request.headers.get("X-Operator-Token", "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Operator authorization required for {scope}",
         )

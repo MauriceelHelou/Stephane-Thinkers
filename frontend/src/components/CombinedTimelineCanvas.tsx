@@ -32,6 +32,13 @@ const TIMELINE_COLORS = [
   { bg: '#FFEDD5', border: '#F97316', dot: '#EA580C', name: 'orange' },  // Orange
   { bg: '#CFFAFE', border: '#06B6D4', dot: '#0891B2', name: 'cyan' },    // Cyan
 ]
+const MAX_EVENT_TITLE_CHARS = 16
+
+const truncateEventTitle = (title: string): string => {
+  if (title.length <= MAX_EVENT_TITLE_CHARS) return title
+  if (MAX_EVENT_TITLE_CHARS <= 3) return '.'.repeat(MAX_EVENT_TITLE_CHARS)
+  return `${title.slice(0, MAX_EVENT_TITLE_CHARS - 3)}...`
+}
 
 export function CombinedTimelineCanvas({
   viewId,
@@ -336,7 +343,7 @@ export function CombinedTimelineCanvas({
       ctx.save()
       ctx.font = '10px "JetBrains Mono", monospace'
       events.forEach((event) => {
-        const textWidth = ctx.measureText(event.name).width
+        const textWidth = ctx.measureText(truncateEventTitle(event.name)).width
         eventWidths.set(event.id, Math.max(defaultEventBBoxWidth, textWidth + 4))
       })
       ctx.restore()
@@ -810,7 +817,7 @@ export function CombinedTimelineCanvas({
       ctx.fillStyle = '#333333'
       ctx.font = '10px "JetBrains Mono", monospace'
       ctx.textAlign = 'center'
-      ctx.fillText(event.name, x, y - size - 5)
+      ctx.fillText(truncateEventTitle(event.name), x, y - size - 5)
     })
 
     // Draw connections

@@ -2,7 +2,6 @@
 Tests for database backup and restore functionality.
 """
 import json
-import io
 from fastapi.testclient import TestClient
 
 
@@ -307,3 +306,134 @@ class TestBackupImport:
         after_response = client.get("/api/thinkers/")
         after_count = len(after_response.json())
         assert after_count == original_count
+
+
+class TestAutomatedBackupEndpoints:
+    """Tests for Phase 1 automated backup endpoints."""
+
+    def test_status_empty(self, client: TestClient):
+        response = client.get("/api/backup/status")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["latest_run"] is None
+        assert payload["total_artifacts"] == 0
+        assert payload["completed_runs"] == 0
+        assert payload["failed_runs"] == 0
+
+    def test_trigger_and_verify_signature(
+        self,
+        client: TestClient,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setenv("BACKUP_SIGNING_SECRET", "test-signing-secret")
+        monkeypatch.setenv("BACKUP_SIGNING_KEY_ID", "test-v1")
+
+        import app.services.backup_jobs as backup_jobs
+
+        backup_jobs.BACKUP_DIR = str(tmp_path)
+
+        trigger_response = client.post("/api/backup/trigger")
+        assert trigger_response.status_code == 200
+        trigger_payload = trigger_response.json()
+        assert trigger_payload["status"] == "completed"
+        assert trigger_payload["artifact_path"].startswith(str(tmp_path))
+
+        verify_response = client.get("/api/backup/verify")
+        assert verify_response.status_code == 200
+        verify_payload = verify_response.json()
+        assert verify_payload["checksum_valid"] is True
+        assert verify_payload["signature_valid"] is True
+
+    def test_trigger_requires_operator_token_when_configured(self, client: TestClient, monkeypatch):
+        monkeypatch.setenv("BACKUP_OPERATOR_TOKEN", "ops-token")
+
+        missing_token = client.post("/api/backup/trigger")
+        assert missing_token.status_code == 403
+
+        bad_token = client.post(
+            "/api/backup/trigger",
+            headers={"X-Operator-Token": "wrong-token"},
+        )
+        assert bad_token.status_code == 403
+
+    def test_retention_enforce(self, client: TestClient):
+        response = client.post("/api/backup/retention/enforce")
+        assert response.status_code == 200
+        payload = response.json()
+        assert "pruned" in payload
+        assert payload["pruned"]["daily"] >= 0
+        assert payload["pruned"]["weekly"] >= 0
+        assert payload["pruned"]["monthly"] >= 0
+
+    def test_reindex_chroma_endpoint(self, client: TestClient, monkeypatch):
+        import app.services.chroma_reindex as chroma_reindex
+
+        monkeypatch.setattr(
+            chroma_reindex,
+            "reindex_chroma",
+            lambda db=None: {"status": "completed", "indexed_count": 123},
+        )
+
+        response = client.post("/api/backup/reindex-chroma")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "completed"
+        assert payload["indexed_count"] == 123
+
+
+class TestOffsiteSyncEndpoints:
+    """Tests for Phase 2 offsite sync and restore validation endpoints."""
+
+    def test_sync_push_status_list(self, client: TestClient, monkeypatch, tmp_path):
+        monkeypatch.setenv("BACKUP_SIGNING_SECRET", "test-signing-secret")
+        monkeypatch.setenv("BACKUP_SIGNING_KEY_ID", "test-v1")
+        monkeypatch.setenv("BACKUP_CLOUD_BACKEND", "local")
+        monkeypatch.setenv("BACKUP_CLOUD_LOCAL_DIR", str(tmp_path / "offsite"))
+
+        import app.services.backup_jobs as backup_jobs
+
+        backup_jobs.BACKUP_DIR = str(tmp_path / "local")
+
+        trigger_response = client.post("/api/backup/trigger")
+        assert trigger_response.status_code == 200
+
+        push_response = client.post("/api/backup/sync/push")
+        assert push_response.status_code == 200
+        push_payload = push_response.json()
+        assert push_payload["backend"] == "local"
+        assert push_payload["remote_key"].startswith("backups/")
+
+        status_response = client.get("/api/backup/sync/status")
+        assert status_response.status_code == 200
+        status_payload = status_response.json()
+        assert status_payload["synced"] is True
+        assert status_payload["latest_cloud_artifact"]["cloud_key"] == push_payload["remote_key"]
+
+        list_response = client.get("/api/backup/sync/list")
+        assert list_response.status_code == 200
+        list_payload = list_response.json()
+        assert list_payload["count"] >= 1
+        assert any(obj["key"] == push_payload["remote_key"] for obj in list_payload["objects"])
+
+    def test_restore_validate(self, client: TestClient, monkeypatch, tmp_path):
+        monkeypatch.setenv("BACKUP_SIGNING_SECRET", "test-signing-secret")
+        monkeypatch.setenv("BACKUP_SIGNING_KEY_ID", "test-v1")
+
+        import app.services.backup_jobs as backup_jobs
+
+        backup_jobs.BACKUP_DIR = str(tmp_path)
+
+        trigger_response = client.post("/api/backup/trigger")
+        assert trigger_response.status_code == 200
+        verify_response = client.get("/api/backup/verify")
+        assert verify_response.status_code == 200
+        artifact_id = verify_response.json()["artifact_id"]
+
+        validate_response = client.post(f"/api/backup/restore/validate/{artifact_id}")
+        assert validate_response.status_code == 200
+        validate_payload = validate_response.json()
+        assert validate_payload["status"] == "passed"
+        assert validate_payload["checksum_valid"] is True
+        assert validate_payload["signature_valid"] is True
+        assert validate_payload["row_count_match"] is True

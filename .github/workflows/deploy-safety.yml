@@ -1,0 +1,102 @@
+name: Deploy Safety Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backup-freshness-check:
+    name: Verify Backup Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify pre-migration backup script exists and is valid
+        working-directory: backend
+        run: |
+          python -c "import pre_migration_backup; print('pre_migration_backup module OK')"
+
+      - name: Verify backup models import
+        working-directory: backend
+        run: |
+          python -c "from app.models.backup import BackupRun, BackupArtifact, RestoreValidationRun; print('Backup models OK')"
+
+      - name: Verify backup services import
+        working-directory: backend
+        run: |
+          python -c "
+          from app.services.backup_manifest import compute_file_checksum, sign_manifest, verify_manifest_signature
+          from app.services.backup_jobs import run_backup, enforce_retention
+          print('Backup services OK')
+          "
+
+      - name: Verify start.sh has backup guard
+        working-directory: backend
+        run: |
+          grep -q "pre_migration_backup" start.sh || (echo "ERROR: start.sh missing pre-migration backup guard" && exit 1)
+          grep -q "ALLOW_MIGRATION_WITHOUT_BACKUP" start.sh || (echo "ERROR: start.sh missing break-glass flag" && exit 1)
+          echo "start.sh backup guard verified"
+
+      - name: Validate backup freshness secrets are configured
+        if: github.ref == 'refs/heads/main'
+        env:
+          BACKUP_STATUS_URL: ${{ secrets.BACKUP_STATUS_URL }}
+          BACKUP_STATUS_BEARER_TOKEN: ${{ secrets.BACKUP_STATUS_BEARER_TOKEN }}
+        run: |
+          test -n "$BACKUP_STATUS_URL" || (echo "ERROR: Missing secret BACKUP_STATUS_URL" && exit 1)
+          test -n "$BACKUP_STATUS_BEARER_TOKEN" || (echo "ERROR: Missing secret BACKUP_STATUS_BEARER_TOKEN" && exit 1)
+
+      - name: Verify latest successful backup freshness
+        if: github.ref == 'refs/heads/main'
+        env:
+          BACKUP_STATUS_URL: ${{ secrets.BACKUP_STATUS_URL }}
+          BACKUP_STATUS_BEARER_TOKEN: ${{ secrets.BACKUP_STATUS_BEARER_TOKEN }}
+          MAX_BACKUP_AGE_HOURS: ${{ vars.MAX_BACKUP_AGE_HOURS || '24' }}
+        run: |
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${BACKUP_STATUS_BEARER_TOKEN}" \
+            "${BACKUP_STATUS_URL}" \
+            > backup-status.json
+
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          max_hours = float(os.getenv("MAX_BACKUP_AGE_HOURS", "24"))
+          with open("backup-status.json", "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          latest = payload.get("latest_run") or {}
+          status = str(latest.get("status") or "").lower()
+          completed_at = latest.get("completed_at")
+
+          if status != "completed" or not completed_at:
+              raise SystemExit("Latest backup run is not completed")
+
+          completed_at_dt = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+          age_hours = (datetime.now(timezone.utc) - completed_at_dt).total_seconds() / 3600.0
+          if age_hours > max_hours:
+              raise SystemExit(
+                  f"Latest backup is stale: {age_hours:.2f}h old (max {max_hours:.2f}h)"
+              )
+
+          print(f"Backup freshness OK: {age_hours:.2f}h old")
+          PY

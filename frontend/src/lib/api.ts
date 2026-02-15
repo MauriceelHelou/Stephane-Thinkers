@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { refreshNoteCache, removeCachedNote } from '@/lib/noteCache'
 import type {
   Timeline,
   TimelineCreate,
@@ -432,22 +433,34 @@ export const notesApi = {
     if (includeArchived) params.include_archived = 'true'
     if (tagIds && tagIds.length > 0) params.tag_ids = tagIds.join(',')
     const response = await api.get('/api/notes/', { params })
-    return coerceArray<Note>(response.data)
+    const notes = coerceArray<Note>(response.data)
+    const isUnfilteredFetch =
+      !thinkerId &&
+      !noteType &&
+      !folderId &&
+      !includeArchived &&
+      (!tagIds || tagIds.length === 0)
+    void refreshNoteCache(notes, { replace: isUnfilteredFetch })
+    return notes
   },
   getOne: async (id: string): Promise<NoteWithMentions> => {
     const response = await api.get(`/api/notes/${id}`)
+    void refreshNoteCache([response.data])
     return response.data
   },
   create: async (data: NoteCreate): Promise<NoteWithMentions> => {
     const response = await api.post('/api/notes/', data)
+    void refreshNoteCache([response.data])
     return response.data
   },
   update: async (id: string, data: NoteUpdate): Promise<NoteWithMentions> => {
     const response = await api.put(`/api/notes/${id}`, data)
+    void refreshNoteCache([response.data])
     return response.data
   },
   delete: async (id: string): Promise<void> => {
     await api.delete(`/api/notes/${id}`)
+    void removeCachedNote(id)
   },
   getVersions: async (noteId: string): Promise<NoteVersion[]> => {
     const response = await api.get(`/api/notes/${noteId}/versions`)
@@ -1052,6 +1065,181 @@ export const backupApi = {
         'Content-Type': undefined,  // Remove default JSON header
       },
     })
+    return response.data
+  },
+
+  // Phase 1+ automated backup endpoints
+  getStatus: async (): Promise<BackupStatus> => {
+    const response = await api.get('/api/backup/status')
+    return response.data
+  },
+
+  triggerBackup: async (): Promise<BackupTriggerResult> => {
+    const response = await api.post('/api/backup/trigger')
+    return response.data
+  },
+
+  verifyLatest: async (): Promise<BackupVerifyResult> => {
+    const response = await api.get('/api/backup/verify')
+    return response.data
+  },
+
+  reindexChroma: async (): Promise<{ status: string; indexed_count?: number; error?: string }> => {
+    const response = await api.post('/api/backup/reindex-chroma')
+    return response.data
+  },
+
+  // Phase 2 offsite sync endpoints
+  syncPush: async (): Promise<BackupSyncPushResult> => {
+    const response = await api.post('/api/backup/sync/push')
+    return response.data
+  },
+
+  getSyncStatus: async (): Promise<BackupSyncStatus> => {
+    const response = await api.get('/api/backup/sync/status')
+    return response.data
+  },
+
+  validateRestore: async (artifactId: string): Promise<RestoreValidationResult> => {
+    const response = await api.post(`/api/backup/restore/validate/${artifactId}`)
+    return response.data
+  },
+}
+
+// Backup status types
+export interface BackupStatus {
+  latest_run: {
+    run_id: string
+    trigger: string
+    status: string
+    started_at: string | null
+    completed_at: string | null
+    total_rows: number | null
+    retention_tag: string | null
+    error_message: string | null
+  } | null
+  total_artifacts: number
+  completed_runs: number
+  failed_runs: number
+}
+
+export interface BackupTriggerResult {
+  run_id: string
+  status: string
+  artifact_path: string
+  total_rows: number
+  size_bytes: number
+  checksum_sha256: string
+  retention_tag: string
+}
+
+export interface BackupVerifyResult {
+  artifact_id: string
+  file_path?: string
+  checksum_valid: boolean
+  signature_valid: boolean
+  size_bytes?: number
+  created_at?: string | null
+  error?: string
+}
+
+export interface BackupSyncPushResult {
+  artifact_id: string
+  remote_key: string
+  backend: string
+  size_bytes: number
+  pushed_at: string
+}
+
+export interface BackupSyncStatus {
+  synced: boolean
+  latest_cloud_artifact: {
+    artifact_id: string
+    cloud_key: string
+    storage_backend: string
+    size_bytes: number
+    created_at: string | null
+  } | null
+}
+
+export interface RestoreValidationResult {
+  validation_id?: string
+  artifact_id?: string
+  status: string
+  checksum_valid?: boolean
+  signature_valid?: boolean
+  row_count_match?: boolean
+  elapsed_seconds?: number
+  error?: string
+}
+
+// Notion sync API
+export interface NotionSyncStatus {
+  total_notes: number
+  synced_notes: number
+  unsynced_notes: number
+  database_id?: string | null
+  database_url?: string | null
+  property_count?: number | null
+  schema_updated_at?: string | null
+  database_error?: string | null
+  latest_job: {
+    job_id: string
+    job_type: string
+    status: string
+    started_at: string | null
+    completed_at: string | null
+    pages_created: number | null
+    pages_updated: number | null
+    pages_skipped: number | null
+    error_message: string | null
+  } | null
+}
+
+export interface NotionSyncResult {
+  status: string
+  created?: number
+  updated?: number
+  skipped?: number
+  error?: string
+  database_id?: string
+  database_url?: string
+  property_count?: number
+  message?: string
+  added_properties?: string[]
+  added_select_options?: Record<string, string[]>
+  conflicts?: Array<{
+    property: string
+    expected_type: string
+    actual_type: string
+  }>
+  recommended_views?: string[]
+  schema_updated_at?: string | null
+}
+
+export const notionApi = {
+  setup: async (): Promise<NotionSyncResult> => {
+    const response = await api.post('/api/notion/setup')
+    return response.data
+  },
+
+  sync: async (): Promise<NotionSyncResult> => {
+    const response = await api.post('/api/notion/sync')
+    return response.data
+  },
+
+  fullSync: async (): Promise<NotionSyncResult> => {
+    const response = await api.post('/api/notion/full-sync')
+    return response.data
+  },
+
+  updateSchema: async (): Promise<NotionSyncResult> => {
+    const response = await api.post('/api/notion/update-schema')
+    return response.data
+  },
+
+  getStatus: async (): Promise<NotionSyncStatus> => {
+    const response = await api.get('/api/notion/status')
     return response.data
   },
 }

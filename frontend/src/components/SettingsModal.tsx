@@ -5,14 +5,23 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Modal, ModalButton, ModalFooter } from '@/components/Modal'
 import { useSettings } from '@/lib/SettingsContext'
 import { AppSettings, ShortcutBinding, formatShortcut, shortcutActionNames, defaultSettings } from '@/lib/settings'
-import { backupApi, ImportPreview, ImportResult } from '@/lib/api'
+import { exportCachedNotesAsBlob, getCacheMeta } from '@/lib/noteCache'
+import {
+  backupApi,
+  notionApi,
+  ImportPreview,
+  ImportResult,
+  BackupStatus,
+  BackupVerifyResult,
+  NotionSyncStatus,
+} from '@/lib/api'
 
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
-type TabType = 'shortcuts' | 'display' | 'data'
+type TabType = 'shortcuts' | 'display' | 'data' | 'protection'
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const queryClient = useQueryClient()
@@ -33,6 +42,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importDbError, setImportDbError] = useState<string | null>(null)
   const dbFileInputRef = useRef<HTMLInputElement>(null)
+
+  // Protection tab state
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  const [backupVerify, setBackupVerify] = useState<BackupVerifyResult | null>(null)
+  const [notionStatus, setNotionStatus] = useState<NotionSyncStatus | null>(null)
+  const [protectionLoading, setProtectionLoading] = useState<string | null>(null)
+  const [protectionMessage, setProtectionMessage] = useState<string | null>(null)
 
   // Handle key capture for rebinding shortcuts
   useEffect(() => {
@@ -221,6 +237,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           }`}
         >
           Data
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('protection')
+            // Load statuses on tab activation
+            backupApi.getStatus().then(setBackupStatus).catch(() => {})
+            notionApi.getStatus().then(setNotionStatus).catch(() => {})
+          }}
+          className={`px-4 py-2 font-sans text-sm ${
+            activeTab === 'protection'
+              ? 'border-b-2 border-accent text-accent font-medium'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Protection
         </button>
       </div>
 
@@ -446,10 +477,322 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           </div>
         )}
+
+        {activeTab === 'protection' && (
+          <div className="space-y-6">
+            {/* Backup Status */}
+            <div>
+              <h3 className="text-lg font-sans font-medium mb-2">Automated Backup Status</h3>
+              {backupStatus ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Completed</span>
+                      <p className="font-medium">{backupStatus.completed_runs}</p>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Failed</span>
+                      <p className="font-medium text-red-600">{backupStatus.failed_runs}</p>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Artifacts</span>
+                      <p className="font-medium">{backupStatus.total_artifacts}</p>
+                    </div>
+                  </div>
+                  {backupStatus.latest_run && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Last run: {backupStatus.latest_run.status} ({backupStatus.latest_run.trigger})
+                      {backupStatus.latest_run.completed_at &&
+                        ` at ${new Date(backupStatus.latest_run.completed_at).toLocaleString()}`}
+                      {backupStatus.latest_run.total_rows !== null &&
+                        ` - ${backupStatus.latest_run.total_rows} rows`}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Loading...</p>
+              )}
+
+              <div className="mt-3 flex gap-2 flex-wrap">
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('trigger')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await backupApi.triggerBackup()
+                      setProtectionMessage(`Backup completed: ${result.total_rows} rows, ${(result.size_bytes / 1024).toFixed(1)} KB`)
+                      backupApi.getStatus().then(setBackupStatus)
+                    } catch (e) {
+                      setProtectionMessage(`Backup failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'trigger'}
+                  className="px-3 py-1.5 text-xs bg-accent text-white rounded hover:bg-accent/90 disabled:opacity-50"
+                >
+                  {protectionLoading === 'trigger' ? 'Running...' : 'Trigger Backup'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('verify')
+                    try {
+                      const result = await backupApi.verifyLatest()
+                      setBackupVerify(result)
+                    } catch {
+                      setBackupVerify(null)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'verify'}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'verify' ? 'Verifying...' : 'Verify Latest'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('sync')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await backupApi.syncPush()
+                      setProtectionMessage(`Pushed to ${result.backend}: ${result.remote_key}`)
+                    } catch (e) {
+                      setProtectionMessage(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'sync'}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'sync' ? 'Pushing...' : 'Push to Cloud'}
+                </button>
+              </div>
+
+              {backupVerify && (
+                <div className={`mt-2 p-2 rounded text-xs ${
+                  backupVerify.checksum_valid && backupVerify.signature_valid
+                    ? 'bg-green-50 text-green-800'
+                    : 'bg-red-50 text-red-800'
+                }`}>
+                  Checksum: {backupVerify.checksum_valid ? 'valid' : 'INVALID'} |
+                  Signature: {backupVerify.signature_valid ? 'valid' : 'INVALID'}
+                  {backupVerify.error && ` | ${backupVerify.error}`}
+                </div>
+              )}
+            </div>
+
+            {/* Notion Sync Status */}
+            <div className="border-t border-gray-200 pt-4">
+              <h3 className="text-lg font-sans font-medium mb-2">Notion Notes Mirror</h3>
+              {notionStatus ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Total Notes</span>
+                      <p className="font-medium">{notionStatus.total_notes}</p>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Synced</span>
+                      <p className="font-medium text-green-600">{notionStatus.synced_notes}</p>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded">
+                      <span className="text-gray-500 text-xs">Unsynced</span>
+                      <p className="font-medium text-yellow-600">{notionStatus.unsynced_notes}</p>
+                    </div>
+                  </div>
+                  {notionStatus.latest_job && (
+                    <div className="text-xs text-gray-500">
+                      Last job: {notionStatus.latest_job.status} ({notionStatus.latest_job.job_type})
+                      {notionStatus.latest_job.completed_at &&
+                        ` at ${new Date(notionStatus.latest_job.completed_at).toLocaleString()}`}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-600 space-y-1">
+                    <div>
+                      Database:{' '}
+                      {notionStatus.database_url ? (
+                        <a
+                          href={notionStatus.database_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-accent hover:underline"
+                        >
+                          Open in Notion
+                        </a>
+                      ) : (
+                        <span>{notionStatus.database_id ? 'Configured (URL unavailable)' : 'Not configured'}</span>
+                      )}
+                    </div>
+                    {typeof notionStatus.property_count === 'number' && (
+                      <div>Property count: {notionStatus.property_count}</div>
+                    )}
+                    {notionStatus.schema_updated_at && (
+                      <div>Schema updated: {new Date(notionStatus.schema_updated_at).toLocaleString()}</div>
+                    )}
+                    {notionStatus.database_error && (
+                      <div className="text-yellow-700">
+                        Metadata fetch warning: {notionStatus.database_error}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Loading...</p>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('notion-setup')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await notionApi.setup()
+                      setProtectionMessage(result.message || `Setup status: ${result.status}`)
+                      notionApi.getStatus().then(setNotionStatus).catch(() => {})
+                    } catch (e) {
+                      setProtectionMessage(`Notion setup failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'notion-setup'}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'notion-setup' ? 'Running...' : 'Setup Database'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('notion-schema')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await notionApi.updateSchema()
+                      const addedCount = result.added_properties?.length || 0
+                      const optionCount = Object.values(result.added_select_options || {}).reduce(
+                        (sum, options) => sum + options.length,
+                        0
+                      )
+                      const conflictCount = result.conflicts?.length || 0
+                      const message = [
+                        `Schema update: ${result.status}`,
+                        `${addedCount} added`,
+                        `${optionCount} options added`,
+                        `${conflictCount} conflicts`,
+                      ].join(', ')
+                      setProtectionMessage(message)
+                      notionApi.getStatus().then(setNotionStatus).catch(() => {})
+                    } catch (e) {
+                      setProtectionMessage(`Schema update failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'notion-schema' || !notionStatus?.database_id}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'notion-schema' ? 'Updating...' : 'Update Schema'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('notion-sync')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await notionApi.sync()
+                      setProtectionMessage(
+                        result.status === 'completed'
+                          ? `Notion sync: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`
+                          : `Notion sync: ${result.error || result.status}`
+                      )
+                      notionApi.getStatus().then(setNotionStatus)
+                    } catch (e) {
+                      setProtectionMessage(`Notion sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'notion-sync' || !notionStatus?.database_id}
+                  className="px-3 py-1.5 text-xs bg-accent text-white rounded hover:bg-accent/90 disabled:opacity-50"
+                >
+                  {protectionLoading === 'notion-sync' ? 'Syncing...' : 'Incremental Sync'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Run a full sync? This will re-check all notes.')) return
+                    setProtectionLoading('notion-full')
+                    setProtectionMessage(null)
+                    try {
+                      const result = await notionApi.fullSync()
+                      setProtectionMessage(
+                        result.status === 'completed'
+                          ? `Full sync: ${result.created} created, ${result.updated} updated`
+                          : `Full sync: ${result.error || result.status}`
+                      )
+                      notionApi.getStatus().then(setNotionStatus)
+                    } catch (e) {
+                      setProtectionMessage(`Full sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'notion-full' || !notionStatus?.database_id}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'notion-full' ? 'Running...' : 'Full Sync'}
+                </button>
+              </div>
+            </div>
+
+            {/* Local Emergency Cache */}
+            <div className="border-t border-gray-200 pt-4">
+              <h3 className="text-lg font-sans font-medium mb-2">Local Emergency Cache</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                A read-only copy of your notes is cached in the browser. Use this to export
+                notes even when the backend is unreachable.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    setProtectionLoading('cache-export')
+                    try {
+                      const blob = await exportCachedNotesAsBlob()
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `emergency-notes-export-${new Date().toISOString().slice(0, 10)}.json`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                      const meta = await getCacheMeta()
+                      setProtectionMessage(
+                        meta.count > 0
+                          ? `Exported ${meta.count} cached notes (last refresh: ${meta.lastRefresh ? new Date(meta.lastRefresh).toLocaleString() : 'never'})`
+                          : 'Cache is empty. Notes are cached when you browse them.'
+                      )
+                    } catch {
+                      setProtectionMessage('Failed to export cached notes')
+                    } finally {
+                      setProtectionLoading(null)
+                    }
+                  }}
+                  disabled={protectionLoading === 'cache-export'}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {protectionLoading === 'cache-export' ? 'Exporting...' : 'Export Cached Notes'}
+                </button>
+              </div>
+            </div>
+
+            {protectionMessage && (
+              <div className="p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                {protectionMessage}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="border-t border-gray-200 p-4">
-        {activeTab === 'data' ? (
+        {(activeTab === 'data' || activeTab === 'protection') ? (
           // Data tab: Just show Close button
           <div className="flex justify-end">
             <ModalButton onClick={onClose}>Close</ModalButton>

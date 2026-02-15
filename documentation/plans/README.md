@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains 8 implementation plans plus 2 optional roadmap plans for advanced AI functionality in Stephanie's PhD Research Notes system.
+This directory contains 8 implementation plans plus 3 optional/advanced roadmap plans for AI and operational resilience in Stephanie's PhD Research Notes system.
 
 The plans are designed to be executed in order with controlled overlap. They are not fully independent: each later plan assumes specific outputs from earlier plans.
 
@@ -50,6 +50,7 @@ Plan 1: Data Models & Migrations ───────────────�
 | 8 | [Auto-Connection Suggestions](08-auto-connection-suggestions.md) | 2 modify | 1 create, 3 modify | Co-occurrence-based connection suggestions |
 | 9 (Optional) | [AI Notes System Full Implementation Plan](09-ai-notes-functionality-ideation.md) | phased | phased | End-to-end AI roadmap (term synthesis, writing, discovery, planning) |
 | 10 (Optional) | [Text-to-Timeline Bootstrap](10-text-to-timeline-bootstrap.md) | phased | phased | Long-text extraction preview + user validation + commit to new timeline |
+| 11 (Optional) | [Data Protection & Durability System V2](11-data-protection-durability-v2.md) | phased | phased | Backup-first resilience architecture (automated backups, immutable offsite copy, restore drills, Notion mirror) |
 
 ## Cross-Plan Contracts (Critical)
 

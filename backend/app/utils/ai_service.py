@@ -185,9 +185,15 @@ def _cache_key(payload_hash: str) -> str:
     return f"ai:cache:{payload_hash}"
 
 
-def _cache_payload_hash(messages: List[Dict[str, str]], temperature: float, max_tokens: int, model: str) -> str:
+def _cache_payload_hash(
+    messages: List[Dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    model: Optional[str] = None,
+) -> str:
+    resolved_model = model or DEEPSEEK_MODEL
     payload = {
-        "model": model,
+        "model": resolved_model,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "messages": messages,

@@ -239,3 +239,49 @@ def test_heuristic_extract_filters_non_person_relation_endpoints():
 
     payload = extract._heuristic_extract(chunk)
     assert payload.get("connections", []) == []
+
+
+def test_extract_chunk_entities_drops_llm_connection_with_non_person_endpoint(monkeypatch):
+    chunk = TextChunk(
+        index=0,
+        text="Epicurus critiqued Stoic austerity.",
+        char_start=0,
+        char_end=34,
+        token_estimate=10,
+        paragraphs=[],
+    )
+
+    def _fake_llm_extract(*args, **kwargs):
+        return {
+            "thinkers": [],
+            "events": [],
+            "connections": [
+                {
+                    "from_name": "Epicurus",
+                    "to_name": "Stoic",
+                    "connection_type": "critiqued",
+                    "confidence": 0.9,
+                    "evidence": [],
+                }
+            ],
+            "publications": [],
+            "quotes": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(extract, "_llm_extract", _fake_llm_extract)
+
+    payload = extract.extract_chunk_entities(chunk)
+    assert payload.get("connections", []) == []
+
+
+def test_extract_json_payload_recovers_embedded_json_object():
+    raw = (
+        "Reasoning notes...\n"
+        '{"thinkers":[{"name":"Hannah Arendt","confidence":0.9}],"events":[],"connections":[],"publications":[],"quotes":[],"warnings":[]}\n'
+        "More trailing text"
+    )
+
+    parsed = extract._extract_json_payload(raw)
+    assert isinstance(parsed, dict)
+    assert parsed.get("thinkers", [{}])[0].get("name") == "Hannah Arendt"
