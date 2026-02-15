@@ -378,7 +378,8 @@ def update_timeline_preview_validation(
 
     session.validation_json = json.dumps(validation_json)
 
-    session_graph = load_session_graph(db, session, include_evidence=False)
+    # Validation diagnostics must run against grounded candidates.
+    session_graph = load_session_graph(db, session, include_evidence=True)
     hydrated_graph = apply_validation(session_graph, validation_json)
     diagnostics_raw = validate_graph(hydrated_graph)
 
@@ -448,7 +449,7 @@ def commit_timeline_preview(
         raise HTTPException(status_code=404, detail="Preview session not found")
 
     try:
-        session_graph = load_session_graph(db, session, include_evidence=False)
+        session_graph = load_session_graph(db, session, include_evidence=True)
         validation_json = _json_loads(session.validation_json, {"timeline": {}, "candidates": {}})
 
         commit_result = run_commit(

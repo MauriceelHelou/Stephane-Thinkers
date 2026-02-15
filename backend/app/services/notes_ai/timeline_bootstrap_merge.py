@@ -3,6 +3,27 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+NON_PERSON_ENDPOINT_SINGLE_TOKENS = {
+    "stoic",
+    "stoics",
+    "epicurean",
+    "epicureans",
+    "christian",
+    "christians",
+    "greek",
+    "greeks",
+    "roman",
+    "romans",
+    "marxism",
+    "academy",
+    "lyceum",
+    "neoplatonic",
+}
+NON_PERSON_ENDPOINT_SUFFIXES = ("ism", "ist", "ists", "ian", "ians", "ology", "ologies")
+ATTRIBUTION_VERBS_PATTERN = (
+    r"(?:said|wrote|argued|noted|claimed|stated|observed|maintained|explained|published|authored)"
+)
+
 
 def _normalize_label(value: Optional[str]) -> str:
     text = (value or "").strip().lower()
@@ -65,6 +86,57 @@ def _dedupe_warnings(values: Iterable[str]) -> List[str]:
     return deduped
 
 
+def _compact_warning_noise(values: Iterable[str]) -> List[str]:
+    raw = [str(value or "").strip() for value in values if str(value or "").strip()]
+    if not raw:
+        return []
+
+    categories = {
+        "model_note": [],
+        "model_omitted": [],
+        "model_non_thinker_connection": [],
+        "model_connection_omitted": [],
+    }
+    passthrough: List[str] = []
+
+    for warning in raw:
+        lowered = warning.lower()
+        if warning.startswith("Note:"):
+            categories["model_note"].append(warning)
+            continue
+        if warning.startswith("Omitted "):
+            categories["model_omitted"].append(warning)
+            continue
+        if warning.startswith("Connection '") and "not a thinker" in lowered:
+            categories["model_non_thinker_connection"].append(warning)
+            continue
+        if warning.startswith("Connection '") and " omitted" in lowered:
+            categories["model_connection_omitted"].append(warning)
+            continue
+        passthrough.append(warning)
+
+    compacted = list(passthrough)
+    for key, label in [
+        ("model_note", "Model extraction notes"),
+        ("model_omitted", "Model omission notes"),
+        ("model_non_thinker_connection", "Model non-thinker connection notes"),
+        ("model_connection_omitted", "Model connection omission notes"),
+    ]:
+        rows = categories[key]
+        if not rows:
+            continue
+        if len(rows) == 1:
+            compacted.append(rows[0])
+            continue
+        examples = " | ".join(rows[:2])
+        more = ""
+        if len(rows) > 2:
+            more = f" (+{len(rows) - 2} more)"
+        compacted.append(f"{label}: {len(rows)} items. Examples: {examples}{more}")
+
+    return compacted
+
+
 def _coerce_year(value: Any) -> Optional[int]:
     if value is None:
         return None
@@ -74,11 +146,60 @@ def _coerce_year(value: Any) -> Optional[int]:
         return None
 
 
+def _coerce_confidence(value: Any, default: float = 0.5) -> float:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return max(0.0, min(1.0, float(value)))
+
+    text = str(value).strip().lower()
+    if not text:
+        return default
+
+    lexical = {
+        "high": 0.85,
+        "medium": 0.6,
+        "low": 0.35,
+        "very high": 0.92,
+        "very low": 0.2,
+    }
+    if text in lexical:
+        return lexical[text]
+
+    if text.endswith("%"):
+        try:
+            return max(0.0, min(1.0, float(text[:-1].strip()) / 100.0))
+        except (TypeError, ValueError):
+            return default
+
+    try:
+        return max(0.0, min(1.0, float(text)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _tokenize_label(value: Optional[str]) -> List[str]:
     normalized = _normalize_label(value)
     if not normalized:
         return []
     return normalized.split()
+
+
+def _is_plausible_person_reference(value: Optional[str]) -> bool:
+    normalized = _normalize_label(value)
+    if not normalized:
+        return False
+    tokens = normalized.split()
+    if len(tokens) != 1:
+        return True
+    token = tokens[0]
+    if token in NON_PERSON_ENDPOINT_SINGLE_TOKENS:
+        return False
+    if any(token.endswith(suffix) for suffix in NON_PERSON_ENDPOINT_SUFFIXES):
+        return False
+    return True
 
 
 def _build_thinker_alias_index(thinker_name_to_candidate_id: Dict[str, str]) -> Dict[str, str]:
@@ -103,6 +224,8 @@ def _resolve_candidate_from_reference(
     reference_name: Optional[str],
     thinker_name_to_candidate_id: Dict[str, str],
     thinker_alias_to_candidate_id: Dict[str, str],
+    *,
+    strict: bool = False,
 ) -> Optional[str]:
     normalized_reference = _normalize_label(reference_name)
     if not normalized_reference:
@@ -115,6 +238,9 @@ def _resolve_candidate_from_reference(
     alias = thinker_alias_to_candidate_id.get(normalized_reference)
     if alias:
         return alias
+
+    if strict:
+        return None
 
     substring_matches = {
         candidate_id
@@ -185,6 +311,38 @@ def _resolve_candidate_from_context(
     return None
 
 
+def _resolve_candidate_from_attribution_context(
+    context_text: str,
+    thinker_name_to_candidate_id: Dict[str, str],
+    thinker_alias_to_candidate_id: Dict[str, str],
+) -> Optional[str]:
+    normalized_context = _normalize_label(context_text)
+    if not normalized_context:
+        return None
+
+    candidate_hits: set[str] = set()
+    phrases: Dict[str, str] = {}
+    phrases.update(thinker_name_to_candidate_id)
+    phrases.update(thinker_alias_to_candidate_id)
+
+    for phrase, candidate_id in phrases.items():
+        normalized_phrase = _normalize_label(phrase)
+        if not normalized_phrase:
+            continue
+        escaped = re.escape(normalized_phrase)
+        patterns = [
+            rf"(?:according to|by)\s+{escaped}\b",
+            rf"\b{escaped}\s+{ATTRIBUTION_VERBS_PATTERN}\b",
+            rf"{ATTRIBUTION_VERBS_PATTERN}\s+{escaped}\b",
+        ]
+        if any(re.search(pattern, normalized_context) for pattern in patterns):
+            candidate_hits.add(candidate_id)
+
+    if len(candidate_hits) == 1:
+        return next(iter(candidate_hits))
+    return None
+
+
 def _distance_between_ranges(start_a: int, end_a: int, start_b: int, end_b: int) -> int:
     if end_a < start_b:
         return start_b - end_a
@@ -244,14 +402,21 @@ def _resolve_thinker_candidate_id(
     thinker_name_to_candidate_id: Dict[str, str],
     thinker_alias_to_candidate_id: Dict[str, str],
     thinker_evidence_by_candidate: Dict[str, List[Dict[str, Any]]],
+    *,
+    allow_contextual_fallback: bool = True,
+    strict_reference_match: bool = False,
 ) -> Optional[str]:
     by_reference = _resolve_candidate_from_reference(
         reference_name,
         thinker_name_to_candidate_id,
         thinker_alias_to_candidate_id,
+        strict=strict_reference_match,
     )
     if by_reference:
         return by_reference
+
+    if not allow_contextual_fallback:
+        return None
 
     by_context = _resolve_candidate_from_context(
         _collect_context_text(raw_item),
@@ -261,7 +426,36 @@ def _resolve_thinker_candidate_id(
     if by_context:
         return by_context
 
+    by_attribution = _resolve_candidate_from_attribution_context(
+        _collect_context_text(raw_item),
+        thinker_name_to_candidate_id,
+        thinker_alias_to_candidate_id,
+    )
+    if by_attribution:
+        return by_attribution
+
     return _resolve_candidate_from_evidence_proximity(raw_item, thinker_evidence_by_candidate)
+
+
+def _summarize_pair_warnings(prefix: str, pairs: List[Tuple[str, str]], *, examples_limit: int = 4) -> Optional[str]:
+    if not pairs:
+        return None
+    unique_pairs: List[Tuple[str, str]] = []
+    seen: set[Tuple[str, str]] = set()
+    for pair in pairs:
+        if pair in seen:
+            continue
+        seen.add(pair)
+        unique_pairs.append(pair)
+
+    examples = "; ".join(f"{left} -> {right}" for left, right in unique_pairs[:examples_limit])
+    more = ""
+    if len(unique_pairs) > examples_limit:
+        more = f" (+{len(unique_pairs) - examples_limit} more unique pairs)"
+    return (
+        f"{prefix}: {len(pairs)} total ({len(unique_pairs)} unique). "
+        f"Examples: {examples}{more}."
+    )
 
 
 def merge_extraction_outputs(
@@ -311,7 +505,7 @@ def merge_extraction_outputs(
                     if existing.get(key) is None and candidate_value is not None:
                         existing[key] = candidate_value
 
-            thinker_confidences[name_key].append(float(thinker.get("confidence", 0.5)))
+            thinker_confidences[name_key].append(_coerce_confidence(thinker.get("confidence", 0.5)))
             thinker_evidence[name_key].extend(thinker.get("evidence", []) or [])
 
         for event in output.get("events", []) or []:
@@ -368,7 +562,7 @@ def merge_extraction_outputs(
         if not name:
             continue
         key = (_normalize_label(name), year)
-        confidence = float(raw_event.get("confidence", 0.5))
+        confidence = _coerce_confidence(raw_event.get("confidence", 0.5))
         existing = event_bucket.get(key)
         if existing is None or confidence > existing["confidence"]:
             event_bucket[key] = {
@@ -406,7 +600,12 @@ def merge_extraction_outputs(
         )
 
     connections: List[Dict[str, Any]] = []
-    connection_bucket: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    connection_bucket: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    connection_types_by_pair: Dict[Tuple[str, str], set[str]] = defaultdict(set)
+    best_confidence_by_pair: Dict[Tuple[str, str], float] = defaultdict(float)
+    skipped_non_person_pairs: List[Tuple[str, str]] = []
+    skipped_unmatched_pairs: List[Tuple[str, str]] = []
+    skipped_self_loop_pairs: List[Tuple[str, str]] = []
     for raw_connection in raw_connections:
         from_name = raw_connection.get("from_name")
         to_name = raw_connection.get("to_name")
@@ -414,12 +613,22 @@ def merge_extraction_outputs(
         normalized_to_name = _normalize_label(to_name)
         if not from_name or not to_name:
             continue
+        if not _is_plausible_person_reference(from_name) or not _is_plausible_person_reference(to_name):
+            skipped_non_person_pairs.append(
+                (
+                    normalized_from_name or str(from_name).strip(),
+                    normalized_to_name or str(to_name).strip(),
+                )
+            )
+            continue
         from_candidate_id = _resolve_thinker_candidate_id(
             from_name,
             raw_connection,
             thinker_name_to_candidate_id,
             thinker_alias_to_candidate_id,
             thinker_evidence_by_candidate,
+            allow_contextual_fallback=False,
+            strict_reference_match=True,
         )
         to_candidate_id = _resolve_thinker_candidate_id(
             to_name,
@@ -427,24 +636,33 @@ def merge_extraction_outputs(
             thinker_name_to_candidate_id,
             thinker_alias_to_candidate_id,
             thinker_evidence_by_candidate,
+            allow_contextual_fallback=False,
+            strict_reference_match=True,
         )
         if not from_candidate_id or not to_candidate_id:
-            warnings.append(
-                f"Skipped connection due to unmatched endpoints: {normalized_from_name or from_name} -> {normalized_to_name or to_name}"
+            skipped_unmatched_pairs.append(
+                (
+                    normalized_from_name or str(from_name).strip(),
+                    normalized_to_name or str(to_name).strip(),
+                )
             )
             continue
         if from_candidate_id == to_candidate_id:
-            warnings.append(
-                f"Skipped connection due to self-loop endpoint resolution: {normalized_from_name or from_name} -> {normalized_to_name or to_name}"
+            skipped_self_loop_pairs.append(
+                (
+                    normalized_from_name or str(from_name).strip(),
+                    normalized_to_name or str(to_name).strip(),
+                )
             )
             continue
 
-        pair_key = (from_candidate_id, to_candidate_id)
-        confidence = float(raw_connection.get("confidence", 0.5))
         connection_type = str(raw_connection.get("connection_type") or "influenced")
-        existing = connection_bucket.get(pair_key)
+        pair_key = (from_candidate_id, to_candidate_id)
+        bucket_key = (from_candidate_id, to_candidate_id, connection_type)
+        confidence = _coerce_confidence(raw_connection.get("confidence", 0.5))
+        existing = connection_bucket.get(bucket_key)
         if existing is None:
-            connection_bucket[pair_key] = {
+            connection_bucket[bucket_key] = {
                 "connection_type": connection_type,
                 "name": raw_connection.get("name"),
                 "notes": raw_connection.get("notes"),
@@ -452,29 +670,53 @@ def merge_extraction_outputs(
                 "strength": raw_connection.get("strength"),
                 "confidence": confidence,
                 "evidence": list(raw_connection.get("evidence", []) or []),
-                "alternate_types": [],
             }
         else:
             existing["evidence"].extend(raw_connection.get("evidence", []) or [])
-            if existing["connection_type"] != connection_type:
-                existing["alternate_types"].append(connection_type)
-                if confidence > existing["confidence"]:
-                    existing["connection_type"] = connection_type
-                    existing["confidence"] = confidence
+            if confidence > existing["confidence"]:
+                existing["confidence"] = confidence
+                if raw_connection.get("name"):
+                    existing["name"] = raw_connection.get("name")
+                if raw_connection.get("notes"):
+                    existing["notes"] = raw_connection.get("notes")
+                if raw_connection.get("strength") is not None:
+                    existing["strength"] = raw_connection.get("strength")
+                existing["bidirectional"] = bool(raw_connection.get("bidirectional", False))
 
-    for idx, ((from_candidate_id, to_candidate_id), payload) in enumerate(
-        sorted(connection_bucket.items(), key=lambda item: (item[0][0], item[0][1]))
-    ):
-        if payload["alternate_types"]:
-            alt = ", ".join(sorted(set(payload["alternate_types"])))
+        connection_types_by_pair[pair_key].add(connection_type)
+        if confidence > best_confidence_by_pair[pair_key]:
+            best_confidence_by_pair[pair_key] = confidence
+
+    for pair, relation_types in sorted(connection_types_by_pair.items(), key=lambda item: (item[0][0], item[0][1])):
+        if len(relation_types) > 1:
             warnings.append(
-                f"Connection {from_candidate_id}->{to_candidate_id} had multiple types; selected '{payload['connection_type']}', alternates: {alt}."
+                "Multiple relation types extracted for pair "
+                f"{pair[0]}->{pair[1]}: {', '.join(sorted(relation_types))}. "
+                "Keeping all as separate candidates; lower-confidence ones default to excluded."
             )
 
-        key = f"{from_candidate_id}:{to_candidate_id}"
+    for prefix, pairs in [
+        ("Skipped connection due to non-thinker endpoint references", skipped_non_person_pairs),
+        ("Skipped connection due to unmatched endpoints", skipped_unmatched_pairs),
+        ("Skipped connection due to self-loop endpoint resolution", skipped_self_loop_pairs),
+    ]:
+        summary = _summarize_pair_warnings(prefix, pairs)
+        if summary:
+            warnings.append(summary)
+
+    for idx, ((from_candidate_id, to_candidate_id, connection_type), payload) in enumerate(
+        sorted(connection_bucket.items(), key=lambda item: (item[0][0], item[0][1], item[0][2]))
+    ):
+        pair_key = (from_candidate_id, to_candidate_id)
+        is_pair_primary = abs(payload["confidence"] - best_confidence_by_pair[pair_key]) < 1e-9
+        key = f"{from_candidate_id}:{to_candidate_id}:{connection_type}"
         candidate_id = _stable_candidate_id("connection", key)
         deduped_connection_evidence = _dedupe_evidence(payload["evidence"])
-        include_by_default = _default_include(payload["confidence"]) and bool(deduped_connection_evidence)
+        include_by_default = (
+            _default_include(payload["confidence"])
+            and bool(deduped_connection_evidence)
+            and is_pair_primary
+        )
         connections.append(
             {
                 "candidate_id": candidate_id,
@@ -497,6 +739,7 @@ def merge_extraction_outputs(
 
     publications: List[Dict[str, Any]] = []
     publication_bucket: Dict[Tuple[str, str, Optional[int]], Dict[str, Any]] = {}
+    unmatched_publication_thinkers: List[str] = []
     for raw_publication in raw_publications:
         thinker_name = raw_publication.get("thinker_name")
         title = str(raw_publication.get("title", "")).strip()
@@ -510,12 +753,12 @@ def merge_extraction_outputs(
             thinker_evidence_by_candidate,
         )
         if not thinker_candidate_id:
-            warnings.append(f"Skipped publication with unmatched thinker: {raw_publication.get('thinker_name')}")
+            unmatched_publication_thinkers.append(str(raw_publication.get("thinker_name") or "").strip())
             continue
 
         year = _coerce_year(raw_publication.get("year"))
         key = (thinker_candidate_id, _normalize_label(title), year)
-        confidence = float(raw_publication.get("confidence", 0.5))
+        confidence = _coerce_confidence(raw_publication.get("confidence", 0.5))
         existing = publication_bucket.get(key)
         if existing is None or confidence > existing["confidence"]:
             publication_bucket[key] = {
@@ -556,6 +799,25 @@ def merge_extraction_outputs(
             }
         )
 
+    if unmatched_publication_thinkers:
+        unique_unmatched = []
+        seen_unmatched = set()
+        for name in unmatched_publication_thinkers:
+            key = _normalize_label(name) or name
+            if key in seen_unmatched:
+                continue
+            seen_unmatched.add(key)
+            unique_unmatched.append(name or "(missing thinker_name)")
+        examples = ", ".join(unique_unmatched[:4])
+        more = ""
+        if len(unique_unmatched) > 4:
+            more = f" (+{len(unique_unmatched) - 4} more unique names)"
+        warnings.append(
+            "Skipped publication with unmatched thinker references: "
+            f"{len(unmatched_publication_thinkers)} total ({len(unique_unmatched)} unique). "
+            f"Examples: {examples}{more}."
+        )
+
     quotes: List[Dict[str, Any]] = []
     quote_bucket: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for raw_quote in raw_quotes:
@@ -570,7 +832,7 @@ def merge_extraction_outputs(
             thinker_evidence_by_candidate,
         )
         key = (thinker_candidate_id or "unlinked", _normalize_label(quote_text))
-        confidence = float(raw_quote.get("confidence", 0.5))
+        confidence = _coerce_confidence(raw_quote.get("confidence", 0.5))
         existing = quote_bucket.get(key)
         quote_payload = {
             "thinker_candidate_id": thinker_candidate_id,
@@ -643,6 +905,6 @@ def merge_extraction_outputs(
         "connections": connections,
         "publications": publications,
         "quotes": quotes,
-        "warnings": _dedupe_warnings(warnings),
+        "warnings": _dedupe_warnings(_compact_warning_noise(warnings)),
     }
     return graph

@@ -285,3 +285,75 @@ def test_preview_relation_recovery_pathway_adds_connections(client, monkeypatch)
     )
     assert connections_resp.status_code == 200, connections_resp.text
     assert len(connections_resp.json().get("items", [])) == 1
+
+
+def test_validation_uses_persisted_evidence_for_diagnostics(client, monkeypatch):
+    from app.services.notes_ai import ingestion_jobs as worker
+
+    monkeypatch.setattr(worker, "should_use_full_context", lambda _token_estimate: True)
+    monkeypatch.setattr(
+        worker,
+        "extract_full_text_entities",
+        lambda _content: {
+            "thinkers": [
+                {
+                    "name": "Alyssa Example",
+                    "birth_year": 1900,
+                    "death_year": 1970,
+                    "field": "Philosophy",
+                    "active_period": None,
+                    "biography_notes": None,
+                    "confidence": 0.9,
+                    "evidence": [
+                        {
+                            "chunk_index": 0,
+                            "char_start": 0,
+                            "char_end": 14,
+                            "excerpt": "Alyssa Example",
+                        }
+                    ],
+                }
+            ],
+            "events": [
+                {
+                    "name": "Seminal lecture delivered",
+                    "year": 1951,
+                    "event_type": "publication",
+                    "description": "Alyssa Example delivered a seminal lecture in 1951.",
+                    "confidence": 0.8,
+                    "evidence": [
+                        {
+                            "chunk_index": 0,
+                            "char_start": 20,
+                            "char_end": 65,
+                            "excerpt": "delivered a seminal lecture in 1951",
+                        }
+                    ],
+                }
+            ],
+            "connections": [],
+            "publications": [],
+            "quotes": [],
+            "warnings": [],
+        },
+    )
+
+    preview = client.post(
+        "/api/ingestion/text-to-timeline/preview",
+        json={
+            "file_name": "evidence-validation.txt",
+            "content": "Alyssa Example delivered a seminal lecture in 1951.",
+            "timeline_name_hint": "Evidence Validation",
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    session_id = preview.json()["session_id"]
+
+    validation = client.put(
+        f"/api/ingestion/text-to-timeline/sessions/{session_id}/validation",
+        json={},
+    )
+    assert validation.status_code == 200, validation.text
+
+    blocking_codes = [item.get("code") for item in validation.json().get("diagnostics", {}).get("blocking", [])]
+    assert "candidate_evidence_missing" not in blocking_codes

@@ -17,6 +17,48 @@ def _normalize_name(name: str) -> str:
     return " ".join((name or "").strip().lower().replace(".", " ").split())
 
 
+def _metadata_completeness(thinker: Thinker) -> int:
+    score = 0
+    for value in [
+        thinker.birth_year,
+        thinker.death_year,
+        thinker.active_period,
+        thinker.field,
+        thinker.biography_notes,
+    ]:
+        if value is not None and str(value).strip():
+            score += 1
+    return score
+
+
+def _exact_match_has_conflicts(matches: List[Thinker]) -> bool:
+    if len(matches) < 2:
+        return False
+
+    birth_values = {int(item.birth_year) for item in matches if item.birth_year is not None}
+    death_values = {int(item.death_year) for item in matches if item.death_year is not None}
+    if len(birth_values) > 1 or len(death_values) > 1:
+        return True
+
+    return False
+
+
+def _pick_preferred_exact_match(matches: List[Thinker]) -> Optional[Thinker]:
+    if not matches:
+        return None
+    # Prefer records with richer canonical metadata; tie-break by id for determinism.
+    return sorted(
+        matches,
+        key=lambda item: (
+            _metadata_completeness(item),
+            int(item.birth_year is not None),
+            int(item.death_year is not None),
+            str(item.id),
+        ),
+        reverse=True,
+    )[0]
+
+
 def _score_match(candidate_fields: Dict[str, Any], thinker: Thinker) -> Tuple[float, List[str]]:
     reasons: List[str] = []
     score = 0.0
@@ -118,14 +160,19 @@ def apply_thinker_matching(db: Session, graph: Dict[str, Any]) -> Dict[str, Any]
         exact_name_matches = by_name.get(normalized_name, [])
         candidate_birth = fields.get("birth_year")
         candidate_death = fields.get("death_year")
+        exact_match_conflicts = _exact_match_has_conflicts(exact_name_matches)
+        preferred_exact_match = _pick_preferred_exact_match(exact_name_matches)
 
         potential_matches = exact_name_matches if exact_name_matches else all_existing
         scored: List[Tuple[Thinker, float, List[str]]] = []
+        score_by_id: Dict[str, Tuple[Thinker, float, List[str]]] = {}
         for thinker in potential_matches:
             score, reasons = _score_match(fields, thinker)
             if score <= 0.35:
                 continue
-            scored.append((thinker, score, reasons))
+            row = (thinker, score, reasons)
+            scored.append(row)
+            score_by_id[str(thinker.id)] = row
 
         scored.sort(key=lambda item: item[1], reverse=True)
 
@@ -138,10 +185,23 @@ def apply_thinker_matching(db: Session, graph: Dict[str, Any]) -> Dict[str, Any]
             continue
 
         best, best_score, reasons = scored[0]
+        if preferred_exact_match is not None:
+            preferred_scored = score_by_id.get(str(preferred_exact_match.id))
+            if preferred_scored is not None:
+                best, best_score, reasons = preferred_scored
 
-        if len(exact_name_matches) > 1 and candidate_birth is None and candidate_death is None:
-            # Name alone is ambiguous; force review.
+        if (
+            len(exact_name_matches) > 1
+            and candidate_birth is None
+            and candidate_death is None
+            and exact_match_conflicts
+        ):
+            # Name-only matching remains ambiguous when canonical duplicates disagree on key years.
             candidate["match_status"] = "review_needed"
+        elif len(exact_name_matches) > 1 and not exact_match_conflicts:
+            # Duplicates across timelines can be equivalent records; pick the richest canonical profile.
+            candidate["match_status"] = "reuse_high_confidence"
+            reasons = list(reasons) + ["equivalent exact-name canonical duplicates"]
         elif best_score >= 0.9:
             candidate["match_status"] = "reuse_high_confidence"
         elif best_score >= 0.75:
@@ -154,8 +214,10 @@ def apply_thinker_matching(db: Session, graph: Dict[str, Any]) -> Dict[str, Any]
         candidate["match_reasons"] = reasons
         metadata_delta = _build_metadata_delta(fields, best)
 
-        can_autofill = best_score >= AUTOPOPULATE_MIN_SCORE or (
-            len(exact_name_matches) == 1 and exact_name_matches[0].id == best.id
+        can_autofill = (
+            best_score >= AUTOPOPULATE_MIN_SCORE
+            or (len(exact_name_matches) == 1 and exact_name_matches[0].id == best.id)
+            or (len(exact_name_matches) > 1 and not exact_match_conflicts)
         )
         if AUTOPOPULATE_CANONICAL_FIELDS and can_autofill:
             autofilled = _autofill_from_canonical(fields, best)

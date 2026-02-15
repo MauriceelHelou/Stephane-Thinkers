@@ -27,6 +27,35 @@ type TimelineDraftState = {
 }
 
 const READY_STATUSES = new Set(['ready_for_review', 'ready_for_review_partial'])
+const INGESTION_PANEL_STORAGE_KEY = 'notes_ai_ingestion_panel_state_v1'
+
+type IngestionPanelPersistedState = {
+  fileName: string
+  timelineNameHint: string
+  startYearHint: string
+  endYearHint: string
+  text: string
+  sessionId?: string
+  jobId?: string
+  activeEntity: TimelineBootstrapEntityType
+  candidateCursor?: string
+  candidateOverrides: Record<string, CandidateOverride>
+  timelineDraft: TimelineDraftState
+  diagnostics?: TimelineBootstrapDiagnostics
+  commitResult?: TimelineBootstrapCommitResponse
+  forceSkipInvalid: boolean
+}
+
+function loadPersistedState(): Partial<IngestionPanelPersistedState> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = sessionStorage.getItem(INGESTION_PANEL_STORAGE_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Partial<IngestionPanelPersistedState>
+  } catch {
+    return {}
+  }
+}
 
 function parseOptionalInt(value: string): number | undefined {
   const trimmed = value.trim()
@@ -94,22 +123,25 @@ function buildValidationPayload(
 export function AiIngestionPanel() {
   const queryClient = useQueryClient()
   const router = useRouter()
+  const persistedState = useMemo(() => loadPersistedState(), [])
 
-  const [fileName, setFileName] = useState('source-text.txt')
-  const [timelineNameHint, setTimelineNameHint] = useState('')
-  const [startYearHint, setStartYearHint] = useState('')
-  const [endYearHint, setEndYearHint] = useState('')
-  const [text, setText] = useState('')
+  const [fileName, setFileName] = useState(persistedState.fileName ?? 'source-text.txt')
+  const [timelineNameHint, setTimelineNameHint] = useState(persistedState.timelineNameHint ?? '')
+  const [startYearHint, setStartYearHint] = useState(persistedState.startYearHint ?? '')
+  const [endYearHint, setEndYearHint] = useState(persistedState.endYearHint ?? '')
+  const [text, setText] = useState(persistedState.text ?? '')
 
-  const [sessionId, setSessionId] = useState<string | undefined>()
-  const [jobId, setJobId] = useState<string | undefined>()
-  const [activeEntity, setActiveEntity] = useState<TimelineBootstrapEntityType>('thinkers')
-  const [candidateCursor, setCandidateCursor] = useState<string | undefined>()
-  const [candidateOverrides, setCandidateOverrides] = useState<Record<string, CandidateOverride>>({})
-  const [timelineDraft, setTimelineDraft] = useState<TimelineDraftState>(initialTimelineDraft())
-  const [diagnostics, setDiagnostics] = useState<TimelineBootstrapDiagnostics | undefined>()
-  const [commitResult, setCommitResult] = useState<TimelineBootstrapCommitResponse | undefined>()
-  const [forceSkipInvalid, setForceSkipInvalid] = useState(true)
+  const [sessionId, setSessionId] = useState<string | undefined>(persistedState.sessionId)
+  const [jobId, setJobId] = useState<string | undefined>(persistedState.jobId)
+  const [activeEntity, setActiveEntity] = useState<TimelineBootstrapEntityType>(persistedState.activeEntity ?? 'thinkers')
+  const [candidateCursor, setCandidateCursor] = useState<string | undefined>(persistedState.candidateCursor)
+  const [candidateOverrides, setCandidateOverrides] = useState<Record<string, CandidateOverride>>(
+    persistedState.candidateOverrides ?? {}
+  )
+  const [timelineDraft, setTimelineDraft] = useState<TimelineDraftState>(persistedState.timelineDraft ?? initialTimelineDraft())
+  const [diagnostics, setDiagnostics] = useState<TimelineBootstrapDiagnostics | undefined>(persistedState.diagnostics)
+  const [commitResult, setCommitResult] = useState<TimelineBootstrapCommitResponse | undefined>(persistedState.commitResult)
+  const [forceSkipInvalid, setForceSkipInvalid] = useState(persistedState.forceSkipInvalid ?? false)
   const candidateOverridesRef = useRef<Record<string, CandidateOverride>>({})
 
   const createPreviewMutation = useMutation({
@@ -167,6 +199,46 @@ export function AiIngestionPanel() {
   useEffect(() => {
     candidateOverridesRef.current = candidateOverrides
   }, [candidateOverrides])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stateToPersist: IngestionPanelPersistedState = {
+      fileName,
+      timelineNameHint,
+      startYearHint,
+      endYearHint,
+      text,
+      sessionId,
+      jobId,
+      activeEntity,
+      candidateCursor,
+      candidateOverrides,
+      timelineDraft,
+      diagnostics,
+      commitResult,
+      forceSkipInvalid,
+    }
+    try {
+      sessionStorage.setItem(INGESTION_PANEL_STORAGE_KEY, JSON.stringify(stateToPersist))
+    } catch {
+      // Ignore storage quota / serialization issues and keep in-memory flow active.
+    }
+  }, [
+    fileName,
+    timelineNameHint,
+    startYearHint,
+    endYearHint,
+    text,
+    sessionId,
+    jobId,
+    activeEntity,
+    candidateCursor,
+    candidateOverrides,
+    timelineDraft,
+    diagnostics,
+    commitResult,
+    forceSkipInvalid,
+  ])
 
   const candidatesQuery = useQuery({
     queryKey: ['timeline-preview-candidates', sessionId, activeEntity, candidateCursor],
@@ -331,6 +403,7 @@ export function AiIngestionPanel() {
   const handleOpenTimeline = (timelineId: string) => {
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('focus_timeline_id', timelineId)
+      sessionStorage.removeItem(INGESTION_PANEL_STORAGE_KEY)
     }
     router.push('/')
   }

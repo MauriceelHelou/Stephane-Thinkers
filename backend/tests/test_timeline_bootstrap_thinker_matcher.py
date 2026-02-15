@@ -63,3 +63,82 @@ def test_apply_thinker_matching_autofills_canonical_metadata(monkeypatch):
     assert candidate["fields"]["field"] == "philosophy"
     assert "autofilled_from_canonical" in candidate["metadata_delta"]
 
+
+def test_apply_thinker_matching_auto_reuses_equivalent_exact_name_duplicates(monkeypatch):
+    monkeypatch.setattr(matcher, "AUTOPOPULATE_CANONICAL_FIELDS", True)
+    monkeypatch.setattr(matcher, "AUTOPOPULATE_MIN_SCORE", 0.9)
+
+    db = _FakeDB(
+        [
+            _FakeThinker(
+                thinker_id="t1",
+                name="Hannah Arendt",
+                birth_year=1906,
+                death_year=1975,
+                field="political philosophy",
+            ),
+            _FakeThinker(
+                thinker_id="t2",
+                name="Hannah Arendt",
+                birth_year=None,
+                death_year=None,
+                field=None,
+            ),
+        ]
+    )
+
+    graph = {
+        "thinkers": [
+            {
+                "candidate_id": "thinker_candidate_1",
+                "fields": {"name": "Hannah Arendt", "birth_year": None, "death_year": None, "field": None},
+                "metadata_delta": {},
+            }
+        ]
+    }
+
+    hydrated = matcher.apply_thinker_matching(db, graph)
+    candidate = hydrated["thinkers"][0]
+
+    assert candidate["match_status"] == "reuse_high_confidence"
+    assert candidate["matched_thinker_id"] == "t1"
+    assert candidate["fields"]["birth_year"] == 1906
+    assert candidate["fields"]["death_year"] == 1975
+    assert "equivalent exact-name canonical duplicates" in candidate["match_reasons"]
+
+
+def test_apply_thinker_matching_keeps_review_for_conflicting_exact_name_duplicates(monkeypatch):
+    monkeypatch.setattr(matcher, "AUTOPOPULATE_CANONICAL_FIELDS", True)
+    monkeypatch.setattr(matcher, "AUTOPOPULATE_MIN_SCORE", 0.9)
+
+    db = _FakeDB(
+        [
+            _FakeThinker(
+                thinker_id="a1",
+                name="John Smith",
+                birth_year=1800,
+                death_year=1860,
+            ),
+            _FakeThinker(
+                thinker_id="a2",
+                name="John Smith",
+                birth_year=1900,
+                death_year=1960,
+            ),
+        ]
+    )
+
+    graph = {
+        "thinkers": [
+            {
+                "candidate_id": "thinker_candidate_1",
+                "fields": {"name": "John Smith", "birth_year": None, "death_year": None, "field": None},
+                "metadata_delta": {},
+            }
+        ]
+    }
+
+    hydrated = matcher.apply_thinker_matching(db, graph)
+    candidate = hydrated["thinkers"][0]
+
+    assert candidate["match_status"] == "review_needed"

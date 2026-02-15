@@ -343,7 +343,7 @@ class TimelineBootstrapValidationResponse(BaseModel):
 
 class TimelineBootstrapCommitRequest(BaseModel):
     commit_message: Optional[str] = None
-    force_skip_invalid: bool = True
+    force_skip_invalid: bool = False
 
 
 class TimelineBootstrapCommitResponse(BaseModel):
