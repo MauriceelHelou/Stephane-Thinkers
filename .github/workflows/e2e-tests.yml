@@ -144,7 +144,11 @@ jobs:
       - name: Start backend server
         working-directory: backend
         run: |
-          uvicorn app.main:app --host 0.0.0.0 --port 8010 &
+          # Detach with nohup + disown so the server survives this step ending.
+          # A bare `uvicorn &` is torn down when the step's shell exits (unlike
+          # `next start`, which re-parents a child), so it was gone by wait-on.
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8010 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          disown
           sleep 5
         env:
           DATABASE_URL: sqlite:///./test_db.db
@@ -163,6 +167,14 @@ jobs:
       - name: Wait for services
         run: |
           npx wait-on http://localhost:3010 http://localhost:8010/api/health --timeout 60000
+
+      - name: Dump backend log on failure
+        if: failure()
+        run: |
+          echo "=== backend.log ==="
+          cat "$RUNNER_TEMP/backend.log" 2>/dev/null || echo "(no backend log found)"
+          echo "=== health probe ==="
+          curl -sv http://localhost:8010/api/health || true
 
       - name: Run E2E tests (shard ${{ matrix.shard }})
         working-directory: frontend
