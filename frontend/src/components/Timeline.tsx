@@ -14,13 +14,6 @@ const EVENT_ZONE_OFFSET = -15 // Base Y offset from centerY for events
 const EVENT_BBOX_HEIGHT = EVENT_SHAPE_SIZE * 2 + EVENT_LABEL_HEIGHT // shape + label
 const EVENT_BBOX_WIDTH = EVENT_SHAPE_SIZE * 4 // generous horizontal hitbox
 const CANVAS_VERTICAL_PADDING = 12
-const MAX_EVENT_TITLE_CHARS = 16
-
-const truncateEventTitle = (title: string): string => {
-  if (title.length <= MAX_EVENT_TITLE_CHARS) return title
-  if (MAX_EVENT_TITLE_CHARS <= 3) return '.'.repeat(MAX_EVENT_TITLE_CHARS)
-  return `${title.slice(0, MAX_EVENT_TITLE_CHARS - 3)}...`
-}
 
 // Sticky note color palette - more realistic sticky note colors with shadow and fold
 const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; fold: string; border: string; text: string; shadow: string }> = {
@@ -402,7 +395,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     if (filteredThinkers.length > 0) {
-      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos)
+      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos, canvasHeight)
     } else {
       drawEmptyState(ctx, canvasWidth, canvasHeight)
     }
@@ -761,7 +754,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     return `${truncated}${ellipsis}`
   }
 
-  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null) => {
+  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0) => {
+
+    const axisY = canvasHeight / 2
 
     thinkers.forEach((thinker) => {
       const pos = positions.get(thinker.id)
@@ -775,6 +770,24 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       }
       const isSelected = thinker.id === selectedId
       const isBulkSelected = bulkSelected.includes(thinker.id)
+
+      // Faint dashed leader line anchoring the node to its point on the timeline.
+      // x is locked to the thinker's year, so the line is always perfectly vertical.
+      if (axisY > 0) {
+        const edgeY = y < axisY ? y + bgHeight / 2 : y - bgHeight / 2
+        if (Math.abs(axisY - edgeY) > 1) {
+          ctx.save()
+          ctx.strokeStyle = '#D8D2C8'
+          ctx.lineWidth = 1
+          ctx.setLineDash([2, 4])
+          ctx.beginPath()
+          ctx.moveTo(x, edgeY)
+          ctx.lineTo(x, axisY)
+          ctx.stroke()
+          ctx.setLineDash([])
+          ctx.restore()
+        }
+      }
 
       // Draw name label with background
       ctx.font = '14px "Crimson Text", serif'
@@ -1249,7 +1262,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     ctx.font = '10px "JetBrains Mono", monospace'
     const eventWidths = new Map<string, number>()
     sortedEvents.forEach((event) => {
-      const textWidth = ctx.measureText(truncateEventTitle(event.name)).width
+      // Measure the FULL title so collision detection reserves enough horizontal
+      // space; overlapping events are resolved by vertical stacking below, never
+      // by truncating the label.
+      const textWidth = ctx.measureText(event.name).width
       // Bounding box width = max of shape width and label text width
       eventWidths.set(event.id, Math.max(EVENT_BBOX_WIDTH, textWidth + 4))
     })
@@ -1376,7 +1392,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.fillStyle = '#333333'
       ctx.font = '10px "JetBrains Mono", monospace'
       ctx.textAlign = 'center'
-      ctx.fillText(truncateEventTitle(event.name), x, y - size - 5)
+      ctx.fillText(event.name, x, y - size - 5)
     })
   }
 
@@ -1716,18 +1732,17 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Handle thinker dragging
     if (draggedThinkerId) {
       const coords = getCanvasCoordinates(e)
-      if (coords) {
-        const newX = coords.x - dragOffset.x
+      // Horizontal position is locked to the thinker's year on the timeline;
+      // dragging only moves the node vertically (up/down). We keep the original
+      // x (captured at drag start) so the year never changes during a drag.
+      if (coords && draggedThinkerPos) {
+        const lockedX = draggedThinkerPos.x
         const newY = coords.y - dragOffset.y
-        // Only mark as dragged if there's significant movement (more than 5 pixels)
-        if (draggedThinkerPos) {
-          const dx = Math.abs(newX - draggedThinkerPos.x)
-          const dy = Math.abs(newY - draggedThinkerPos.y)
-          if (dx > 5 || dy > 5) {
-            setHasDragged(true)
-          }
+        // Only mark as dragged if there's significant vertical movement (>5px)
+        if (Math.abs(newY - draggedThinkerPos.y) > 5) {
+          setHasDragged(true)
         }
-        setDraggedThinkerPos({ x: newX, y: newY })
+        setDraggedThinkerPos({ x: lockedX, y: newY })
       }
       return
     }
