@@ -1,6 +1,8 @@
 // API URLs
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8010'
-export const FRONTEND_URL = 'http://localhost:3010'
+// Use 127.0.0.1 (not localhost): on CI runners localhost resolves to IPv6
+// ::1 first, but the backend (uvicorn --host 0.0.0.0) binds IPv4 only.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_BASE_URL || 'http://127.0.0.1:8010'
+export const FRONTEND_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://127.0.0.1:3010'
 
 // Test IDs - standardized data-testid values used throughout the app
 export const TEST_IDS = {

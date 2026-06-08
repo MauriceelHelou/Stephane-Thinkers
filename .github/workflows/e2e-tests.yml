@@ -153,7 +153,7 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./test_db.db
           ENVIRONMENT: test
-          FRONTEND_URL: http://localhost:3010
+          FRONTEND_URL: http://127.0.0.1:3010
 
       - name: Build and start frontend
         working-directory: frontend
@@ -162,11 +162,11 @@ jobs:
           npm start &
           sleep 10
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:8010
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8010
 
       - name: Wait for services
         run: |
-          npx wait-on http://localhost:3010 http://localhost:8010/api/health --timeout 60000
+          npx wait-on http://127.0.0.1:3010 http://127.0.0.1:8010/api/health --timeout 60000
 
       - name: Dump backend log on failure
         if: failure()
@@ -174,7 +174,7 @@ jobs:
           echo "=== backend.log ==="
           cat "$RUNNER_TEMP/backend.log" 2>/dev/null || echo "(no backend log found)"
           echo "=== health probe ==="
-          curl -sv http://localhost:8010/api/health || true
+          curl -sv http://127.0.0.1:8010/api/health || true
 
       - name: Run E2E tests (shard ${{ matrix.shard }})
         working-directory: frontend
@@ -185,8 +185,8 @@ jobs:
             --reporter=blob
         env:
           CI: true
-          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3010
-          API_BASE_URL: http://localhost:8010
+          PLAYWRIGHT_TEST_BASE_URL: http://127.0.0.1:3010
+          API_BASE_URL: http://127.0.0.1:8010
 
       - name: Upload blob report
         if: always()
@@ -251,8 +251,8 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./test_db.db
           ENVIRONMENT: test
-          FRONTEND_URL: http://localhost:3010
-          NEXT_PUBLIC_API_URL: http://localhost:8010
+          FRONTEND_URL: http://127.0.0.1:3010
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8010
 
       - name: Run visual tests
         working-directory: frontend
