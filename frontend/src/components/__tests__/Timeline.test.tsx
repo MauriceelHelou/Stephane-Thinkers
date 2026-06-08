@@ -1,7 +1,35 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { http, HttpResponse } from 'msw'
 import { Timeline } from '../Timeline'
+import { server } from '../../test/setup'
+
+const API_URL = 'http://localhost:8010'
+
+// A timeline whose bounds make yearToX deterministic for the drag tests below.
+const FIXED_TIMELINE = {
+  id: 'timeline-1',
+  name: 'Test Timeline',
+  description: '',
+  start_year: 1700,
+  end_year: 2000,
+}
+
+// Make the canvas report real dimensions so position math (yearToX) is
+// deterministic. jsdom returns zeros by default.
+const mockCanvasRect = () =>
+  vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 800,
+    height: 600,
+    left: 0,
+    top: 0,
+    right: 800,
+    bottom: 600,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect)
 
 const createQueryClient = () => new QueryClient({
   defaultOptions: {
@@ -339,6 +367,94 @@ describe('Timeline', () => {
         const buttons = screen.getAllByRole('button')
         expect(buttons.length).toBeGreaterThanOrEqual(3)
       })
+    })
+  })
+
+  describe('Thinker drag is locked to the timeline (horizontal)', () => {
+    // A single manually-positioned thinker anchored at 1800 so its rendered
+    // position is fully deterministic: yearToX(1800) within a 1700-2000 timeline
+    // on an 800x600 canvas = 100 + (1800-1700) * (800*0.8/300) ≈ 313.3 (x),
+    // centerY (300) + position_y (0) = 300 (y).
+    const seedSingleThinker = () => {
+      server.use(
+        http.get(`${API_URL}/api/thinkers/`, () =>
+          HttpResponse.json([
+            {
+              id: 't1',
+              name: 'Anchored',
+              birth_year: 1724,
+              death_year: 1804,
+              anchor_year: 1800,
+              field: 'Philosophy',
+              timeline_id: 'timeline-1',
+              position_x: 0,
+              position_y: 0,
+              is_manually_positioned: true,
+            },
+          ])
+        )
+      )
+    }
+
+    const THINKER_X = 313 // ≈ yearToX(1800); within the node's hit box
+    const THINKER_Y = 300 // centerY + position_y(0)
+
+    it('keeps anchor_year fixed during a large horizontal drag, only changing position_y', async () => {
+      mockCanvasRect()
+      seedSingleThinker()
+      const onThinkerDrag = vi.fn()
+      const { container } = renderWithQueryClient(
+        <Timeline onThinkerDrag={onThinkerDrag} selectedTimeline={FIXED_TIMELINE as never} />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('canvas')).toBeInTheDocument()
+      })
+      const canvas = container.querySelector('canvas')!
+
+      // Grab the thinker, then drag far to the RIGHT (and down a little).
+      // If horizontal drag weren't locked, anchor_year would jump to ~1934.
+      fireEvent.mouseDown(canvas, { clientX: THINKER_X, clientY: THINKER_Y })
+      fireEvent.mouseMove(canvas, { clientX: 600, clientY: 360 })
+      fireEvent.mouseUp(canvas, { clientX: 600, clientY: 360 })
+
+      await waitFor(() => {
+        expect(onThinkerDrag).toHaveBeenCalledTimes(1)
+      })
+      const [id, anchorYear, positionY] = onThinkerDrag.mock.calls[0]
+      expect(id).toBe('t1')
+      // Year is LOCKED to the timeline despite the big horizontal mouse move.
+      expect(anchorYear).toBe(1800)
+      // Vertical movement is preserved (dragged ~60px below the axis).
+      expect(positionY).toBeGreaterThan(40)
+    })
+
+    it('does not change anchor_year on a purely horizontal drag', async () => {
+      mockCanvasRect()
+      seedSingleThinker()
+      const onThinkerDrag = vi.fn()
+      const { container } = renderWithQueryClient(
+        <Timeline onThinkerDrag={onThinkerDrag} selectedTimeline={FIXED_TIMELINE as never} />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('canvas')).toBeInTheDocument()
+      })
+      const canvas = container.querySelector('canvas')!
+
+      fireEvent.mouseDown(canvas, { clientX: THINKER_X, clientY: THINKER_Y })
+      fireEvent.mouseMove(canvas, { clientX: 550, clientY: THINKER_Y }) // pure horizontal
+      fireEvent.mouseUp(canvas, { clientX: 550, clientY: THINKER_Y })
+
+      // A purely horizontal move is below the vertical drag threshold, so either
+      // no drag is committed, or if committed the year is unchanged. Never a year jump.
+      await waitFor(() => {
+        expect(container.querySelector('canvas')).toBeInTheDocument()
+      })
+      if (onThinkerDrag.mock.calls.length > 0) {
+        const [, anchorYear] = onThinkerDrag.mock.calls[0]
+        expect(anchorYear).toBe(1800)
+      }
     })
   })
 })
