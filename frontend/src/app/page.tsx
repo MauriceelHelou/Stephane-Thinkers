@@ -1394,7 +1394,9 @@ export default function Home() {
       )}
 
       {/* Timeline Tabs */}
-      <div className="flex items-center px-2 sm:px-4 py-2 sm:py-3 border-b border-timeline bg-gray-50 flex-shrink-0 z-40 relative">
+      {/* z-[36]: above the canvas (z-[35]) but below the header (z-40) so the header's
+          overflowing dropdowns (e.g. "More") paint over this bar instead of behind it. */}
+      <div className="flex items-center px-2 sm:px-4 py-2 sm:py-3 border-b border-timeline bg-gray-50 flex-shrink-0 z-[36] relative">
         {/* Fixed action buttons on the left */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
