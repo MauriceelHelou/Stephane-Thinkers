@@ -14,6 +14,13 @@ const EVENT_ZONE_OFFSET = -15 // Base Y offset from centerY for events
 const EVENT_BBOX_HEIGHT = EVENT_SHAPE_SIZE * 2 + EVENT_LABEL_HEIGHT // shape + label
 const EVENT_BBOX_WIDTH = EVENT_SHAPE_SIZE * 4 // generous horizontal hitbox
 const CANVAS_VERTICAL_PADDING = 12
+const MAX_EVENT_TITLE_CHARS = 16
+
+const truncateEventTitle = (title: string): string => {
+  if (title.length <= MAX_EVENT_TITLE_CHARS) return title
+  if (MAX_EVENT_TITLE_CHARS <= 3) return '.'.repeat(MAX_EVENT_TITLE_CHARS)
+  return `${title.slice(0, MAX_EVENT_TITLE_CHARS - 3)}...`
+}
 
 // Sticky note color palette - more realistic sticky note colors with shadow and fold
 const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; fold: string; border: string; text: string; shadow: string }> = {
@@ -1242,7 +1249,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     ctx.font = '10px "JetBrains Mono", monospace'
     const eventWidths = new Map<string, number>()
     sortedEvents.forEach((event) => {
-      const textWidth = ctx.measureText(event.name).width
+      const textWidth = ctx.measureText(truncateEventTitle(event.name)).width
       // Bounding box width = max of shape width and label text width
       eventWidths.set(event.id, Math.max(EVENT_BBOX_WIDTH, textWidth + 4))
     })
@@ -1369,7 +1376,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.fillStyle = '#333333'
       ctx.font = '10px "JetBrains Mono", monospace'
       ctx.textAlign = 'center'
-      ctx.fillText(event.name, x, y - size - 5)
+      ctx.fillText(truncateEventTitle(event.name), x, y - size - 5)
     })
   }
 

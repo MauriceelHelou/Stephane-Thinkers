@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -17,6 +17,11 @@ function createQueryClient() {
 }
 
 describe('AiIngestionPanel', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    vi.restoreAllMocks()
+  })
+
   it('submits preview request from input step', async () => {
     vi.spyOn(ingestionApi, 'createTimelinePreview').mockResolvedValue({
       job_id: 'job-1',
@@ -167,5 +172,71 @@ describe('AiIngestionPanel', () => {
     expect(payload?.candidates?.some((candidate: { match_action?: string; candidate_id?: string }) => (
       candidate.candidate_id === 'thinker-1' && candidate.match_action === 'create'
     ))).toBe(true)
+  })
+
+  it('restores an in-flight preview session from sessionStorage', async () => {
+    sessionStorage.setItem(
+      'notes_ai_ingestion_panel_state_v1',
+      JSON.stringify({
+        fileName: 'source-text.txt',
+        timelineNameHint: '',
+        startYearHint: '',
+        endYearHint: '',
+        text: 'Persisted text',
+        sessionId: 'session-restored',
+        jobId: 'job-restored',
+        activeEntity: 'thinkers',
+        candidateCursor: undefined,
+        candidateOverrides: {},
+        timelineDraft: {
+          name: '',
+          description: '',
+          start_year: '',
+          end_year: '',
+        },
+        forceSkipInvalid: true,
+      })
+    )
+
+    const getSessionSpy = vi.spyOn(ingestionApi, 'getTimelinePreviewSession').mockResolvedValue({
+      session_id: 'session-restored',
+      ingestion_job_id: 'job-restored',
+      status: 'queued',
+      timeline_name_suggested: 'Draft Timeline',
+      summary_markdown: null,
+      candidate_counts: {
+        thinkers: 0,
+        events: 0,
+        connections: 0,
+        publications: 0,
+        quotes: 0,
+      },
+      warnings: [],
+      partial: false,
+      telemetry: {
+        extraction_mode: 'full_context',
+      },
+      error_message: null,
+      committed_timeline_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    vi.spyOn(jobsApi, 'getStatus').mockResolvedValue({
+      job_id: 'job-restored',
+      job_type: 'text_to_timeline_preview',
+      status: 'running',
+      result_json: null,
+      error_message: null,
+    })
+
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <AiIngestionPanel />
+      </QueryClientProvider>
+    )
+
+    await screen.findByText(/Processing timeline preview/i)
+    expect(getSessionSpy).toHaveBeenCalledWith('session-restored')
   })
 })

@@ -23,6 +23,8 @@ from app.models.quiz import (
 from app.models.folder import Folder
 from app.models.critical_term import CriticalTerm, TermOccurrence
 from app.models.thinker_mention import ThinkerMention, ThinkerCoOccurrence
+from app.models.backup import BackupRun, BackupArtifact, RestoreValidationRun
+from app.models.notion_sync import NotionSyncMap, NotionSyncJob
 from app.models.notes_ai import (
     INGESTION_JOB_TYPES,
     SynthesisRun,
@@ -104,4 +106,11 @@ __all__ = [
     "TimelineBootstrapCandidate",
     "TimelineBootstrapCandidateEvidence",
     "TimelineBootstrapCommitAudit",
+    # Backup metadata
+    "BackupRun",
+    "BackupArtifact",
+    "RestoreValidationRun",
+    # Notion sync
+    "NotionSyncMap",
+    "NotionSyncJob",
 ]
