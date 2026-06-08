@@ -166,7 +166,19 @@ jobs:
 
       - name: Wait for services
         run: |
-          npx wait-on http://127.0.0.1:3010 http://127.0.0.1:8010/api/health --timeout 60000
+          # Poll with curl GET (not wait-on): wait-on's HEAD probe never
+          # succeeded even though GET /api/health returns 200 instantly, and a
+          # longer budget also covers slow backend startup (heavy ML imports).
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:8010/api/health > /dev/null \
+               && curl -sf http://127.0.0.1:3010 > /dev/null; then
+              echo "Services ready after $i attempt(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for services"
+          exit 1
 
       - name: Dump backend log on failure
         if: failure()
