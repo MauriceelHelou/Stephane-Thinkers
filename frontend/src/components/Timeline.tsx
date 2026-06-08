@@ -856,10 +856,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
 
-      // Use dragged position if this note is being dragged
-      let x = note.position_x
+      // position_x is stored in unscaled "world" space (like thinker positions),
+      // so multiply by scale to keep notes pinned to the timeline through horizontal zoom.
+      let x = scaleX(note.position_x)
       let y = note.position_y
       if (dragNoteId === note.id && dragNotePos) {
+        // draggedNotePos.x is already in scaled screen space during an active drag.
         x = dragNotePos.x
         y = dragNotePos.y
       }
@@ -1452,8 +1454,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const note = canvasNotes[i]
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) continue
 
-      // Input x,y are in canvas-space (offset already subtracted), so compare directly
-      const nx = note.position_x
+      // Input x,y are in scaled canvas-space (offset already subtracted). Notes are
+      // stored in unscaled world space, so scale the X before comparing. The hit box
+      // width/height are screen pixels (text doesn't grow with zoom), so leave them.
+      const nx = scaleX(note.position_x)
       const ny = note.position_y
       const { width, height } = getStickyNoteDimensions(note)
 
@@ -1672,13 +1676,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       // Start dragging the note
       setDraggedNoteId(note.id)
       setHasNoteDragged(false)
-      const noteX = Math.round(note.position_x ?? 0)
+      // draggedNotePos works in scaled screen space (matching getCanvasCoordinates),
+      // so convert the stored world X to screen X here.
+      const noteScreenX = Math.round(scaleX(note.position_x ?? 0))
       const noteY = Math.round(note.position_y ?? 0)
       setNoteDragOffset({
-        x: Math.round(coords.x - noteX),
+        x: Math.round(coords.x - noteScreenX),
         y: Math.round(coords.y - noteY)
       })
-      setDraggedNotePos({ x: noteX, y: noteY })
+      setDraggedNotePos({ x: noteScreenX, y: noteY })
       return
     }
 
@@ -1833,8 +1839,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Handle note drag end - only save position if there was actual dragging
     if (draggedNoteId && draggedNotePos && onNoteDrag && hasNoteDragged) {
-      // Round positions to integers before saving to avoid sub-pixel values
-      const finalX = Math.round(draggedNotePos.x)
+      // draggedNotePos.x is in scaled screen space; store the unscaled world X so the
+      // note stays pinned to the same spot regardless of the zoom level at drag time.
+      const finalX = Math.round(draggedNotePos.x / scale)
       const finalY = Math.round(draggedNotePos.y)
       onNoteDrag(draggedNoteId, finalX, finalY)
       // Mark that we just dragged to prevent click from firing
@@ -1886,9 +1893,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       return
     }
 
-    // In sticky note mode, clicking on empty space places a note
+    // In sticky note mode, clicking on empty space places a note. Store the position
+    // in unscaled world space (divide X by scale) so it stays pinned through zoom.
     if (!thinker && onCanvasClick && stickyNoteMode) {
-      onCanvasClick(coords)
+      onCanvasClick({ x: coords.x / scale, y: coords.y })
       return
     }
 

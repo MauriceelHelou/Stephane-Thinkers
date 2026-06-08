@@ -457,4 +457,89 @@ describe('Timeline', () => {
       }
     })
   })
+
+  describe('Canvas notes stay pinned to the timeline through horizontal zoom', () => {
+    // A single canvas note stored in unscaled "world" space at x=200, y=200.
+    // Title "Note" with no content => hit box is 100px wide, 40px tall.
+    // At scale=1 the box is [200,300] x [200,240]; after one Zoom In (scale=1.1)
+    // it must move to [220,320] x [200,240] (vertical is never zoomed).
+    const NOTE = {
+      id: 'n1',
+      title: 'Note',
+      content: '',
+      color: 'yellow',
+      is_canvas_note: true,
+      position_x: 200,
+      position_y: 200,
+    }
+
+    it('hit-tests the note at position_x * scale after zooming in, and saves the unscaled world X on drag', async () => {
+      mockCanvasRect()
+      const onNoteDrag = vi.fn()
+      const { container, getByText } = renderWithQueryClient(
+        <Timeline
+          canvasNotes={[NOTE as never]}
+          onNoteDrag={onNoteDrag}
+          selectedTimeline={FIXED_TIMELINE as never}
+        />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('canvas')).toBeInTheDocument()
+      })
+      const canvas = container.querySelector('canvas')!
+
+      // Zoom in once: scale = 1 * 1.1 = 1.1
+      fireEvent.click(getByText('Zoom In'))
+
+      // x=310 is OUTSIDE the unscaled box [200,300] but INSIDE the scaled box [220,320].
+      // Pre-fix (no scaling) this misses the note entirely and no drag starts.
+      fireEvent.mouseDown(canvas, { clientX: 310, clientY: 210 })
+      fireEvent.mouseMove(canvas, { clientX: 350, clientY: 250 })
+      fireEvent.mouseUp(canvas, { clientX: 350, clientY: 250 })
+
+      await waitFor(() => {
+        expect(onNoteDrag).toHaveBeenCalledTimes(1)
+      })
+
+      const [id, posX, posY] = onNoteDrag.mock.calls[0]
+      expect(id).toBe('n1')
+      // Saved X is in unscaled world space:
+      //   screenX at grab = 310, offset = 310 - 200*1.1 = 90
+      //   on move screenX = 350 - 90 = 260 -> world X = round(260 / 1.1) = 236
+      expect(posX).toBe(236)
+      // Vertical is never zoomed: screenY 250 - offset(210-200=10) = 240
+      expect(posY).toBe(240)
+    })
+
+    it('does not hit-test the note at its old screen X after zooming (note moves with the timeline)', async () => {
+      mockCanvasRect()
+      const onNoteDrag = vi.fn()
+      const onEmptyClick = vi.fn()
+      const { container, getByText } = renderWithQueryClient(
+        <Timeline
+          canvasNotes={[NOTE as never]}
+          onNoteDrag={onNoteDrag}
+          onEmptyClick={onEmptyClick}
+          selectedTimeline={FIXED_TIMELINE as never}
+        />
+      )
+
+      await waitFor(() => {
+        expect(container.querySelector('canvas')).toBeInTheDocument()
+      })
+      const canvas = container.querySelector('canvas')!
+
+      // Zoom IN a lot so the note's scaled box shifts well past x=205.
+      for (let i = 0; i < 5; i++) fireEvent.click(getByText('Zoom In')) // scale = 1.1^5 ≈ 1.61
+
+      // x=205 was inside the note at scale=1, but the note has since moved right
+      // (world 200 -> screen ~322). A drag started here must NOT move the note.
+      fireEvent.mouseDown(canvas, { clientX: 205, clientY: 210 })
+      fireEvent.mouseMove(canvas, { clientX: 260, clientY: 250 })
+      fireEvent.mouseUp(canvas, { clientX: 260, clientY: 250 })
+
+      expect(onNoteDrag).not.toHaveBeenCalled()
+    })
+  })
 })
