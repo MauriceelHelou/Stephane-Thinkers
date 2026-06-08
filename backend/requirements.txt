@@ -6,7 +6,7 @@ pydantic>=2.10.0
 pydantic-settings>=2.6.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.17
-psycopg2-binary>=2.9.9  # PostgreSQL adapter for Python
+psycopg2-binary>=2.9.12  # PostgreSQL adapter for Python
 
 # AI/LLM dependencies
 openai>=1.10.0  # For both DeepSeek (OpenAI-compatible) and OpenAI embeddings
