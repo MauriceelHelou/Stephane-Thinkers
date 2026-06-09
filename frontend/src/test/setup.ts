@@ -28,6 +28,7 @@ const mockContext = {
   arc: vi.fn(),
   arcTo: vi.fn(),
   rect: vi.fn(),
+  roundRect: vi.fn(),
   fill: vi.fn(),
   stroke: vi.fn(),
   clip: vi.fn(),

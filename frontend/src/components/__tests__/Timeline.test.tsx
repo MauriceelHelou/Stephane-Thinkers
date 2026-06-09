@@ -457,4 +457,58 @@ describe('Timeline', () => {
       }
     })
   })
+
+  describe('Range-aware items (bars + tethers)', () => {
+    const canvasCtx = () =>
+      document.createElement('canvas').getContext('2d') as unknown as { roundRect: ReturnType<typeof vi.fn> }
+
+    it('draws dated thinkers as bars (uses roundRect)', async () => {
+      mockCanvasRect()
+      // Default seed thinkers (Kant 1724–1804, Hegel 1770–1831) are ranges.
+      const { container } = renderWithQueryClient(
+        <Timeline selectedTimeline={FIXED_TIMELINE as never} />
+      )
+      await waitFor(() => expect(container.querySelector('canvas')).toBeInTheDocument())
+      await waitFor(() => expect(canvasCtx().roundRect).toHaveBeenCalled())
+    })
+
+    it('renders a living thinker (birth, no death) as a bar without crashing', async () => {
+      mockCanvasRect()
+      server.use(
+        http.get(`${API_URL}/api/thinkers/`, () =>
+          HttpResponse.json([
+            { id: 'living', name: 'Living Thinker', birth_year: 1950, death_year: null, timeline_id: 'timeline-1', position_x: 0, position_y: 0 },
+          ])
+        )
+      )
+      const { container } = renderWithQueryClient(
+        <Timeline selectedTimeline={FIXED_TIMELINE as never} />
+      )
+      await waitFor(() => expect(container.querySelector('canvas')).toBeInTheDocument())
+      await waitFor(() => expect(canvasCtx().roundRect).toHaveBeenCalled())
+    })
+
+    it('selects a ranged event when its bar is clicked', async () => {
+      mockCanvasRect()
+      server.use(
+        http.get(`${API_URL}/api/thinkers/`, () => HttpResponse.json([])),
+        http.get(`${API_URL}/api/timeline-events/`, () =>
+          HttpResponse.json([
+            { id: 'evt-range', name: 'Long Era', year: 1750, end_year: 1950, event_type: 'war', timeline_id: 'timeline-1' },
+          ])
+        )
+      )
+      const onEventClick = vi.fn()
+      const { container } = renderWithQueryClient(
+        <Timeline selectedTimeline={FIXED_TIMELINE as never} onEventClick={onEventClick} />
+      )
+      await waitFor(() => expect(container.querySelector('canvas')).toBeInTheDocument())
+      // Wait until the bar has been drawn (event data loaded).
+      await waitFor(() => expect(canvasCtx().roundRect).toHaveBeenCalled())
+      const canvas = container.querySelector('canvas')!
+      // Inside the bar: x0 ≈ yearToX(1750) ≈ 207, y ≈ centerY + EVENT_ZONE_OFFSET = 285.
+      fireEvent.mouseDown(canvas, { clientX: 300, clientY: 285 })
+      await waitFor(() => expect(onEventClick).toHaveBeenCalledWith('evt-range'))
+    })
+  })
 })

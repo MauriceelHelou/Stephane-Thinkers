@@ -4,7 +4,18 @@ import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi, combinedViewsApi } from '@/lib/api'
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
+import { classifyItem, resolveThinkerRange, resolveEventRange, barExtent } from '@/lib/timelineItems'
+import {
+  MIN_BAR_WIDTH, THINKER_BAR_HEIGHT, EVENT_BAR_HEIGHT, BAR_LABEL_PADDING, BAR_LABEL_GAP, MAX_BESIDE_LABEL_PX,
+  CURRENT_YEAR, eventFill, eventGlyph, resolveBarLabelLayout, shouldShowTethers, chooseStableLane,
+  type BarMeta, type BarStyle, type DotRegistry, type BarLOD, type ScoredLane,
+  drawTetherLine, drawTetherDot, drawBar,
+} from '@/lib/timelineDraw'
 import type { Thinker, Connection, TimelineEvent, CombinedViewMember, Timeline } from '@/types'
+
+// Position entries; `bar` present only for range items drawn as bars.
+type CPos = { x: number; y: number; width: number; height: number; bar?: BarMeta }
+type CEventPos = { x: number; y: number; width: number; height: number; bar?: BarMeta }
 
 interface CombinedTimelineCanvasProps {
   viewId: string
@@ -32,13 +43,8 @@ const TIMELINE_COLORS = [
   { bg: '#FFEDD5', border: '#F97316', dot: '#EA580C', name: 'orange' },  // Orange
   { bg: '#CFFAFE', border: '#06B6D4', dot: '#0891B2', name: 'cyan' },    // Cyan
 ]
-const MAX_EVENT_TITLE_CHARS = 16
-
-const truncateEventTitle = (title: string): string => {
-  if (title.length <= MAX_EVENT_TITLE_CHARS) return title
-  if (MAX_EVENT_TITLE_CHARS <= 3) return '.'.repeat(MAX_EVENT_TITLE_CHARS)
-  return `${title.slice(0, MAX_EVENT_TITLE_CHARS - 3)}...`
-}
+// Clear zone (px) around each lane's coloured axis line — no item sits on it.
+const LANE_AXIS_BAND = 14
 
 export function CombinedTimelineCanvas({
   viewId,
@@ -65,6 +71,10 @@ export function CombinedTimelineCanvas({
   const [canvasSize, setCanvasSize] = useState({ width: 1200, height: 600 })
   const justPannedRef = useRef(false)
   const panMovedRef = useRef(false)
+  // Previous auto-placed row per item id — the collision engine biases toward
+  // these so items stay put as the user zooms instead of re-stacking each frame.
+  const prevThinkerYRef = useRef<Map<string, number>>(new Map())
+  const prevEventYRef = useRef<Map<string, number>>(new Map())
 
   const MIN_TIMELINE_SCALE = 1.0
   const CONNECTION_CURVE_OFFSET_STEP = 25
@@ -101,8 +111,23 @@ export function CombinedTimelineCanvas({
     return map
   }, [combinedView])
 
-  // Compact lane height - keeps timelines close together
-  const LANE_HEIGHT = 120
+  // Lane height is sized to the densest lane's content so every item gets a
+  // non-overlapping row. Small views fill the canvas; dense ones grow beyond it
+  // and become vertically pannable.
+  const LANE_HEIGHT = useMemo(() => {
+    const members = combinedView?.members ?? []
+    const n = Math.max(1, members.length)
+    let maxItems = 1
+    for (const m of members) {
+      const tc = allThinkers.filter((t) => (t.timeline_id || '') === m.timeline_id).length
+      const ec = timelineEvents.filter((e) => e.timeline_id === m.timeline_id).length
+      maxItems = Math.max(maxItems, tc + ec)
+    }
+    const rowStep = THINKER_BAR_HEIGHT + 8
+    const needed = maxItems * rowStep + 2 * LANE_AXIS_BAND + 28
+    const fill = Math.floor((canvasSize.height - 16) / n)
+    return Math.max(150, fill, needed)
+  }, [combinedView, canvasSize.height, allThinkers, timelineEvents])
 
   // Calculate swim-lane center Y for each timeline member
   const getLaneCenterY = useCallback((timelineId: string, canvasHeight: number): number => {
@@ -111,11 +136,12 @@ export function CombinedTimelineCanvas({
     const memberIndex = combinedView.members.findIndex((m: CombinedViewMember) => m.timeline_id === timelineId)
     if (memberIndex === -1) return canvasHeight / 2 + offsetY
 
-    // Pack lanes tightly around the vertical center of the canvas
+    // Centre the lanes when they fit; anchor at the top (pan to see the rest)
+    // when total height exceeds the canvas.
     const totalHeight = memberCount * LANE_HEIGHT
-    const topOfLanes = (canvasHeight - totalHeight) / 2
+    const topOfLanes = totalHeight <= canvasHeight ? (canvasHeight - totalHeight) / 2 : 12
     return topOfLanes + memberIndex * LANE_HEIGHT + LANE_HEIGHT / 2 + offsetY
-  }, [combinedView, offsetY])
+  }, [combinedView, offsetY, LANE_HEIGHT])
 
   // Filter thinkers to those in member timelines first.
   const combinedViewThinkers = useMemo(() => {
@@ -325,43 +351,59 @@ export function CombinedTimelineCanvas({
     events: TimelineEvent[],
     canvasWidth: number,
     canvasHeight: number
-  ): Map<string, { x: number; y: number }> => {
-    const positions = new Map<string, { x: number; y: number }>()
+  ): Map<string, CEventPos> => {
+    const positions = new Map<string, CEventPos>()
     const laneHeight = LANE_HEIGHT
 
-    // Zoom-dependent spacing (quantized to avoid jitter during zoom)
-    const zoomFactor = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
-    const eventGap = 4 * zoomFactor
+    // Vertical gap is fixed — zoom is horizontal-only, so event rows must not
+    // drift vertically as you zoom.
+    const eventGap = 4
     const eventBBoxHeight = 8 * 2 + 12 // shape + label
     const defaultEventBBoxWidth = 8 * 4
 
-    // Measure actual text widths for text-aware collision detection
+    const sortedEvents = [...events].sort((a, b) => a.year - b.year)
+
+    // Per-event geometry: x-centre, footprint width, and (for ranged events) bar
+    // metadata. Text-aware so collision reserves enough horizontal space.
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
-    const eventWidths = new Map<string, number>()
-    if (ctx) {
-      ctx.save()
-      ctx.font = '10px "JetBrains Mono", monospace'
-      events.forEach((event) => {
-        const textWidth = ctx.measureText(truncateEventTitle(event.name)).width
-        eventWidths.set(event.id, Math.max(defaultEventBBoxWidth, textWidth + 4))
-      })
-      ctx.restore()
-    }
+    const measureEvt = (t: string) => (ctx ? ctx.measureText(t).width : t.length * 6)
+    interface EvtGeom { x: number; width: number; bar?: BarMeta }
+    const geom = new Map<string, EvtGeom>()
+    if (ctx) { ctx.save(); ctx.font = '10px "JetBrains Mono", monospace' }
+    sortedEvents.forEach((event) => {
+      const range = resolveEventRange(event)
+      const classified = classifyItem(range)
+      if (classified.kind === 'range' && classified.startYear != null && classified.endYear != null) {
+        const { x0, x1, barWidth } = barExtent(yearToX(classified.startYear, canvasWidth), yearToX(classified.endYear, canvasWidth), MIN_BAR_WIDTH)
+        const labelText = `${eventGlyph(event.event_type)} ${event.name}`
+        const layout = resolveBarLabelLayout({ measure: measureEvt, labelText, barWidthPx: barWidth, padding: BAR_LABEL_PADDING, gap: BAR_LABEL_GAP, maxBesidePx: MAX_BESIDE_LABEL_PX })
+        geom.set(event.id, { x: x0 + layout.footprintWidth / 2, width: layout.footprintWidth, bar: { x0, x1, ongoing: false, labelText, placement: layout.placement, besideMaxPx: layout.besideMaxPx } })
+      } else {
+        geom.set(event.id, { x: yearToX(event.year, canvasWidth), width: Math.max(defaultEventBBoxWidth, measureEvt(event.name) + 4) })
+      }
+    })
+    if (ctx) ctx.restore()
 
-    const sortedEvents = [...events].sort((a, b) => a.year - b.year)
     const placed: { x: number; y: number; width: number; height: number }[] = []
 
     sortedEvents.forEach((event) => {
-      const x = yearToX(event.year, canvasWidth)
+      const g = geom.get(event.id)!
+      const x = g.x
       const laneCenterY = getLaneCenterY(event.timeline_id, canvasHeight)
-      const baseY = laneCenterY - 15
-      const evtWidth = eventWidths.get(event.id) ?? defaultEventBBoxWidth
+      // Sit just above the lane's axis band by default (events lean up).
+      const eventHalf = eventBBoxHeight / 2
+      const baseY = laneCenterY - LANE_AXIS_BAND - eventHalf
+      const evtWidth = g.width
+      const clearsBand = (cy: number) => (cy + eventHalf <= laneCenterY - LANE_AXIS_BAND) || (cy - eventHalf >= laneCenterY + LANE_AXIS_BAND)
+      // Keep the event on the side of its lane axis it was last on; within that
+      // side it compacts toward baseY, so it moves freely without flipping sides.
+      // Stored LANE-LOCAL (relative to lane centre) so panning doesn't re-stack.
+      const prevLocalY = prevEventYRef.current.get(event.id)
+      const preferredSide = Math.sign(prevLocalY ?? (baseY - laneCenterY))
 
-      let bestY = baseY
-      let foundFree = false
-
-      for (let ring = 0; ring < 20; ring++) {
+      const scored: ScoredLane[] = []
+      for (let ring = 0; ring < 40; ring++) {
         const candidates = ring === 0
           ? [baseY]
           : [baseY - ring * (eventBBoxHeight + eventGap), baseY + ring * (eventBBoxHeight + eventGap)]
@@ -371,6 +413,7 @@ export function CombinedTimelineCanvas({
           const laneTop = laneCenterY - laneHeight / 2 + 12
           const laneBottom = laneCenterY + laneHeight / 2 - 12
           if (candidateY < laneTop || candidateY > laneBottom) continue
+          if (!clearsBand(candidateY)) continue
 
           let hasCollision = false
           for (const existing of placed) {
@@ -382,29 +425,34 @@ export function CombinedTimelineCanvas({
             }
           }
 
-          if (!hasCollision) {
-            bestY = candidateY
-            foundFree = true
-            break
-          }
+          scored.push({
+            y: candidateY,
+            width: evtWidth,
+            compressionRank: 0,
+            collisionCount: hasCollision ? 1 : 0,
+            collisionPenalty: 0,
+            sameSide: Math.sign(candidateY - laneCenterY) === preferredSide,
+          })
         }
-        if (foundFree) break
       }
 
+      const chosen = chooseStableLane(scored, baseY)
+      const bestY = chosen ? chosen.y : baseY
+      prevEventYRef.current.set(event.id, bestY - laneCenterY)
       placed.push({ x, y: bestY, width: evtWidth, height: eventBBoxHeight })
-      positions.set(event.id, { x, y: bestY })
+      positions.set(event.id, { x, y: bestY, width: evtWidth, height: eventBBoxHeight, bar: g.bar })
     })
 
     return positions
-  }, [yearToX, offsetY, scale, combinedView, getLaneCenterY])
+  }, [yearToX, offsetY, scale, combinedView, getLaneCenterY, LANE_HEIGHT])
 
   const calculateThinkerPositions = useCallback((
     thinkers: Thinker[],
     canvasWidth: number,
     canvasHeight: number,
-    eventPositions?: Map<string, { x: number; y: number }>
-  ): Map<string, { x: number; y: number; width: number; height: number }> => {
-    const positions = new Map<string, { x: number; y: number; width: number; height: number }>()
+    eventPositions?: Map<string, CEventPos>
+  ): Map<string, CPos> => {
+    const positions = new Map<string, CPos>()
     const canvas = canvasRef.current
     if (!canvas) return positions
     const ctx = canvas.getContext('2d')
@@ -413,31 +461,57 @@ export function CombinedTimelineCanvas({
     const laneHeight = LANE_HEIGHT
 
     // First pass: calculate base positions and sizes
-    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number; isManuallyPositioned: boolean }[] = []
+    const thinkerData: { id: string; x: number; baseY: number; laneCenterY: number; width: number; height: number; isManuallyPositioned: boolean; isRange: boolean; bar?: BarMeta }[] = []
+
+    ctx.font = '13px "Crimson Text", serif'
+    const measureName = (t: string) => ctx.measureText(t).width
 
     thinkers.forEach((thinker) => {
+      // Each thinker gets positioned within its timeline's swim lane
+      const laneCenterY = getLaneCenterY(thinker.timeline_id || '', canvasHeight)
+      const baseY = thinker.position_y != null ? thinker.position_y + laneCenterY : laneCenterY
+      const padding = 8
+      const bgHeight = THINKER_BAR_HEIGHT
+
+      // Range thinker (has a birth year): bar from birth → death/today.
+      const range = resolveThinkerRange(thinker, CURRENT_YEAR)
+      const classified = classifyItem(range)
+      if (classified.kind === 'range' && classified.startYear != null && classified.endYear != null) {
+        const { x0, x1, barWidth } = barExtent(
+          yearToX(classified.startYear, canvasWidth),
+          yearToX(classified.endYear, canvasWidth),
+          MIN_BAR_WIDTH,
+        )
+        const layout = resolveBarLabelLayout({ measure: measureName, labelText: thinker.name, barWidthPx: barWidth, padding: BAR_LABEL_PADDING, gap: BAR_LABEL_GAP, maxBesidePx: MAX_BESIDE_LABEL_PX })
+        thinkerData.push({
+          id: thinker.id,
+          x: x0 + layout.footprintWidth / 2,
+          baseY,
+          laneCenterY,
+          width: layout.footprintWidth,
+          height: bgHeight,
+          isManuallyPositioned: thinker.is_manually_positioned === true,
+          isRange: true,
+          bar: { x0, x1, ongoing: range.ongoing, labelText: thinker.name, placement: layout.placement, besideMaxPx: layout.besideMaxPx },
+        })
+        return
+      }
+
+      // Point thinker (no birth year): existing name-box marker.
       const thinkerYear = getThinkerYear(thinker)
       const x = thinkerYear != null
         ? yearToX(thinkerYear, canvasWidth)
         : scaleX(thinker.position_x ?? canvasWidth / 2)
-
-      // Each thinker gets positioned within its timeline's swim lane
-      const laneCenterY = getLaneCenterY(thinker.timeline_id || '', canvasHeight)
-
-      ctx.font = '13px "Crimson Text", serif'
-      const metrics = ctx.measureText(thinker.name)
-      const padding = 8
-      // Add extra width for timeline indicator dot
-      const bgWidth = metrics.width + padding * 2 + 16
-      const bgHeight = 24
-
+      const bgWidth = measureName(thinker.name) + padding * 2 + 16 // extra width for indicator dot
       thinkerData.push({
         id: thinker.id,
         x,
-        baseY: thinker.position_y != null ? thinker.position_y + laneCenterY : laneCenterY,
+        baseY,
+        laneCenterY,
         width: bgWidth,
         height: bgHeight,
         isManuallyPositioned: thinker.is_manually_positioned === true,
+        isRange: false,
       })
     })
 
@@ -449,72 +523,77 @@ export function CombinedTimelineCanvas({
     const MIN_VERTICAL_GAP_BASE = 6
     const MIN_LABEL_WIDTH = 56
     const HORIZONTAL_COMPRESSION_FACTORS = [1, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6]
+    // Horizontal margin grows with zoom (quantized); vertical spacing is FIXED
+    // since zoom is horizontal-only — keeps the row grid from drifting.
     const SPACING_ZOOM_FACTOR = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
     const horizontalMargin = MIN_HORIZONTAL_GAP_BASE * SPACING_ZOOM_FACTOR
-    const verticalSpacing = MIN_VERTICAL_GAP_BASE * SPACING_ZOOM_FACTOR
+    const verticalSpacing = MIN_VERTICAL_GAP_BASE
     const elevationOffset = -5
 
-    // Second pass: resolve collisions
+    // Second pass: resolve collisions.
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 
-    const manuallyPositionedThinkers = thinkerData.filter((thinker) => thinker.isManuallyPositioned)
-    const autoPositionedThinkers = thinkerData.filter((thinker) => !thinker.isManuallyPositioned)
-
-    manuallyPositionedThinkers.forEach((thinker) => {
-      const y = thinker.baseY
-      placed.push({ x: thinker.x, y, width: thinker.width, height: thinker.height, id: thinker.id })
-      positions.set(thinker.id, { x: thinker.x, y, width: thinker.width, height: thinker.height })
-    })
-
-    // Add event positions as obstacles so thinkers avoid overlapping events
+    // Add event positions as obstacles FIRST so every thinker (manual or auto)
+    // avoids overlapping events (use each event's actual footprint width).
     if (eventPositions) {
       const eventBBoxHeight = 8 * 2 + 12
       const eventBBoxWidth = 8 * 4
       for (const [, ePos] of eventPositions) {
-        placed.push({ x: ePos.x, y: ePos.y, width: eventBBoxWidth, height: eventBBoxHeight, id: '__event__' })
+        placed.push({ x: ePos.x, y: ePos.y, width: ePos.width ?? eventBBoxWidth, height: ePos.height ?? eventBBoxHeight, id: '__event__' })
       }
     }
 
-    autoPositionedThinkers.forEach((thinker) => {
-      const defaultY = thinker.baseY + elevationOffset
-      // Clamp to the thinker's swim lane boundaries
-      const minY = Math.max(12 + thinker.height / 2, thinker.baseY - laneHeight / 2 + thinker.height / 2 + 20)
-      const maxY = Math.min(canvasHeight - 12 - thinker.height / 2, thinker.baseY + laneHeight / 2 - thinker.height / 2 - 8)
+    // Resolve one thinker's row within its swim lane (see Timeline.tsx for the
+    // shared rationale). Manual items spiral from their chosen row, so they keep
+    // it when free but are still nudged off any overlap; auto items spiral from
+    // the lane's axis-edge default. The previous row is stored LANE-LOCAL so
+    // panning (which shifts the lane) doesn't re-stack everything.
+    const resolveRow = (
+      thinker: typeof thinkerData[number],
+      spiralCenterY: number,
+      anchorY: number,
+      preferredSide: number,
+      enforceBand: boolean,
+    ): { y: number; width: number } => {
+      // Clamp to the thinker's swim lane (NOT the canvas) so a tall lane can use
+      // its full height — items beyond the viewport are reachable by panning.
+      const minY = thinker.laneCenterY - laneHeight / 2 + thinker.height / 2 + 12
+      const maxY = thinker.laneCenterY + laneHeight / 2 - thinker.height / 2 - 8
       const laneStep = thinker.height + verticalSpacing
+      const half = thinker.height / 2
+      const bandTop = thinker.laneCenterY - LANE_AXIS_BAND
+      const bandBottom = thinker.laneCenterY + LANE_AXIS_BAND
+      // The lane-axis band is reserved only for AUTO placement; a manually-placed
+      // item keeps the row the user dropped it on and is only nudged on overlap.
+      const passesBand = (cy: number) => !enforceBand || (cy + half <= bandTop) || (cy - half >= bandBottom)
 
-      // Generate candidate lanes from center outward (up, down) to use full vertical space
       const candidateYs: number[] = []
       let ring = 0
       while (true) {
-        const upY = defaultY - ring * laneStep
-        const downY = defaultY + ring * laneStep
-        let addedCandidate = false
-
+        const upY = spiralCenterY - ring * laneStep
+        const downY = spiralCenterY + ring * laneStep
         if (ring === 0) {
-          if (upY >= minY && upY <= maxY) { candidateYs.push(upY); addedCandidate = true }
+          if (upY >= minY && upY <= maxY && passesBand(upY)) candidateYs.push(upY)
         } else {
-          if (upY >= minY && upY <= maxY) { candidateYs.push(upY); addedCandidate = true }
-          if (downY >= minY && downY <= maxY) { candidateYs.push(downY); addedCandidate = true }
+          if (upY >= minY && upY <= maxY && passesBand(upY)) candidateYs.push(upY)
+          if (downY >= minY && downY <= maxY && passesBand(downY)) candidateYs.push(downY)
         }
-
-        if (!addedCandidate && upY < minY && downY > maxY) break
+        if (upY < minY && downY > maxY) break
         ring += 1
+        if (ring > 1000) break
       }
-
       if (candidateYs.length === 0) {
-        candidateYs.push(Math.min(maxY, Math.max(minY, defaultY)))
+        candidateYs.push(passesBand(spiralCenterY) ? spiralCenterY : Math.max(minY, Math.min(maxY, bandBottom + half)))
       }
 
-      let y = candidateYs[0]
-      let width = thinker.width
-      let bestCollisionCount = Number.POSITIVE_INFINITY
-      let bestCollisionPenalty = Number.POSITIVE_INFINITY
-      let bestVerticalDistance = Number.POSITIVE_INFINITY
-      let foundCollisionFreePlacement = false
+      const scored: ScoredLane[] = []
+      const factors = thinker.isRange ? [1] : HORIZONTAL_COMPRESSION_FACTORS
+      for (let rank = 0; rank < factors.length; rank++) {
+        const candidateWidth = thinker.isRange
+          ? thinker.width
+          : Math.max(MIN_LABEL_WIDTH, thinker.width * factors[rank])
 
-      for (const compressionFactor of HORIZONTAL_COMPRESSION_FACTORS) {
-        const candidateWidth = Math.max(MIN_LABEL_WIDTH, thinker.width * compressionFactor)
-
+        let freeThisRank = false
         for (const candidateY of candidateYs) {
           let collisionCount = 0
           let collisionPenalty = 0
@@ -532,44 +611,53 @@ export function CombinedTimelineCanvas({
             collisionPenalty += (horizontalThreshold - horizontalDistance) * (verticalThreshold - verticalDistance)
           }
 
-          const verticalDistanceFromDefault = Math.abs(candidateY - defaultY)
-
-          if (collisionCount === 0) {
-            if (!foundCollisionFreePlacement || verticalDistanceFromDefault < bestVerticalDistance) {
-              y = candidateY
-              width = candidateWidth
-              bestCollisionCount = 0
-              bestCollisionPenalty = 0
-              bestVerticalDistance = verticalDistanceFromDefault
-              foundCollisionFreePlacement = true
-            }
-            continue
-          }
-
-          if (foundCollisionFreePlacement) continue
-
-          if (
-            collisionCount < bestCollisionCount ||
-            (collisionCount === bestCollisionCount && collisionPenalty < bestCollisionPenalty) ||
-            (collisionCount === bestCollisionCount && collisionPenalty === bestCollisionPenalty && verticalDistanceFromDefault < bestVerticalDistance)
-          ) {
-            y = candidateY
-            width = candidateWidth
-            bestCollisionCount = collisionCount
-            bestCollisionPenalty = collisionPenalty
-            bestVerticalDistance = verticalDistanceFromDefault
-          }
+          scored.push({
+            y: candidateY,
+            width: candidateWidth,
+            compressionRank: rank,
+            collisionCount,
+            collisionPenalty,
+            // Side-stickiness applies only to auto placement; manual items are
+            // anchored to their own row, so they shouldn't be side-filtered.
+            sameSide: enforceBand ? Math.sign(candidateY - thinker.laneCenterY) === preferredSide : undefined,
+          })
+          if (collisionCount === 0) freeThisRank = true
         }
 
-        if (foundCollisionFreePlacement) break
+        if (freeThisRank) break
       }
 
+      const chosen = chooseStableLane(scored, anchorY)
+      return { y: chosen ? chosen.y : candidateYs[0], width: chosen ? chosen.width : thinker.width }
+    }
+
+    const manuallyPositionedThinkers = thinkerData.filter((thinker) => thinker.isManuallyPositioned)
+    const autoPositionedThinkers = thinkerData.filter((thinker) => !thinker.isManuallyPositioned)
+
+    manuallyPositionedThinkers.forEach((thinker) => {
+      const preferredSide = Math.sign(thinker.baseY - thinker.laneCenterY) || -1
+      const { y, width } = resolveRow(thinker, thinker.baseY, thinker.baseY, preferredSide, false)
+      prevThinkerYRef.current.set(thinker.id, y - thinker.laneCenterY)
       placed.push({ x: thinker.x, y, width, height: thinker.height, id: thinker.id })
-      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height })
+      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height, bar: thinker.bar })
+    })
+
+    autoPositionedThinkers.forEach((thinker) => {
+      const half = thinker.height / 2
+      const bandTop = thinker.laneCenterY - LANE_AXIS_BAND
+      const bandBottom = thinker.laneCenterY + LANE_AXIS_BAND
+      const leanDown = thinker.baseY + elevationOffset > thinker.laneCenterY
+      const defaultY = leanDown ? bandBottom + half : bandTop - half
+      const prevLocalY = prevThinkerYRef.current.get(thinker.id)
+      const preferredSide = Math.sign(prevLocalY ?? (defaultY - thinker.laneCenterY))
+      const { y, width } = resolveRow(thinker, defaultY, defaultY, preferredSide, true)
+      prevThinkerYRef.current.set(thinker.id, y - thinker.laneCenterY)
+      placed.push({ x: thinker.x, y, width, height: thinker.height, id: thinker.id })
+      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height, bar: thinker.bar })
     })
 
     return positions
-  }, [yearToX, scaleX, offsetY, scale, combinedView, getLaneCenterY])
+  }, [yearToX, scaleX, offsetY, scale, combinedView, getLaneCenterY, LANE_HEIGHT])
 
   const getConnectionPairKey = (connection: Connection): string => {
     const ids = [connection.from_thinker_id, connection.to_thinker_id].sort()
@@ -626,7 +714,7 @@ export function CombinedTimelineCanvas({
 
   const getConnectionCurvePoints = (
     connection: Connection,
-    positions: Map<string, { x: number; y: number; width: number; height: number }>,
+    positions: Map<string, CPos>,
     thinkersById: Map<string, Thinker>,
     curveOffsetsById: Map<string, number>
   ): {
@@ -776,7 +864,17 @@ export function CombinedTimelineCanvas({
       : undefined
     const positions = filteredThinkers.length > 0
       ? calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight, eventPositions)
-      : new Map<string, { x: number; y: number; width: number; height: number }>()
+      : new Map<string, CPos>()
+
+    // Shared registry dedupes coincident axis dots (one per rounded x).
+    const dotRegistry: DotRegistry = new Set<number>()
+
+    // Detail is always shown; labels are ellipsized to fit and overlap is
+    // prevented by per-lane vertical stacking. Tethers drop out once the axis is
+    // compressed past TETHER_HIDE_YEAR_SPAN visible years, to avoid clutter.
+    const { startYear: lodStartYear, endYear: lodEndYear } = calculateYearRange()
+    const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
+    const lod: BarLOD = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
 
     // Draw timeline events at calculated positions
     timelineEvents.forEach((event: TimelineEvent) => {
@@ -787,6 +885,22 @@ export function CombinedTimelineCanvas({
       if (x < -50 || x > canvasWidth + 50) return
 
       const timelineColor = timelineColorMap.get(event.timeline_id)
+      const laneCenterY = getLaneCenterY(event.timeline_id, canvasHeight)
+
+      // Ranged event → bar (type-coloured) + tethers to the lane axis.
+      if (pos.bar) {
+        drawBar(
+          ctx,
+          pos.bar,
+          y,
+          EVENT_BAR_HEIGHT,
+          { fill: eventFill(event.event_type), stroke: timelineColor?.border || '#6B3410', lineWidth: 1, font: '10px "JetBrains Mono", monospace' },
+          laneCenterY,
+          dotRegistry,
+          lod,
+        )
+        return
+      }
 
       ctx.fillStyle = timelineColor?.dot || '#8B4513'
       ctx.strokeStyle = timelineColor?.border || '#6B3410'
@@ -814,10 +928,19 @@ export function CombinedTimelineCanvas({
           ctx.stroke()
       }
 
-      ctx.fillStyle = '#333333'
-      ctx.font = '10px "JetBrains Mono", monospace'
-      ctx.textAlign = 'center'
-      ctx.fillText(truncateEventTitle(event.name), x, y - size - 5)
+      if (lod.besideLabel) {
+        ctx.fillStyle = '#333333'
+        ctx.font = '10px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(event.name, x, y - size - 5)
+      }
+
+      // Vertical tether from the shape's lane-facing edge to the lane axis.
+      if (lod.tether) {
+        const edgeY = y < laneCenterY ? y + size : y - size
+        drawTetherLine(ctx, x, edgeY, laneCenterY)
+        drawTetherDot(ctx, x, laneCenterY, dotRegistry)
+      }
     })
 
     // Draw connections
@@ -879,6 +1002,34 @@ export function CombinedTimelineCanvas({
       const { x, y, width: bgWidth, height: bgHeight } = pos
       const isSelected = thinker.id === selectedThinkerId
       const timelineColor = timelineColorMap.get(thinker.timeline_id || '')
+      const laneCenterY = getLaneCenterY(thinker.timeline_id || '', canvasHeight)
+
+      const itemLod: BarLOD = { tether: isSelected || lod.tether, besideLabel: isSelected || lod.besideLabel }
+
+      // Range thinker → bar (timeline-tinted) + tethers to the lane axis.
+      if (pos.bar) {
+        const font = '13px "Crimson Text", serif'
+        const style: BarStyle = isSelected
+          ? { fill: '#8B4513', stroke: '#6B3410', lineWidth: 2, font }
+          : { fill: timelineColor?.bg || '#FFFFFF', stroke: timelineColor?.border || '#8B4513', lineWidth: 1, font }
+        drawBar(ctx, pos.bar, y, bgHeight, style, laneCenterY, dotRegistry, itemLod)
+        return
+      }
+
+      // When labels are suppressed (compressed axis), a point thinker collapses
+      // to a small marker instead of a full name-box, so dense eras stay legible.
+      if (!itemLod.besideLabel) {
+        ctx.beginPath()
+        ctx.arc(x, y, 5, 0, Math.PI * 2)
+        ctx.fillStyle = isSelected ? '#8B4513' : (timelineColor?.dot || '#666666')
+        ctx.fill()
+        if (itemLod.tether) {
+          const edgeY = y < laneCenterY ? y + 5 : y - 5
+          drawTetherLine(ctx, x, edgeY, laneCenterY)
+          drawTetherDot(ctx, x, laneCenterY, dotRegistry)
+        }
+        return
+      }
 
       // Draw background rectangle with timeline color tint
       if (isSelected) {
@@ -921,9 +1072,16 @@ export function CombinedTimelineCanvas({
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(thinker.name, x + 6, y)
+
+      // Vertical tether from the box's lane-facing edge to the lane axis.
+      if (itemLod.tether) {
+        const edgeY = y < laneCenterY ? y + bgHeight / 2 : y - bgHeight / 2
+        drawTetherLine(ctx, x, edgeY, laneCenterY)
+        drawTetherDot(ctx, x, laneCenterY, dotRegistry)
+      }
     })
 
-  }, [combinedView, filteredThinkers, visibleFilteredConnections, timelineEvents, scale, offsetX, offsetY, selectedThinkerId, highlightSelectedConnections, canvasSize, calculateYearRange, yearToX, getYearInterval, calculateThinkerPositions, calculateEventPositions, timelineColorMap, getLaneCenterY])
+  }, [combinedView, filteredThinkers, visibleFilteredConnections, timelineEvents, scale, offsetX, offsetY, selectedThinkerId, highlightSelectedConnections, canvasSize, calculateYearRange, yearToX, getYearInterval, calculateThinkerPositions, calculateEventPositions, timelineColorMap, getLaneCenterY, LANE_HEIGHT])
 
   const getCanvasCoordinates = (e: React.MouseEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current
@@ -1013,8 +1171,18 @@ export function CombinedTimelineCanvas({
     return null
   }
 
+  // Non-passive wheel listener so the page doesn't scroll while we zoom/pan
+  // (a passive React onWheel can't preventDefault).
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const swallow = (e: WheelEvent) => e.preventDefault()
+    canvas.addEventListener('wheel', swallow, { passive: false, capture: true })
+    return () => canvas.removeEventListener('wheel', swallow, { capture: true })
+  }, [])
+
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
+    // Default is prevented by the non-passive native listener above.
     const canvas = canvasRef.current
     if (!canvas) return
 

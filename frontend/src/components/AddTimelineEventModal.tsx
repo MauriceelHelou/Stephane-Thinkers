@@ -11,8 +11,12 @@ const timelineEventSchema = z.object({
   timeline_id: z.string().uuid('Valid timeline is required'),
   name: z.string().min(1, 'Name is required'),
   year: z.number().int().min(-10000).max(10000, 'Year must be between -10000 and 10000'),
+  end_year: z.number().int().min(-10000).max(10000, 'End year must be between -10000 and 10000').nullable().optional(),
   event_type: z.string().min(1, 'Event type is required'),
   description: z.string().optional().nullable(),
+}).refine((data) => data.end_year == null || data.end_year >= data.year, {
+  message: 'End year must be greater than or equal to year',
+  path: ['end_year'],
 })
 
 interface AddTimelineEventModalProps {
@@ -28,6 +32,7 @@ export function AddTimelineEventModal({ isOpen, onClose, defaultTimelineId, edit
     timeline_id: defaultTimelineId || '',
     name: '',
     year: new Date().getFullYear(),
+    end_year: null,
     event_type: 'other',
     description: null,
   })
@@ -95,6 +100,7 @@ export function AddTimelineEventModal({ isOpen, onClose, defaultTimelineId, edit
         timeline_id: existingEvent.timeline_id,
         name: existingEvent.name,
         year: existingEvent.year,
+        end_year: existingEvent.end_year ?? null,
         event_type: existingEvent.event_type,
         description: existingEvent.description,
       })
@@ -142,6 +148,19 @@ export function AddTimelineEventModal({ isOpen, onClose, defaultTimelineId, edit
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  // Shared parser for year-style inputs: accepts empty, a lone minus, or an
+  // integer (with optional leading minus for BCE). `emptyValue` is what a blank
+  // field maps to — 0 for the required year, null for the optional end year.
+  const handleYearInput = (
+    field: 'year' | 'end_year',
+    raw: string,
+    emptyValue: number | null,
+  ) => {
+    if (raw === '' || raw === '-' || /^-?\d+$/.test(raw)) {
+      handleChange(field, raw === '' || raw === '-' ? emptyValue : parseInt(raw))
+    }
+  }
+
   const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
   const mutationError = createMutation.error || updateMutation.error || deleteMutation.error
 
@@ -182,13 +201,7 @@ export function AddTimelineEventModal({ isOpen, onClose, defaultTimelineId, edit
               type="text"
               inputMode="numeric"
               value={formData.year}
-              onChange={(e) => {
-                const val = e.target.value
-                // Allow empty, minus sign, or numbers
-                if (val === '' || val === '-' || /^-?\d+$/.test(val)) {
-                  handleChange('year', val === '' || val === '-' ? 0 : parseInt(val))
-                }
-              }}
+              onChange={(e) => handleYearInput('year', e.target.value, 0)}
               className="w-full px-3 py-2 border border-timeline rounded font-mono focus:outline-none focus:ring-2 focus:ring-accent"
               placeholder="-500 or 1545"
             />
@@ -197,22 +210,36 @@ export function AddTimelineEventModal({ isOpen, onClose, defaultTimelineId, edit
           </div>
 
           <div>
-            <label className="block text-sm font-sans font-medium text-primary mb-1">Event Type *</label>
-            <select
-              value={formData.event_type}
-              onChange={(e) => handleChange('event_type', e.target.value)}
-              className="w-full px-3 py-2 border border-timeline rounded font-serif focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              <option value="council">△ Council</option>
-              <option value="publication">▢ Publication</option>
-              <option value="war">◇ War</option>
-              <option value="invention">★ Invention</option>
-              <option value="cultural">● Cultural</option>
-              <option value="political">● Political</option>
-              <option value="other">● Other</option>
-            </select>
-            {errors.event_type && <p className="text-red-600 text-sm mt-1">{errors.event_type}</p>}
+            <label className="block text-sm font-sans font-medium text-primary mb-1">End year</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={formData.end_year ?? ''}
+              onChange={(e) => handleYearInput('end_year', e.target.value, null)}
+              className="w-full px-3 py-2 border border-timeline rounded font-mono focus:outline-none focus:ring-2 focus:ring-accent"
+              placeholder="leave blank for a single date"
+            />
+            <p className="text-xs text-gray-500 mt-1">Spans Year → End year (e.g., 1545–1563)</p>
+            {errors.end_year && <p className="text-red-600 text-sm mt-1">{errors.end_year}</p>}
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-sans font-medium text-primary mb-1">Event Type *</label>
+          <select
+            value={formData.event_type}
+            onChange={(e) => handleChange('event_type', e.target.value)}
+            className="w-full px-3 py-2 border border-timeline rounded font-serif focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value="council">△ Council</option>
+            <option value="publication">▢ Publication</option>
+            <option value="war">◇ War</option>
+            <option value="invention">★ Invention</option>
+            <option value="cultural">● Cultural</option>
+            <option value="political">● Political</option>
+            <option value="other">● Other</option>
+          </select>
+          {errors.event_type && <p className="text-red-600 text-sm mt-1">{errors.event_type}</p>}
         </div>
 
         <div>

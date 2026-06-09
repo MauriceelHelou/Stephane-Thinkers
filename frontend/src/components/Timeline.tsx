@@ -4,16 +4,31 @@ import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi, timelineEventsApi, timelinesApi } from '@/lib/api'
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { REFERENCE_CANVAS_WIDTH, DEFAULT_START_YEAR, DEFAULT_END_YEAR, TIMELINE_PADDING, TIMELINE_CONTENT_WIDTH_PERCENT, CONNECTION_STYLES, getConnectionLineWidth, ConnectionStyleType } from '@/lib/constants'
+import { classifyItem, resolveThinkerRange, resolveEventRange, barExtent } from '@/lib/timelineItems'
+import {
+  MIN_BAR_WIDTH, THINKER_BAR_HEIGHT, EVENT_BAR_HEIGHT, BAR_LABEL_PADDING, BAR_LABEL_GAP, MAX_BESIDE_LABEL_PX,
+  CURRENT_YEAR, eventFill, eventGlyph, resolveBarLabelLayout, shouldShowTethers, chooseStableLane,
+  type BarMeta, type BarStyle, type DotRegistry, type BarLOD, type ScoredLane,
+  drawTetherLine, drawTetherDot, drawBulkCheckbox, drawBar,
+} from '@/lib/timelineDraw'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
 
 // Event layout constants
 const EVENT_SHAPE_SIZE = 8
 const EVENT_LABEL_HEIGHT = 12
 const EVENT_VERTICAL_GAP = 4
-const EVENT_ZONE_OFFSET = -15 // Base Y offset from centerY for events
+const EVENT_ZONE_OFFSET = -28 // Base Y offset from centerY for events (clears the axis tick band so bars/markers don't sit on the year ticks)
 const EVENT_BBOX_HEIGHT = EVENT_SHAPE_SIZE * 2 + EVENT_LABEL_HEIGHT // shape + label
 const EVENT_BBOX_WIDTH = EVENT_SHAPE_SIZE * 4 // generous horizontal hitbox
 const CANVAS_VERTICAL_PADDING = 12
+// Reserved clear zone around the axis: nothing is placed here, so items never
+// cover the year ticks (centerY±10) or the year labels (centerY+30).
+const AXIS_BAND_ABOVE = 16
+const AXIS_BAND_BELOW = 42
+
+// Position entries. `bar` is present only for range items (drawn as bars).
+type ThinkerPos = { x: number; y: number; width: number; height: number; bar?: BarMeta }
+type EventPos = { x: number; y: number; width: number; height: number; bar?: BarMeta }
 
 // Sticky note color palette - more realistic sticky note colors with shadow and fold
 const STICKY_NOTE_COLORS: Record<NoteColor, { bg: string; fold: string; border: string; text: string; shadow: string }> = {
@@ -79,9 +94,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   // Cache for computed positions — avoids expensive collision detection during drag
   const positionCacheRef = useRef<{
     key: string
-    thinkerPositions: Map<string, { x: number; y: number; width: number; height: number }>
-    eventPositions: Map<string, { x: number; y: number }> | undefined
+    thinkerPositions: Map<string, ThinkerPos>
+    eventPositions: Map<string, EventPos> | undefined
   }>({ key: '', thinkerPositions: new Map(), eventPositions: undefined })
+
+  // Previous auto-placed row per item id. The collision engine biases toward
+  // these so items stay put as the user zooms instead of re-stacking each frame.
+  const prevThinkerYRef = useRef<Map<string, number>>(new Map())
+  const prevEventYRef = useRef<Map<string, number>>(new Map())
 
   const { data: timelines = [] } = useQuery({
     queryKey: ['timelines'],
@@ -318,16 +338,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const canvas = canvasRef.current
     if (!canvas) return
 
+    // Non-passive listener so we can actually preventDefault. Without this the
+    // React onWheel handler runs in a passive context (preventDefault throws),
+    // so the page scrolls instead of zooming. We swallow the browser default
+    // for ALL wheel events over the canvas; the React handler does the zoom/pan.
     const preventZoom = (e: WheelEvent) => {
-      // Only prevent default for pinch-to-zoom (Ctrl/Meta + wheel)
-      // This prevents browser zoom while allowing our custom zoom
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault()
-        // Don't stop propagation - let our handler process it
-      }
+      e.preventDefault()
     }
-
-    // Use capture phase to intercept before it bubbles
     canvas.addEventListener('wheel', preventZoom, { passive: false, capture: true })
     return () => canvas.removeEventListener('wheel', preventZoom, { capture: true })
   }, [])
@@ -365,10 +382,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Cache-aware position calculation — skip expensive collision detection during drag.
     // Build a key from everything that affects positions (NOT drag state).
-    const posKey = `${scale}|${canvasWidth}|${canvasHeight}|${filteredThinkers.map(t => `${t.id}:${t.anchor_year}:${t.position_y}:${t.is_manually_positioned}:${t.birth_year}:${t.death_year}:${t.position_x}`).join(',')}|${timelineEvents.map(e => `${e.id}:${e.year}`).join(',')}`
+    const posKey = `${scale}|${canvasWidth}|${canvasHeight}|${filteredThinkers.map(t => `${t.id}:${t.anchor_year}:${t.position_y}:${t.is_manually_positioned}:${t.birth_year}:${t.death_year}:${t.position_x}`).join(',')}|${timelineEvents.map(e => `${e.id}:${e.year}:${e.end_year}`).join(',')}`
 
-    let eventPositions: Map<string, { x: number; y: number }> | undefined
-    let thinkerPositions: Map<string, { x: number; y: number; width: number; height: number }>
+    let eventPositions: Map<string, EventPos> | undefined
+    let thinkerPositions: Map<string, ThinkerPos>
 
     if (positionCacheRef.current.key === posKey) {
       // Reuse cached positions (e.g. during drag — only draggedThinkerPos changed)
@@ -380,13 +397,28 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         : undefined
       thinkerPositions = filteredThinkers.length > 0
         ? calculateThinkerPositions(filteredThinkers, canvasWidth, canvasHeight, eventPositions)
-        : new Map<string, { x: number; y: number; width: number; height: number }>()
+        : new Map<string, ThinkerPos>()
       positionCacheRef.current = { key: posKey, thinkerPositions, eventPositions }
     }
 
+    // Shared registry so coincident axis dots (same rounded x) are drawn once
+    // across both events and thinkers, keeping the axis calm at high density.
+    const dotRegistry: DotRegistry = new Set<number>()
+
+    // Detail (labels) is always shown; overlap is prevented by vertical stacking
+    // + the reserved axis band (see calculate*Positions), not by hiding labels.
+    // Tethers, however, are dropped once the axis is so compressed that the
+    // visible span exceeds TETHER_HIDE_YEAR_SPAN, since at that zoom the
+    // droplines become clutter rather than guidance.
+    const { startYear: lodStartYear, endYear: lodEndYear } = selectedTimeline
+      ? { startYear: selectedTimeline.start_year ?? DEFAULT_START_YEAR, endYear: selectedTimeline.end_year ?? DEFAULT_END_YEAR }
+      : calculateAllThinkersRange()
+    const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
+    const lod = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
+
     // Draw events at calculated positions
     if (eventPositions && timelineEvents.length > 0) {
-      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions)
+      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions, dotRegistry, lod)
     }
 
     // Draw connections and thinkers using pre-computed positions
@@ -395,7 +427,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     if (filteredThinkers.length > 0) {
-      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos, canvasHeight)
+      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos, canvasHeight, dotRegistry, lod)
     } else {
       drawEmptyState(ctx, canvasWidth, canvasHeight)
     }
@@ -552,8 +584,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Calculate thinker positions with zoom-aware collision detection
-  const calculateThinkerPositions = (thinkers: Thinker[], canvasWidth: number, canvasHeight: number, eventPositions?: Map<string, { x: number; y: number }>): Map<string, { x: number; y: number; width: number; height: number }> => {
-    const positions = new Map<string, { x: number; y: number; width: number; height: number }>()
+  const calculateThinkerPositions = (thinkers: Thinker[], canvasWidth: number, canvasHeight: number, eventPositions?: Map<string, EventPos>): Map<string, ThinkerPos> => {
+    const positions = new Map<string, ThinkerPos>()
     const centerY = canvasHeight / 2
     const canvas = canvasRef.current
     if (!canvas) return positions
@@ -561,30 +593,56 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (!ctx) return positions
 
     // First pass: calculate base positions and sizes
-    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number; isManuallyPositioned: boolean }[] = []
+    const thinkerData: { id: string; x: number; baseY: number; width: number; height: number; isManuallyPositioned: boolean; isRange: boolean; bar?: BarMeta }[] = []
+
+    ctx.font = '14px "Crimson Text", serif'
+    const measureName = (t: string) => ctx.measureText(t).width
 
     thinkers.forEach((thinker) => {
+      const yOffset = thinker.position_y ?? 0
+      const baseY = centerY + yOffset
+      const padding = 8
+      const bgHeight = THINKER_BAR_HEIGHT
+
+      // Range thinkers (have a birth year): bar from birth → death/today. Their
+      // x is data-driven from the years; manual position only affects the row.
+      const range = resolveThinkerRange(thinker, CURRENT_YEAR)
+      const classified = classifyItem(range)
+      if (classified.kind === 'range' && classified.startYear != null && classified.endYear != null) {
+        const { x0, x1, barWidth } = barExtent(
+          yearToX(classified.startYear, canvasWidth, scale),
+          yearToX(classified.endYear, canvasWidth, scale),
+          MIN_BAR_WIDTH,
+        )
+        const layout = resolveBarLabelLayout({ measure: measureName, labelText: thinker.name, barWidthPx: barWidth, padding: BAR_LABEL_PADDING, gap: BAR_LABEL_GAP, maxBesidePx: MAX_BESIDE_LABEL_PX })
+        const bar: BarMeta = { x0, x1, ongoing: range.ongoing, labelText: thinker.name, placement: layout.placement, besideMaxPx: layout.besideMaxPx }
+        thinkerData.push({
+          id: thinker.id,
+          x: x0 + layout.footprintWidth / 2,
+          baseY,
+          width: layout.footprintWidth,
+          height: bgHeight,
+          isManuallyPositioned: thinker.is_manually_positioned === true,
+          isRange: true,
+          bar,
+        })
+        return
+      }
+
+      // Point thinker (no birth year): keep the existing name-box marker.
       const thinkerYear = getThinkerYear(thinker)
       const x = thinkerYear != null
         ? yearToX(thinkerYear, canvasWidth, scale)
         : scaleX(thinker.position_x ?? canvasWidth / 2)
-
-      ctx.font = '14px "Crimson Text", serif'
-      const metrics = ctx.measureText(thinker.name)
-      const padding = 8
-      const bgWidth = metrics.width + padding * 2
-      const bgHeight = 24
-
-      // position_y is stored as an offset from the timeline axis (0 = on the timeline)
-      // Positive values go below, negative values go above
-      const yOffset = thinker.position_y ?? 0
+      const bgWidth = measureName(thinker.name) + padding * 2
       thinkerData.push({
         id: thinker.id,
         x,
-        baseY: centerY + yOffset,
+        baseY,
         width: bgWidth,
         height: bgHeight,
         isManuallyPositioned: thinker.is_manually_positioned === true,
+        isRange: false,
       })
     })
 
@@ -598,87 +656,87 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const MIN_VERTICAL_GAP_BASE = 6
     const MIN_LABEL_WIDTH = 56
     const HORIZONTAL_COMPRESSION_FACTORS = [1, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6]
-    // Quantize to steps of 0.5 so positions don't shift continuously during zoom
+    // Horizontal margin grows with zoom (quantized) so items spread apart as the
+    // axis stretches. Vertical spacing is FIXED — zoom is horizontal-only, so the
+    // row grid must not move vertically as you zoom (a key source of jank).
     const SPACING_ZOOM_FACTOR = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
     const horizontalMargin = MIN_HORIZONTAL_GAP_BASE * SPACING_ZOOM_FACTOR
-    const verticalSpacing = MIN_VERTICAL_GAP_BASE * SPACING_ZOOM_FACTOR
+    const verticalSpacing = MIN_VERTICAL_GAP_BASE
     const elevationOffset = -5 // Small offset to position thinkers just above the timeline line
 
-    // Second pass: resolve collisions by moving thinkers vertically
+    // Second pass: resolve collisions by moving thinkers vertically.
     const placed: { x: number; y: number; width: number; height: number; id: string }[] = []
 
-    const manuallyPositionedThinkers = thinkerData.filter((thinker) => thinker.isManuallyPositioned)
-    const autoPositionedThinkers = thinkerData.filter((thinker) => !thinker.isManuallyPositioned)
+    // Reserve a clear band around the axis so no item box sits on the year
+    // ticks / labels (ticks at centerY±10, year labels at centerY+30).
+    const bandTop = centerY - AXIS_BAND_ABOVE
+    const bandBottom = centerY + AXIS_BAND_BELOW
 
-    manuallyPositionedThinkers.forEach((thinker) => {
-      const y = thinker.baseY
-      placed.push({ x: thinker.x, y, width: thinker.width, height: thinker.height, id: thinker.id })
-      positions.set(thinker.id, { x: thinker.x, y, width: thinker.width, height: thinker.height })
-    })
-
-    // Add event positions as obstacles so thinkers avoid overlapping events
+    // Add event positions as obstacles FIRST so every thinker (manual or auto)
+    // avoids overlapping events. Use each event's actual footprint width.
     if (eventPositions) {
       for (const [, ePos] of eventPositions) {
         placed.push({
           x: ePos.x,
           y: ePos.y,
-          width: EVENT_BBOX_WIDTH,
-          height: EVENT_BBOX_HEIGHT,
+          width: ePos.width ?? EVENT_BBOX_WIDTH,
+          height: ePos.height ?? EVENT_BBOX_HEIGHT,
           id: '__event__',
         })
       }
     }
 
-    autoPositionedThinkers.forEach((thinker) => {
-      const defaultY = thinker.baseY + elevationOffset
+    // Resolve one thinker's row: generate candidate lanes spiralling out from
+    // `spiralCenterY`, score each against everything already placed, and pick the
+    // most stable collision-free lane (closest to `anchorY`, same side). Manual
+    // items spiral from their chosen row, so they keep it when free but are still
+    // nudged off any overlap; auto items spiral from the axis-edge default.
+    const resolveRow = (
+      thinker: typeof thinkerData[number],
+      spiralCenterY: number,
+      anchorY: number,
+      preferredSide: number,
+      enforceBand: boolean,
+    ): { y: number; width: number } => {
       const minY = CANVAS_VERTICAL_PADDING + thinker.height / 2
       const maxY = canvasHeight - CANVAS_VERTICAL_PADDING - thinker.height / 2
       const laneStep = thinker.height + verticalSpacing
+      const half = thinker.height / 2
+      // The axis band is reserved only for AUTO placement; a manually-placed item
+      // may sit anywhere the user dropped it (incl. near the axis) and is only
+      // nudged when it actually overlaps another item.
+      const passesBand = (cy: number) => !enforceBand || (cy + half <= bandTop) || (cy - half >= bandBottom)
 
-      // Generate candidate lanes from center outward (up, down) to use full vertical space.
       const candidateYs: number[] = []
       let ring = 0
       while (true) {
-        const upY = defaultY - ring * laneStep
-        const downY = defaultY + ring * laneStep
-        let addedCandidate = false
-
+        const upY = spiralCenterY - ring * laneStep
+        const downY = spiralCenterY + ring * laneStep
         if (ring === 0) {
-          if (upY >= minY && upY <= maxY) {
-            candidateYs.push(upY)
-            addedCandidate = true
-          }
+          if (upY >= minY && upY <= maxY && passesBand(upY)) candidateYs.push(upY)
         } else {
-          if (upY >= minY && upY <= maxY) {
-            candidateYs.push(upY)
-            addedCandidate = true
-          }
-          if (downY >= minY && downY <= maxY) {
-            candidateYs.push(downY)
-            addedCandidate = true
-          }
+          if (upY >= minY && upY <= maxY && passesBand(upY)) candidateYs.push(upY)
+          if (downY >= minY && downY <= maxY && passesBand(downY)) candidateYs.push(downY)
         }
-
-        if (!addedCandidate && upY < minY && downY > maxY) break
+        if (upY < minY && downY > maxY) break
         ring += 1
+        if (ring > 1000) break
       }
-
       if (candidateYs.length === 0) {
-        candidateYs.push(Math.min(maxY, Math.max(minY, defaultY)))
+        candidateYs.push(passesBand(spiralCenterY) ? spiralCenterY : Math.max(minY, Math.min(maxY, bandBottom + half)))
       }
 
-      let y = candidateYs[0]
-      let width = thinker.width
-      let bestCollisionCount = Number.POSITIVE_INFINITY
-      let bestCollisionPenalty = Number.POSITIVE_INFINITY
-      let bestVerticalDistance = Number.POSITIVE_INFINITY
-      let foundCollisionFreePlacement = false
+      // Score candidates per compression rank (least compressed first). Range
+      // bars are data-driven (fixed width) and never compressed. Stop adding
+      // ranks once one yields a collision-free lane, so wider labels win.
+      const scored: ScoredLane[] = []
+      const factors = thinker.isRange ? [1] : HORIZONTAL_COMPRESSION_FACTORS
+      for (let rank = 0; rank < factors.length; rank++) {
+        const candidateWidth = thinker.isRange
+          ? thinker.width
+          : Math.max(MIN_LABEL_WIDTH, thinker.width * factors[rank])
 
-      // Stage 1: spread vertically as much as possible at natural width.
-      // Stage 2: if needed, progressively compress horizontal label width.
-      for (const compressionFactor of HORIZONTAL_COMPRESSION_FACTORS) {
-        const candidateWidth = Math.max(MIN_LABEL_WIDTH, thinker.width * compressionFactor)
-
+        let freeThisRank = false
         for (const candidateY of candidateYs) {
           let collisionCount = 0
           let collisionPenalty = 0
@@ -696,48 +754,50 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
             collisionPenalty += (horizontalThreshold - horizontalDistance) * (verticalThreshold - verticalDistance)
           }
 
-          const verticalDistanceFromDefault = Math.abs(candidateY - defaultY)
-
-          if (collisionCount === 0) {
-            if (!foundCollisionFreePlacement || verticalDistanceFromDefault < bestVerticalDistance) {
-              y = candidateY
-              width = candidateWidth
-              bestCollisionCount = 0
-              bestCollisionPenalty = 0
-              bestVerticalDistance = verticalDistanceFromDefault
-              foundCollisionFreePlacement = true
-            }
-            continue
-          }
-
-          if (foundCollisionFreePlacement) {
-            continue
-          }
-
-          if (
-            collisionCount < bestCollisionCount ||
-            (collisionCount === bestCollisionCount && collisionPenalty < bestCollisionPenalty) ||
-            (
-              collisionCount === bestCollisionCount &&
-              collisionPenalty === bestCollisionPenalty &&
-              verticalDistanceFromDefault < bestVerticalDistance
-            )
-          ) {
-            y = candidateY
-            width = candidateWidth
-            bestCollisionCount = collisionCount
-            bestCollisionPenalty = collisionPenalty
-            bestVerticalDistance = verticalDistanceFromDefault
-          }
+          scored.push({
+            y: candidateY,
+            width: candidateWidth,
+            compressionRank: rank,
+            collisionCount,
+            collisionPenalty,
+            // Side-stickiness applies only to auto placement; manual items are
+            // anchored to their own row, so they shouldn't be side-filtered.
+            sameSide: enforceBand ? Math.sign(candidateY - centerY) === preferredSide : undefined,
+          })
+          if (collisionCount === 0) freeThisRank = true
         }
 
-        if (foundCollisionFreePlacement) {
-          break
-        }
+        if (freeThisRank) break
       }
 
+      const chosen = chooseStableLane(scored, anchorY)
+      return { y: chosen ? chosen.y : candidateYs[0], width: chosen ? chosen.width : thinker.width }
+    }
+
+    // Manual items first (they keep placement priority as obstacles), anchored to
+    // their chosen row; then auto items, anchored to the axis-edge default and
+    // kept on the side of the axis they were last on (stable across zooms).
+    const manuallyPositionedThinkers = thinkerData.filter((thinker) => thinker.isManuallyPositioned)
+    const autoPositionedThinkers = thinkerData.filter((thinker) => !thinker.isManuallyPositioned)
+
+    manuallyPositionedThinkers.forEach((thinker) => {
+      const preferredSide = Math.sign(thinker.baseY - centerY) || -1
+      const { y, width } = resolveRow(thinker, thinker.baseY, thinker.baseY, preferredSide, false)
+      prevThinkerYRef.current.set(thinker.id, y)
       placed.push({ x: thinker.x, y, width, height: thinker.height, id: thinker.id })
-      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height })
+      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height, bar: thinker.bar })
+    })
+
+    autoPositionedThinkers.forEach((thinker) => {
+      const half = thinker.height / 2
+      const leanDown = thinker.baseY + elevationOffset > centerY
+      const defaultY = leanDown ? bandBottom + half : bandTop - half
+      const prevY = prevThinkerYRef.current.get(thinker.id)
+      const preferredSide = Math.sign((prevY ?? defaultY) - centerY)
+      const { y, width } = resolveRow(thinker, defaultY, defaultY, preferredSide, true)
+      prevThinkerYRef.current.set(thinker.id, y)
+      placed.push({ x: thinker.x, y, width, height: thinker.height, id: thinker.id })
+      positions.set(thinker.id, { x: thinker.x, y, width, height: thinker.height, bar: thinker.bar })
     })
 
     return positions
@@ -754,7 +814,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     return `${truncated}${ellipsis}`
   }
 
-  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0) => {
+  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, ThinkerPos>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
 
     const axisY = canvasHeight / 2
 
@@ -762,31 +822,57 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const pos = positions.get(thinker.id)
       if (!pos) return
 
-      // Use dragged position if this thinker is being dragged
+      // Use dragged position if this thinker is being dragged. Range bars are
+      // horizontally locked (data-driven), so a drag only moves the row (y).
       let { x, y, width: bgWidth, height: bgHeight } = pos
+      const bar = pos.bar
       if (dragId === thinker.id && dragPos) {
-        x = dragPos.x
         y = dragPos.y
+        if (!bar) x = dragPos.x
       }
       const isSelected = thinker.id === selectedId
       const isBulkSelected = bulkSelected.includes(thinker.id)
 
-      // Faint dashed leader line anchoring the node to its point on the timeline.
-      // x is locked to the thinker's year, so the line is always perfectly vertical.
-      if (axisY > 0) {
+      // Selected/bulk items always show full detail regardless of zoom.
+      const forced = isSelected || isBulkSelected
+      const itemLod: BarLOD = {
+        tether: forced || lod.tether,
+        besideLabel: forced || lod.besideLabel,
+      }
+
+      // Range thinker → bar (white default / accent selected / blue bulk).
+      // x (and the bar's x0/x1) is data-locked; only y follows a drag.
+      if (bar) {
+        const font = '14px "Crimson Text", serif'
+        const style: BarStyle = isSelected
+          ? { fill: '#8B4513', stroke: '#6B3410', lineWidth: 2, font }
+          : isBulkSelected
+            ? { fill: '#E0F2FE', stroke: '#0284C7', lineWidth: 2, font }
+            : { fill: '#FFFFFF', stroke: '#8B4513', lineWidth: 1, font }
+        drawBar(ctx, bar, y, bgHeight, style, axisY, dotRegistry, itemLod)
+        if (isBulkSelected) drawBulkCheckbox(ctx, bar.x0, y)
+        return
+      }
+
+      // Point thinker → name-box marker + solid vertical tether to the axis.
+      if (axisY > 0 && itemLod.tether) {
         const edgeY = y < axisY ? y + bgHeight / 2 : y - bgHeight / 2
-        if (Math.abs(axisY - edgeY) > 1) {
-          ctx.save()
-          ctx.strokeStyle = '#D8D2C8'
-          ctx.lineWidth = 1
-          ctx.setLineDash([2, 4])
-          ctx.beginPath()
-          ctx.moveTo(x, edgeY)
-          ctx.lineTo(x, axisY)
-          ctx.stroke()
-          ctx.setLineDash([])
-          ctx.restore()
-        }
+        drawTetherLine(ctx, x, edgeY, axisY)
+        drawTetherDot(ctx, x, axisY, dotRegistry)
+      }
+
+      // When labels are suppressed (compressed axis), a point thinker collapses
+      // to a small marker instead of a full name-box.
+      if (!itemLod.besideLabel) {
+        ctx.beginPath()
+        ctx.arc(x, y, 5, 0, Math.PI * 2)
+        ctx.fillStyle = isSelected ? '#8B4513' : isBulkSelected ? '#0284C7' : '#FFFFFF'
+        ctx.strokeStyle = isSelected ? '#6B3410' : isBulkSelected ? '#0284C7' : '#8B4513'
+        ctx.lineWidth = 1
+        ctx.fill()
+        ctx.stroke()
+        if (isBulkSelected) drawBulkCheckbox(ctx, x - 5, y)
+        return
       }
 
       // Draw name label with background
@@ -821,21 +907,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
       // Draw checkbox indicator for bulk selected items
       if (isBulkSelected) {
-        const checkboxSize = 12
-        const checkboxX = x - bgWidth / 2 - checkboxSize - 4
-        const checkboxY = y - checkboxSize / 2
-
-        ctx.fillStyle = '#0284C7'
-        ctx.fillRect(checkboxX, checkboxY, checkboxSize, checkboxSize)
-
-        // Draw checkmark
-        ctx.strokeStyle = '#FFFFFF'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(checkboxX + 3, checkboxY + 6)
-        ctx.lineTo(checkboxX + 5, checkboxY + 9)
-        ctx.lineTo(checkboxX + 9, checkboxY + 3)
-        ctx.stroke()
+        drawBulkCheckbox(ctx, x - bgWidth / 2, y)
       }
     })
   }
@@ -1062,7 +1134,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
   const getConnectionCurvePoints = (
     connection: Connection,
-    positions: Map<string, { x: number; y: number; width: number; height: number }>,
+    positions: Map<string, ThinkerPos>,
     thinkersById: Map<string, Thinker>,
     curveOffsetsById: Map<string, number>
   ): {
@@ -1103,10 +1175,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
   }
 
-  const drawConnections = (ctx: CanvasRenderingContext2D, connections: Connection[], thinkers: Thinker[], positions: Map<string, { x: number; y: number; width: number; height: number }>) => {
+  const drawConnections = (ctx: CanvasRenderingContext2D, connections: Connection[], thinkers: Thinker[], positions: Map<string, ThinkerPos>) => {
     const thinkersById = new Map(thinkers.map((thinker) => [thinker.id, thinker]))
     const allConns = orderConnectionsForRendering(connections)
     const curveOffsetsById = getConnectionOffsets(connections)
+    // Rects of connection labels already placed this frame, so a new label can
+    // nudge clear of earlier ones (not just clear of thinkers).
+    const placedLabelRects: { x: number; y: number; w: number; h: number }[] = []
 
     allConns.forEach((conn) => {
       const curve = getConnectionCurvePoints(conn, positions, thinkersById, curveOffsetsById)
@@ -1196,29 +1271,39 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         let labelY = curveY - 8
         const MIN_LABEL_GAP = 4 // Minimum gap between labels
 
-        // Check for collisions with thinker labels and nudge if necessary
+        // Nudge the label clear of both thinker boxes AND already-placed
+        // connection labels so relationship labels never overlap.
         let hasCollision = true
         let nudgeAttempts = 0
-        const maxNudgeAttempts = 10
+        const maxNudgeAttempts = 24
         const nudgeStep = 15 // How much to move the label each attempt
 
         while (hasCollision && nudgeAttempts < maxNudgeAttempts) {
           hasCollision = false
 
-          // Check against all thinker positions
           for (const [, pos] of positions) {
             const horizontalOverlap = Math.abs(curveX - pos.x) < (bgWidth + pos.width) / 2 + MIN_LABEL_GAP
             const verticalOverlap = Math.abs(labelY - pos.y) < (bgHeight + pos.height) / 2 + MIN_LABEL_GAP
-
             if (horizontalOverlap && verticalOverlap) {
               hasCollision = true
-              // Nudge label down (away from thinker labels which are above timeline)
+              labelY += nudgeStep
+              break
+            }
+          }
+          if (hasCollision) { nudgeAttempts++; continue }
+
+          for (const rect of placedLabelRects) {
+            const horizontalOverlap = Math.abs(curveX - rect.x) < (bgWidth + rect.w) / 2 + MIN_LABEL_GAP
+            const verticalOverlap = Math.abs(labelY - rect.y) < (bgHeight + rect.h) / 2 + MIN_LABEL_GAP
+            if (horizontalOverlap && verticalOverlap) {
+              hasCollision = true
               labelY += nudgeStep
               break
             }
           }
           nudgeAttempts++
         }
+        placedLabelRects.push({ x: curveX, y: labelY, w: bgWidth, h: bgHeight })
 
         // Draw background rectangle with connection color tint
         ctx.globalAlpha = 0.95
@@ -1243,55 +1328,84 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Calculate event positions with collision detection (text-aware bounding boxes)
-  const calculateEventPositions = (events: TimelineEvent[], canvasWidth: number, canvasHeight: number): Map<string, { x: number; y: number }> => {
-    const positions = new Map<string, { x: number; y: number }>()
+  const calculateEventPositions = (events: TimelineEvent[], canvasWidth: number, canvasHeight: number): Map<string, EventPos> => {
+    const positions = new Map<string, EventPos>()
     const centerY = canvasHeight / 2
     const canvas = canvasRef.current
     if (!canvas) return positions
     const ctx = canvas.getContext('2d')
     if (!ctx) return positions
 
-    // Zoom-dependent spacing for events (quantized to avoid jitter during zoom)
-    const zoomFactor = Math.round(Math.min(3, Math.max(1, Math.sqrt(scale))) * 2) / 2
-    const eventGap = EVENT_VERTICAL_GAP * zoomFactor
+    // Vertical gap is fixed — zoom is horizontal-only, so event rows must not
+    // drift vertically as you zoom.
+    const eventGap = EVENT_VERTICAL_GAP
 
     // Sort events by year for left-to-right processing
     const sortedEvents = [...events].sort((a, b) => a.year - b.year)
 
-    // Pre-measure text widths for each event
+    // Precompute per-event geometry: x-centre, footprint width, and (for ranged
+    // events) bar metadata. The FULL label is measured so collision reserves
+    // enough horizontal space; overlaps resolve by vertical stacking, never by
+    // truncation.
     ctx.font = '10px "JetBrains Mono", monospace'
-    const eventWidths = new Map<string, number>()
+    const measureEvt = (t: string) => ctx.measureText(t).width
+    interface EvtGeom { x: number; width: number; bar?: BarMeta }
+    const geom = new Map<string, EvtGeom>()
     sortedEvents.forEach((event) => {
-      // Measure the FULL title so collision detection reserves enough horizontal
-      // space; overlapping events are resolved by vertical stacking below, never
-      // by truncating the label.
-      const textWidth = ctx.measureText(event.name).width
-      // Bounding box width = max of shape width and label text width
-      eventWidths.set(event.id, Math.max(EVENT_BBOX_WIDTH, textWidth + 4))
+      const range = resolveEventRange(event)
+      const classified = classifyItem(range)
+      if (classified.kind === 'range' && classified.startYear != null && classified.endYear != null) {
+        const { x0, x1, barWidth } = barExtent(
+          yearToX(classified.startYear, canvasWidth, scale),
+          yearToX(classified.endYear, canvasWidth, scale),
+          MIN_BAR_WIDTH,
+        )
+        const labelText = `${eventGlyph(event.event_type)} ${event.name}`
+        const layout = resolveBarLabelLayout({ measure: measureEvt, labelText, barWidthPx: barWidth, padding: BAR_LABEL_PADDING, gap: BAR_LABEL_GAP, maxBesidePx: MAX_BESIDE_LABEL_PX })
+        geom.set(event.id, {
+          x: x0 + layout.footprintWidth / 2,
+          width: layout.footprintWidth,
+          bar: { x0, x1, ongoing: false, labelText, placement: layout.placement, besideMaxPx: layout.besideMaxPx },
+        })
+      } else {
+        geom.set(event.id, {
+          x: yearToX(event.year, canvasWidth, scale),
+          width: Math.max(EVENT_BBOX_WIDTH, measureEvt(event.name) + 4),
+        })
+      }
     })
 
     // Track placed events for collision detection
     const placed: { x: number; y: number; width: number; height: number }[] = []
 
+    // Reserved axis band (same as thinkers) so events never sit on the ticks.
+    const bandTop = centerY - AXIS_BAND_ABOVE
+    const bandBottom = centerY + AXIS_BAND_BELOW
+    const eventBandHalf = EVENT_BAR_HEIGHT / 2 + 2 // drawn half-extent of an event mark
+    const clearsBand = (cy: number) => (cy + eventBandHalf <= bandTop) || (cy - eventBandHalf >= bandBottom)
+
     sortedEvents.forEach((event) => {
-      const x = yearToX(event.year, canvasWidth, scale)
+      const g = geom.get(event.id)!
+      const x = g.x
       const baseY = centerY + EVENT_ZONE_OFFSET
-      const evtWidth = eventWidths.get(event.id) || EVENT_BBOX_WIDTH
+      const evtWidth = g.width
+      // Keep the event on the side of the axis it was last on; within that side
+      // it compacts toward baseY, so it moves freely without flipping sides.
+      const prevY = prevEventYRef.current.get(event.id)
+      const preferredSide = Math.sign((prevY ?? baseY) - centerY)
 
-      let bestY = baseY
-      let foundFree = false
-
-      // Generate candidates spiraling away from baseY
-      for (let ring = 0; ring < 20; ring++) {
+      // Score candidate rows spiraling outward from baseY (natural position).
+      const scored: ScoredLane[] = []
+      for (let ring = 0; ring < 40; ring++) {
         const candidates = ring === 0
           ? [baseY]
           : [baseY - ring * (EVENT_BBOX_HEIGHT + eventGap), baseY + ring * (EVENT_BBOX_HEIGHT + eventGap)]
 
         for (const candidateY of candidates) {
           if (candidateY < CANVAS_VERTICAL_PADDING || candidateY > canvasHeight - CANVAS_VERTICAL_PADDING) continue
+          if (!clearsBand(candidateY)) continue
 
           let hasCollision = false
-
           for (const existing of placed) {
             const hOverlap = Math.abs(x - existing.x) < (evtWidth + existing.width) / 2
             const vOverlap = Math.abs(candidateY - existing.y) < (EVENT_BBOX_HEIGHT + existing.height) / 2 + eventGap
@@ -1301,27 +1415,49 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
             }
           }
 
-          if (!hasCollision) {
-            bestY = candidateY
-            foundFree = true
-            break
-          }
+          scored.push({
+            y: candidateY,
+            width: evtWidth,
+            compressionRank: 0,
+            collisionCount: hasCollision ? 1 : 0,
+            collisionPenalty: 0,
+            sameSide: Math.sign(candidateY - centerY) === preferredSide,
+          })
         }
-        if (foundFree) break
       }
 
+      const chosen = chooseStableLane(scored, baseY)
+      const bestY = chosen ? chosen.y : baseY
+      prevEventYRef.current.set(event.id, bestY)
       placed.push({ x, y: bestY, width: evtWidth, height: EVENT_BBOX_HEIGHT })
-      positions.set(event.id, { x, y: bestY })
+      positions.set(event.id, { x, y: bestY, width: evtWidth, height: EVENT_BBOX_HEIGHT, bar: g.bar })
     })
 
     return positions
   }
 
-  const drawTimelineEvents = (ctx: CanvasRenderingContext2D, events: TimelineEvent[], canvasWidth: number, canvasHeight: number, eventPositions: Map<string, { x: number; y: number }>) => {
+  const drawTimelineEvents = (ctx: CanvasRenderingContext2D, events: TimelineEvent[], canvasWidth: number, canvasHeight: number, eventPositions: Map<string, EventPos>, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
+    const axisY = canvasHeight / 2
     events.forEach((event) => {
       const pos = eventPositions.get(event.id)
       if (!pos) return
       const { x, y } = pos
+
+      // Ranged event → bar (type-coloured fill + glyph label) with tethers.
+      if (pos.bar) {
+        const fill = eventFill(event.event_type)
+        drawBar(
+          ctx,
+          pos.bar,
+          y,
+          EVENT_BAR_HEIGHT,
+          { fill, stroke: '#6B3410', lineWidth: 1, font: '10px "JetBrains Mono", monospace' },
+          axisY,
+          dotRegistry,
+          lod,
+        )
+        return
+      }
 
       // Different shapes for different event types
       ctx.fillStyle = '#8B4513'  // Brown color for events
@@ -1388,11 +1524,20 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           break
       }
 
-      // Event label
-      ctx.fillStyle = '#333333'
-      ctx.font = '10px "JetBrains Mono", monospace'
-      ctx.textAlign = 'center'
-      ctx.fillText(event.name, x, y - size - 5)
+      // Event label (suppressed when the axis is too compressed to read it).
+      if (lod.besideLabel) {
+        ctx.fillStyle = '#333333'
+        ctx.font = '10px "JetBrains Mono", monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(event.name, x, y - size - 5)
+      }
+
+      // Vertical tether from the shape's axis-facing edge down/up to the axis.
+      if (axisY > 0 && lod.tether) {
+        const edgeY = y < axisY ? y + size : y - size
+        drawTetherLine(ctx, x, edgeY, axisY)
+        drawTetherDot(ctx, x, axisY, dotRegistry)
+      }
     })
   }
 
@@ -1536,9 +1681,18 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const pos = eventPositions.get(event.id)
       if (!pos) continue
 
-      const size = EVENT_SHAPE_SIZE
+      if (pos.bar) {
+        // Ranged event → hit-test the bar rect (with the label footprint).
+        const halfH = (pos.height ?? EVENT_BBOX_HEIGHT) / 2
+        if (x >= pos.bar.x0 && x <= pos.x + pos.width / 2 &&
+            y >= pos.y - halfH && y <= pos.y + halfH) {
+          return event
+        }
+        continue
+      }
 
-      // Check if click is within event bounds (generous hit area)
+      const size = EVENT_SHAPE_SIZE
+      // Point event → generous square hit area around the shape.
       if (x >= pos.x - size * 2 && x <= pos.x + size * 2 &&
           y >= pos.y - size * 2 && y <= pos.y + size * 2) {
         return event
@@ -1572,7 +1726,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
+    // Default is prevented by the non-passive native listener (see effect above).
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -1815,9 +1969,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       if (canvas) {
         // Use CSS dimensions (not DPR-scaled canvas dimensions)
         const rect = canvas.getBoundingClientRect()
-        // draggedThinkerPos is already in canvas-space (offset subtracted by getCanvasCoordinates)
-        // So we don't subtract offset again
-        const anchorYear = xToYear(draggedThinkerPos.x, rect.width, scale)
+        // For a range thinker (drawn as a bar), x is data-driven from its years
+        // and anchor_year is vestigial — preserve it rather than re-deriving a
+        // bogus year from the bar's centre. Point thinkers keep year-from-x.
+        const dragged = thinkers.find((t) => t.id === draggedThinkerId)
+        const isBar = !!dragged && dragged.birth_year != null && (dragged.death_year ?? CURRENT_YEAR) > dragged.birth_year
+        const anchorYear = isBar
+          ? (dragged!.anchor_year ?? xToYear(draggedThinkerPos.x, rect.width, scale))
+          : xToYear(draggedThinkerPos.x, rect.width, scale)
         // Get the timeline axis Y position for calculating vertical offset
         const axisY = rect.height / 2
         // position_y is the offset from the axis line (draggedThinkerPos.y is in canvas-space)

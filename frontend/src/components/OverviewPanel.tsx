@@ -471,7 +471,11 @@ export function OverviewPanel({
               <tbody className="divide-y divide-gray-100">
                 {filteredEvents.map((event) => (
                   <tr key={event.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 font-mono text-gray-600">{formatYear(event.year)}</td>
+                    <td className="px-6 py-3 font-mono text-gray-600">
+                      {event.end_year != null && event.end_year > event.year
+                        ? `${formatYear(event.year)} – ${formatYear(event.end_year)}`
+                        : formatYear(event.year)}
+                    </td>
                     <td className="px-6 py-3 font-medium text-primary">{event.name}</td>
                     <td className="px-6 py-3">
                       <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded capitalize">

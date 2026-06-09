@@ -117,3 +117,118 @@ class TestTimelineEventsAPI:
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = client.delete(f"/api/timeline-events/{fake_id}")
         assert response.status_code == 404
+
+
+class TestTimelineEventEndYear:
+    """Test suite for the optional end_year (range) field."""
+
+    def test_create_event_with_end_year(self, client: TestClient, sample_timeline: dict):
+        """An event created with end_year persists and returns it."""
+        response = client.post("/api/timeline-events/", json={
+            "name": "Council of Trent",
+            "year": 1545,
+            "end_year": 1563,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "council",
+        })
+        assert response.status_code in [200, 201]
+        data = response.json()
+        assert data["year"] == 1545
+        assert data["end_year"] == 1563
+
+    def test_create_event_without_end_year_defaults_null(self, client: TestClient, sample_timeline: dict):
+        """An event created without end_year returns end_year=None (point item)."""
+        response = client.post("/api/timeline-events/", json={
+            "name": "Single date event",
+            "year": 1600,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "other",
+        })
+        assert response.status_code in [200, 201]
+        assert response.json()["end_year"] is None
+
+    def test_create_event_end_year_equal_to_year_allowed(self, client: TestClient, sample_timeline: dict):
+        """end_year == year is permitted (renders as a point)."""
+        response = client.post("/api/timeline-events/", json={
+            "name": "Same-year span",
+            "year": 1700,
+            "end_year": 1700,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "other",
+        })
+        assert response.status_code in [200, 201]
+        assert response.json()["end_year"] == 1700
+
+    def test_create_event_end_year_before_year_rejected(self, client: TestClient, sample_timeline: dict):
+        """Creating with end_year < year is rejected."""
+        response = client.post("/api/timeline-events/", json={
+            "name": "Backwards range",
+            "year": 1600,
+            "end_year": 1500,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "other",
+        })
+        assert response.status_code == 422
+
+    def test_create_event_end_year_out_of_bounds_rejected(self, client: TestClient, sample_timeline: dict):
+        """end_year outside [-10000, 10000] is rejected."""
+        response = client.post("/api/timeline-events/", json={
+            "name": "Way too far",
+            "year": 1600,
+            "end_year": 99999,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "other",
+        })
+        assert response.status_code == 422
+
+    def test_update_event_set_end_year(self, client: TestClient, sample_timeline_event: dict):
+        """Updating an event to add an end_year persists it."""
+        response = client.put(f"/api/timeline-events/{sample_timeline_event['id']}", json={
+            "end_year": 1910,
+        })
+        assert response.status_code == 200
+        assert response.json()["end_year"] == 1910
+
+    def test_update_event_clear_end_year(self, client: TestClient, sample_timeline: dict):
+        """Updating an event to set end_year=null clears it back to a point."""
+        created = client.post("/api/timeline-events/", json={
+            "name": "Range to clear",
+            "year": 1545,
+            "end_year": 1563,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "council",
+        }).json()
+        response = client.put(f"/api/timeline-events/{created['id']}", json={
+            "end_year": None,
+        })
+        assert response.status_code == 200
+        assert response.json()["end_year"] is None
+
+    def test_partial_update_end_year_below_persisted_year_rejected(
+        self, client: TestClient, sample_timeline_event: dict
+    ):
+        """PATCH-style PUT of only end_year below the persisted year is rejected.
+
+        The fixture event has year=1902 with no end_year. Sending only
+        end_year=1850 must be validated against the stored year, not skipped.
+        """
+        response = client.put(f"/api/timeline-events/{sample_timeline_event['id']}", json={
+            "end_year": 1850,
+        })
+        assert response.status_code == 422
+
+    def test_partial_update_year_above_persisted_end_year_rejected(
+        self, client: TestClient, sample_timeline: dict
+    ):
+        """Raising only `year` above a persisted end_year is rejected."""
+        created = client.post("/api/timeline-events/", json={
+            "name": "Existing range",
+            "year": 1545,
+            "end_year": 1563,
+            "timeline_id": sample_timeline["id"],
+            "event_type": "council",
+        }).json()
+        response = client.put(f"/api/timeline-events/{created['id']}", json={
+            "year": 1600,
+        })
+        assert response.status_code == 422

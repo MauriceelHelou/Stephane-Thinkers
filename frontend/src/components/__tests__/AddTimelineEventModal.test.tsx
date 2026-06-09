@@ -198,6 +198,47 @@ describe('AddTimelineEventModal', () => {
     })
   })
 
+  describe('End year (range)', () => {
+    const VALID_TIMELINE_ID = '11111111-1111-1111-1111-111111111111'
+
+    it('renders an optional End year input', () => {
+      renderWithQueryClient(<AddTimelineEventModal {...defaultProps} />)
+      expect(screen.getByPlaceholderText(/leave blank for a single date/i)).toBeInTheDocument()
+    })
+
+    it('allows typing in the End year field', async () => {
+      const user = userEvent.setup()
+      renderWithQueryClient(<AddTimelineEventModal {...defaultProps} />)
+
+      const endYearInput = screen.getByPlaceholderText(/leave blank for a single date/i) as HTMLInputElement
+      await user.type(endYearInput, '1563')
+
+      expect(endYearInput.value).toBe('1563')
+    })
+
+    it('shows an error when end year is before year', async () => {
+      const user = userEvent.setup()
+      renderWithQueryClient(
+        <AddTimelineEventModal {...defaultProps} defaultTimelineId={VALID_TIMELINE_ID} />
+      )
+
+      await user.type(screen.getByPlaceholderText(/Council of Trent/), 'Backwards range')
+
+      const yearInput = screen.getByPlaceholderText('-500 or 1545')
+      await user.clear(yearInput)
+      await user.type(yearInput, '1600')
+
+      const endYearInput = screen.getByPlaceholderText(/leave blank for a single date/i)
+      await user.type(endYearInput, '1500')
+
+      await user.click(screen.getByText('Add Event'))
+
+      await waitFor(() => {
+        expect(screen.getByText(/End year must be greater than or equal to year/i)).toBeInTheDocument()
+      })
+    })
+  })
+
   describe('Buttons', () => {
     it('has Cancel button', () => {
       renderWithQueryClient(<AddTimelineEventModal {...defaultProps} />)

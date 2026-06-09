@@ -56,6 +56,17 @@ def update_timeline_event(
         raise HTTPException(status_code=404, detail="Timeline event not found")
 
     update_data = event_update.model_dump(exclude_unset=True)
+
+    # Validate the effective (year, end_year) pair against the persisted row so a
+    # partial update that touches only one side cannot create end_year < year.
+    effective_year = update_data["year"] if update_data.get("year") is not None else db_event.year
+    effective_end_year = update_data["end_year"] if "end_year" in update_data else db_event.end_year
+    if effective_end_year is not None and effective_end_year < effective_year:
+        raise HTTPException(
+            status_code=422,
+            detail="end_year must be greater than or equal to year",
+        )
+
     for field, value in update_data.items():
         setattr(db_event, field, value)
 

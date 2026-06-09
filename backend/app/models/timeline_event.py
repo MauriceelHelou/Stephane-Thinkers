@@ -16,6 +16,7 @@ class TimelineEvent(Base):
     timeline_id = Column(GUID, ForeignKey("timelines.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     year = Column(Integer, nullable=False)
+    end_year = Column(Integer, nullable=True)
     event_type = Column(String, nullable=False)
     description = Column(String, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())

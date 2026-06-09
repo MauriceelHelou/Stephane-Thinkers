@@ -243,6 +243,7 @@ export interface TimelineEvent {
   timeline_id: string
   name: string
   year: number
+  end_year?: number | null
   event_type: string
   description?: string | null
   created_at: string
@@ -253,6 +254,7 @@ export interface TimelineEventCreate {
   timeline_id: string
   name: string
   year: number
+  end_year?: number | null
   event_type: string
   description?: string | null
 }
@@ -261,6 +263,7 @@ export interface TimelineEventUpdate {
   timeline_id?: string
   name?: string
   year?: number
+  end_year?: number | null
   event_type?: string
   description?: string | null
 }
