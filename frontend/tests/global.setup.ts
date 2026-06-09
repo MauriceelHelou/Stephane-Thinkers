@@ -5,8 +5,10 @@ import { FullConfig } from '@playwright/test'
  * Runs once before all tests in the test suite
  */
 async function globalSetup(config: FullConfig): Promise<void> {
-  const baseURL = config.projects[0]?.use?.baseURL || 'http://localhost:3010'
-  const apiURL = process.env.API_BASE_URL || 'http://localhost:8010'
+  // 127.0.0.1 (not localhost): localhost resolves to IPv6 ::1 first on CI,
+  // but the backend (uvicorn --host 0.0.0.0) binds IPv4 only.
+  const baseURL = config.projects[0]?.use?.baseURL || 'http://127.0.0.1:3010'
+  const apiURL = process.env.API_BASE_URL || 'http://127.0.0.1:8010'
 
   console.log('\n🚀 Starting global test setup...')
   console.log(`   Frontend URL: ${baseURL}`)

@@ -1,7 +1,9 @@
 import { chromium, FullConfig } from '@playwright/test'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8010'
-const FRONTEND_URL = 'http://localhost:3010'
+// 127.0.0.1 (not localhost): localhost resolves to IPv6 ::1 first on CI,
+// but the backend (uvicorn --host 0.0.0.0) binds IPv4 only.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_BASE_URL || 'http://127.0.0.1:8010'
+const FRONTEND_URL = process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://127.0.0.1:3010'
 
 async function waitForServer(url: string, timeout: number = 60000): Promise<boolean> {
   const startTime = Date.now()
