@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.models.notion_sync import NotionSyncMap
+from app.models.notion_sync import NotionSyncJob, NotionSyncMap
 from app.services import notion_sync
 
 
@@ -56,6 +56,25 @@ class _FakeNotion:
         }
         self.pages = _FakePages(self.state)
         self.blocks = _FakeBlocks(self.state)
+        self.databases = SimpleNamespace(
+            retrieve=lambda database_id: {
+                "id": database_id,
+                "url": "https://notion.so/fake-db",
+                "properties": {
+                    "Title": {"type": "title", "title": {}},
+                    "Note Type": {"type": "select", "select": {"options": []}},
+                    "Folder": {"type": "select", "select": {"options": []}},
+                    "Folder Path": {"type": "rich_text", "rich_text": {}},
+                    "Thinker": {"type": "select", "select": {"options": []}},
+                    "Tags": {"type": "multi_select", "multi_select": {"options": []}},
+                    "Mentioned Thinkers": {"type": "multi_select", "multi_select": {"options": []}},
+                    "Color": {"type": "select", "select": {"options": []}},
+                    "Created": {"type": "date", "date": {}},
+                    "Updated": {"type": "date", "date": {}},
+                    "Local ID": {"type": "rich_text", "rich_text": {}},
+                },
+            }
+        )
 
 
 class _FakeDatabases:
@@ -230,6 +249,49 @@ def test_apply_database_schema_update_adds_missing_properties_and_select_options
         {"name": "biography"},
         {"name": "connection"},
     ]
+
+
+def test_run_scheduled_notion_cycle_disabled_by_default(db, monkeypatch):
+    monkeypatch.delenv("NOTION_AUTO_SYNC_ENABLED", raising=False)
+    result = notion_sync.run_scheduled_notion_cycle(db=db)
+    assert result["status"] == "disabled"
+
+
+def test_run_scheduled_notion_cycle_skips_if_job_running(db, monkeypatch):
+    monkeypatch.setenv("NOTION_AUTO_SYNC_ENABLED", "true")
+    monkeypatch.setenv("NOTION_INTEGRATION_TOKEN", "token")
+    monkeypatch.setenv("NOTION_NOTES_DATABASE_ID", "db-id")
+
+    running_job = NotionSyncJob(
+        job_type="incremental",
+        status="running",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(running_job)
+    db.commit()
+
+    result = notion_sync.run_scheduled_notion_cycle(db=db)
+    assert result["status"] == "skipped"
+    assert result["reason"] == "job_already_running"
+
+
+def test_run_scheduled_notion_cycle_executes_incremental_sync(db, monkeypatch):
+    monkeypatch.setenv("NOTION_AUTO_SYNC_ENABLED", "true")
+    monkeypatch.setenv("NOTION_INTEGRATION_TOKEN", "token")
+    monkeypatch.setenv("NOTION_NOTES_DATABASE_ID", "db-id")
+
+    called = {"count": 0}
+
+    def _fake_incremental_sync(*, db=None):
+        called["count"] += 1
+        return {"status": "completed", "created": 0, "updated": 2, "skipped": 7}
+
+    monkeypatch.setattr(notion_sync, "incremental_sync", _fake_incremental_sync)
+
+    result = notion_sync.run_scheduled_notion_cycle(db=db)
+    assert result["status"] == "completed"
+    assert result["sync"]["updated"] == 2
+    assert called["count"] == 1
 
 
 def test_incremental_sync_updates_content(client, db, sample_note, monkeypatch):

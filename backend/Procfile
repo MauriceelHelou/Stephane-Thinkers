@@ -1,2 +1,2 @@
 web: bash start.sh
-worker: python -m rq worker --url $REDIS_URL backup_jobs notes_ai
+worker: python -m rq worker --url $REDIS_URL backup_jobs notion_jobs notes_ai

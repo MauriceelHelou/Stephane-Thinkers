@@ -55,6 +55,13 @@ RECOMMENDED_VIEWS = [
 ]
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_notion_client():
     """Initialize Notion API client from environment."""
     try:
@@ -192,6 +199,7 @@ def _note_to_notion_properties(
     note: Note,
     *,
     folder_lookup: Optional[dict[str, Folder]] = None,
+    title_property_name: str = "Title",
 ) -> dict[str, Any]:
     """Convert a Note to rich Notion page properties."""
     folder = getattr(note, "folder", None)
@@ -220,7 +228,7 @@ def _note_to_notion_properties(
         color = "yellow"
 
     properties: dict[str, Any] = {
-        "Title": {"title": [{"text": {"content": note.title or "Untitled"}}]},
+        title_property_name: {"title": [{"text": {"content": note.title or "Untitled"}}]},
         "Note Type": {"select": {"name": note_type}},
         "Folder": {"select": {"name": folder_name}},
         "Folder Path": {
@@ -416,13 +424,13 @@ def _chunk_blocks(blocks: list[dict[str, Any]], size: int = NOTION_CHILDREN_CHUN
 def _create_page_with_children(
     notion,
     *,
-    database_id: str,
+    parent: dict[str, str],
     properties: dict[str, Any],
     blocks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     chunks = _chunk_blocks(blocks, NOTION_CHILDREN_CHUNK_SIZE)
     create_kwargs: dict[str, Any] = {
-        "parent": {"database_id": database_id},
+        "parent": parent,
         "properties": properties,
     }
     if chunks:
@@ -469,6 +477,61 @@ def _replace_page_children(notion, page_id: str, blocks: list[dict[str, Any]]) -
         _rate_limit_sleep()
 
 
+def _find_title_property_name(properties: dict[str, Any]) -> str:
+    for name, definition in properties.items():
+        if str(definition.get("type") or "") == "title":
+            return name
+    return "Title"
+
+
+def _resolve_sync_target(notion, database_id: str) -> dict[str, Any]:
+    """
+    Resolve whether writes should target a legacy database or a modern data source.
+
+    Notion now models schema on `data_source` objects under a `database`. Older
+    workspaces may still expose properties directly on the database.
+    """
+    database_meta = _call_with_retry(notion.databases.retrieve, database_id=database_id)
+    database_props = database_meta.get("properties") if isinstance(database_meta, dict) else None
+    data_sources = database_meta.get("data_sources", []) if isinstance(database_meta, dict) else []
+
+    if isinstance(database_props, dict) and database_props:
+        title_property_name = _find_title_property_name(database_props)
+        return {
+            "target_type": "database",
+            "target_id": database_id,
+            "parent": {"database_id": database_id},
+            "properties": database_props,
+            "title_property_name": title_property_name,
+            "database_url": database_meta.get("url") if isinstance(database_meta, dict) else None,
+        }
+
+    if data_sources:
+        data_source_id = str(data_sources[0].get("id"))
+        data_source_meta = _call_with_retry(notion.data_sources.retrieve, data_source_id=data_source_id)
+        data_source_props = (
+            data_source_meta.get("properties", {}) if isinstance(data_source_meta, dict) else {}
+        )
+        title_property_name = _find_title_property_name(data_source_props)
+        return {
+            "target_type": "data_source",
+            "target_id": data_source_id,
+            "parent": {"data_source_id": data_source_id},
+            "properties": data_source_props,
+            "title_property_name": title_property_name,
+            "database_url": database_meta.get("url") if isinstance(database_meta, dict) else None,
+        }
+
+    return {
+        "target_type": "database",
+        "target_id": database_id,
+        "parent": {"database_id": database_id},
+        "properties": {},
+        "title_property_name": "Title",
+        "database_url": database_meta.get("url") if isinstance(database_meta, dict) else None,
+    }
+
+
 def _load_folder_lookup(db: Session) -> dict[str, Folder]:
     folders = db.query(Folder).all()
     return {str(folder.id): folder for folder in folders}
@@ -489,10 +552,13 @@ def _load_notes_for_sync(db: Session) -> list[Note]:
 
 
 def _apply_database_schema_update(notion, database_id: str) -> dict[str, Any]:
-    desired = _notion_database_properties()
+    desired = _notion_database_properties().copy()
+    target = _resolve_sync_target(notion, database_id)
+    existing_properties = target.get("properties", {}) or {}
+    title_property_name = str(target.get("title_property_name") or "Title")
 
-    metadata = _call_with_retry(notion.databases.retrieve, database_id=database_id)
-    existing_properties = metadata.get("properties", {}) if isinstance(metadata, dict) else {}
+    if title_property_name != "Title":
+        desired[title_property_name] = desired.pop("Title")
 
     to_add: dict[str, dict[str, Any]] = {}
     to_option_update: dict[str, dict[str, Any]] = {}
@@ -536,19 +602,33 @@ def _apply_database_schema_update(notion, database_id: str) -> dict[str, Any]:
     update_properties = {**to_add, **to_option_update}
 
     if update_properties:
-        _call_with_retry(notion.databases.update, database_id=database_id, properties=update_properties)
+        if target.get("target_type") == "data_source":
+            _call_with_retry(
+                notion.data_sources.update,
+                data_source_id=target["target_id"],
+                properties=update_properties,
+            )
+        else:
+            _call_with_retry(
+                notion.databases.update,
+                database_id=database_id,
+                properties=update_properties,
+            )
         _rate_limit_sleep()
-        metadata = _call_with_retry(notion.databases.retrieve, database_id=database_id)
+        target = _resolve_sync_target(notion, database_id)
 
-    refreshed_properties = metadata.get("properties", {}) if isinstance(metadata, dict) else {}
+    refreshed_properties = target.get("properties", {}) or {}
 
     return {
         "database_id": database_id,
-        "database_url": metadata.get("url") if isinstance(metadata, dict) else None,
+        "database_url": target.get("database_url"),
         "property_count": len(refreshed_properties),
         "added_properties": sorted(to_add.keys()),
         "added_select_options": added_select_options,
         "conflicts": conflicts,
+        "title_property_name": title_property_name,
+        "target_type": target.get("target_type"),
+        "target_id": target.get("target_id"),
         "recommended_views": RECOMMENDED_VIEWS,
     }
 
@@ -568,12 +648,12 @@ def setup_notion_database(db: Optional[Session] = None) -> dict:
         existing_db_id = os.getenv("NOTION_NOTES_DATABASE_ID", "")
         if existing_db_id:
             try:
-                metadata = _call_with_retry(notion.databases.retrieve, database_id=existing_db_id)
-                property_count = len(metadata.get("properties", {})) if isinstance(metadata, dict) else None
+                target = _resolve_sync_target(notion, existing_db_id)
+                property_count = len(target.get("properties", {}) or {})
                 return {
                     "status": "exists",
                     "database_id": existing_db_id,
-                    "database_url": metadata.get("url") if isinstance(metadata, dict) else None,
+                    "database_url": target.get("database_url"),
                     "property_count": property_count,
                     "recommended_views": RECOMMENDED_VIEWS,
                     "message": "Notion database already configured. Set NOTION_NOTES_DATABASE_ID in env.",
@@ -594,13 +674,19 @@ def setup_notion_database(db: Optional[Session] = None) -> dict:
         )
 
         database_id = result["id"]
-        property_count = len(result.get("properties", {})) if isinstance(result, dict) else None
+        # Ensure all required schema fields exist after creation across both
+        # legacy database and modern data-source workspaces.
+        schema_result = _apply_database_schema_update(notion, database_id)
+        property_count = schema_result.get("property_count")
         logger.info("Created Notion database: %s", database_id)
         return {
             "status": "created",
             "database_id": database_id,
-            "database_url": result.get("url") if isinstance(result, dict) else None,
+            "database_url": schema_result.get("database_url")
+            or (result.get("url") if isinstance(result, dict) else None),
             "property_count": property_count,
+            "added_properties": schema_result.get("added_properties", []),
+            "added_select_options": schema_result.get("added_select_options", {}),
             "recommended_views": RECOMMENDED_VIEWS,
             "message": f"Set NOTION_NOTES_DATABASE_ID={database_id} in your environment.",
         }
@@ -660,10 +746,11 @@ def _sync_notes(
     *,
     db: Session,
     notion,
-    database_id: str,
+    page_parent: dict[str, str],
     notes: list[Note],
     map_by_note_id: dict[str, NotionSyncMap],
     folder_lookup: dict[str, Folder],
+    title_property_name: str,
 ) -> tuple[int, int, int]:
     created = 0
     updated = 0
@@ -678,7 +765,11 @@ def _sync_notes(
             skipped += 1
             continue
 
-        properties = _note_to_notion_properties(note, folder_lookup=folder_lookup)
+        properties = _note_to_notion_properties(
+            note,
+            folder_lookup=folder_lookup,
+            title_property_name=title_property_name,
+        )
         blocks = _note_to_notion_children(note)
 
         if existing_map:
@@ -701,7 +792,7 @@ def _sync_notes(
         try:
             result = _create_page_with_children(
                 notion,
-                database_id=database_id,
+                parent=page_parent,
                 properties=properties,
                 blocks=blocks,
             )
@@ -741,6 +832,7 @@ def full_sync(db: Optional[Session] = None) -> dict:
     try:
         notion = _get_notion_client()
         database_id = _get_database_id()
+        target = _resolve_sync_target(notion, database_id)
 
         notes = _load_notes_for_sync(db)
         folder_lookup = _load_folder_lookup(db)
@@ -750,10 +842,11 @@ def full_sync(db: Optional[Session] = None) -> dict:
         created, updated, skipped = _sync_notes(
             db=db,
             notion=notion,
-            database_id=database_id,
+            page_parent=target["parent"],
             notes=notes,
             map_by_note_id=map_by_note_id,
             folder_lookup=folder_lookup,
+            title_property_name=str(target.get("title_property_name") or "Title"),
         )
 
         job.status = "completed"
@@ -807,6 +900,7 @@ def incremental_sync(db: Optional[Session] = None) -> dict:
     try:
         notion = _get_notion_client()
         database_id = _get_database_id()
+        target = _resolve_sync_target(notion, database_id)
 
         notes = _load_notes_for_sync(db)
         folder_lookup = _load_folder_lookup(db)
@@ -816,10 +910,11 @@ def incremental_sync(db: Optional[Session] = None) -> dict:
         created, updated, skipped = _sync_notes(
             db=db,
             notion=notion,
-            database_id=database_id,
+            page_parent=target["parent"],
             notes=notes,
             map_by_note_id=map_by_note_id,
             folder_lookup=folder_lookup,
+            title_property_name=str(target.get("title_property_name") or "Title"),
         )
 
         job.status = "completed"
@@ -844,6 +939,79 @@ def incremental_sync(db: Optional[Session] = None) -> dict:
         db.commit()
         logger.exception("Incremental sync failed")
         return {"status": "failed", "error": str(exc)[:500]}
+    finally:
+        if own_session:
+            db.close()
+
+
+def run_scheduled_notion_cycle(db: Optional[Session] = None) -> dict:
+    """
+    Run one scheduled incremental sync cycle.
+
+    This is intended to be triggered externally (e.g., platform cron every 5 minutes).
+    It avoids overlapping runs and only syncs notes with changed hash metadata/content.
+    """
+    if not _env_bool("NOTION_AUTO_SYNC_ENABLED", False):
+        return {
+            "status": "disabled",
+            "reason": "notion_auto_sync_disabled",
+            "message": "Set NOTION_AUTO_SYNC_ENABLED=true to enable scheduled Notion sync.",
+        }
+
+    if not os.getenv("NOTION_INTEGRATION_TOKEN", "").strip() or not os.getenv("NOTION_NOTES_DATABASE_ID", "").strip():
+        return {
+            "status": "skipped",
+            "reason": "not_configured",
+            "message": "NOTION_INTEGRATION_TOKEN and NOTION_NOTES_DATABASE_ID must be configured.",
+        }
+
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
+    try:
+        stale_minutes = max(int(os.getenv("NOTION_AUTO_SYNC_STALE_JOB_MINUTES", "30")), 1)
+        now = datetime.now(timezone.utc)
+
+        running_job = (
+            db.query(NotionSyncJob)
+            .filter(
+                NotionSyncJob.status == "running",
+                NotionSyncJob.job_type.in_(["incremental", "full"]),
+            )
+            .order_by(NotionSyncJob.started_at.desc())
+            .first()
+        )
+
+        if running_job and running_job.started_at:
+            started_at = running_job.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+
+            age_minutes = (now - started_at).total_seconds() / 60.0
+            if age_minutes < stale_minutes:
+                return {
+                    "status": "skipped",
+                    "reason": "job_already_running",
+                    "running_job_id": str(running_job.id),
+                    "running_job_type": running_job.job_type,
+                    "running_job_started_at": started_at.isoformat(),
+                    "running_job_age_minutes": round(age_minutes, 2),
+                }
+
+            running_job.status = "failed"
+            running_job.completed_at = now
+            running_job.error_message = (
+                f"Marked stale by scheduled Notion sync after {round(age_minutes, 2)} minutes."
+            )
+            db.commit()
+            logger.warning("Marked stale running Notion job as failed: %s", running_job.id)
+
+        sync_result = incremental_sync(db=db)
+        return {
+            "status": "completed" if sync_result.get("status") == "completed" else "failed",
+            "sync": sync_result,
+        }
     finally:
         if own_session:
             db.close()
@@ -889,10 +1057,9 @@ def get_sync_status(db: Optional[Session] = None) -> dict:
         if database_id:
             try:
                 notion = _get_notion_client()
-                metadata = _call_with_retry(notion.databases.retrieve, database_id=database_id)
-                if isinstance(metadata, dict):
-                    database_url = metadata.get("url")
-                    property_count = len(metadata.get("properties", {}))
+                target = _resolve_sync_target(notion, database_id)
+                database_url = target.get("database_url")
+                property_count = len(target.get("properties", {}) or {})
             except Exception as exc:
                 database_error = str(exc)[:500]
 

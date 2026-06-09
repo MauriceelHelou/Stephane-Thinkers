@@ -71,3 +71,7 @@ output/
 
 # Misc
 .vercel
+
+# Debug screenshots & Playwright MCP artifacts (not source)
+/*.png
+.playwright-mcp/

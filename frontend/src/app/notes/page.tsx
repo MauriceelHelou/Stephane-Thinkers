@@ -98,6 +98,17 @@ export default function NotesPage() {
   const [showDefinitionTermSuggestions, setShowDefinitionTermSuggestions] = useState(false)
   const [definitionTermActiveIndex, setDefinitionTermActiveIndex] = useState<number>(-1)
 
+  // Warn before closing tab with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (saveStatus !== 'saved') {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [saveStatus])
+
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const pendingTagUpdateRequestRef = useRef<number | null>(null)
   const tagUpdateSequenceRef = useRef(0)
