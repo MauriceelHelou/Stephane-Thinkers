@@ -79,7 +79,15 @@ def _create_backup(database_url: str) -> str:
             # that do not exist yet in the current database schema. Skip them.
             if table.name not in existing_tables:
                 continue
-            rows = db.execute(select(table)).fetchall()
+            # ...and can include COLUMNS the pending migration hasn't added yet
+            # (e.g. a freshly-declared column). Selecting those would raise
+            # UndefinedColumn and abort the backup, so back up only the columns
+            # that actually exist in the live schema.
+            db_columns = {col["name"] for col in inspector.get_columns(table.name)}
+            existing_cols = [col for col in table.columns if col.name in db_columns]
+            if not existing_cols:
+                continue
+            rows = db.execute(select(*existing_cols)).fetchall()
             serialized = [serialize_row(row) for row in rows]
             data[table.name] = serialized
             counts[table.name] = len(serialized)
