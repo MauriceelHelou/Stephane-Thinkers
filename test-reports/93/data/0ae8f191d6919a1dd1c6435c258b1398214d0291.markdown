@@ -1,0 +1,54 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - main [ref=e3]:
+    - link "Skip to timeline" [ref=e4] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "IGM" [level=1] [ref=e7]
+        - button "?" [ref=e8] [cursor=pointer]
+      - button "Toggle menu" [ref=e9] [cursor=pointer]:
+        - img [ref=e10]
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - button "+" [ref=e14] [cursor=pointer]
+        - button "+c" [ref=e15] [cursor=pointer]
+      - button "All Thinkers" [ref=e18] [cursor=pointer]
+      - button "Repopulate" [ref=e20] [cursor=pointer]:
+        - img [ref=e21]
+        - text: Repopulate
+    - generic [ref=e23]:
+      - generic [ref=e26]:
+        - button "Zoom In" [ref=e27] [cursor=pointer]
+        - button "Zoom Out" [ref=e28] [cursor=pointer]
+        - button "Reset" [ref=e29] [cursor=pointer]
+      - generic [ref=e31]:
+        - button "×" [ref=e32] [cursor=pointer]
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - heading "Lines" [level=3] [ref=e36]
+              - generic [ref=e37]:
+                - button "labels" [ref=e38] [cursor=pointer]
+                - generic [ref=e39]: "|"
+                - button "none" [ref=e40] [cursor=pointer]
+            - generic [ref=e41]:
+              - button "Influenced" [ref=e42] [cursor=pointer]:
+                - generic [ref=e44]: Influenced
+              - button "Critiqued" [ref=e45] [cursor=pointer]:
+                - generic [ref=e47]: Critiqued
+              - button "Built Upon" [ref=e48] [cursor=pointer]:
+                - generic [ref=e50]: Built Upon
+              - button "Synthesized" [ref=e51] [cursor=pointer]:
+                - generic [ref=e53]: Synthesized
+          - generic [ref=e54]:
+            - heading "Notes" [level=3] [ref=e55]
+            - generic [ref=e56]:
+              - button "👁 Visible" [ref=e57] [cursor=pointer]:
+                - generic [ref=e58]: 👁
+                - generic [ref=e59]: Visible
+              - button "+ Add" [ref=e60] [cursor=pointer]
+```

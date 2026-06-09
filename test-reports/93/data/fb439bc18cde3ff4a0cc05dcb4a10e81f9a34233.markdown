@@ -1,0 +1,243 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - main [ref=e3]:
+    - link "Skip to timeline" [ref=e4] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "Intellectual Genealogy Mapper" [level=1] [ref=e7]
+        - button "?" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - textbox "Search thinkers..." [ref=e11]
+          - img [ref=e12]
+        - button "Thinker Ctrl+T" [ref=e14] [cursor=pointer]:
+          - text: Thinker
+          - generic [ref=e15]: Ctrl+T
+        - button "Connection Ctrl+K" [ref=e16] [cursor=pointer]:
+          - text: Connection
+          - generic [ref=e17]: Ctrl+K
+        - button "Event Ctrl+E" [ref=e18] [cursor=pointer]:
+          - text: Event
+          - generic [ref=e19]: Ctrl+E
+        - button "Tags" [ref=e20] [cursor=pointer]
+        - link "Notes" [ref=e21] [cursor=pointer]:
+          - /url: /notes
+        - button "Filters" [ref=e23] [cursor=pointer]
+        - button "More" [ref=e25] [cursor=pointer]:
+          - text: More
+          - img [ref=e26]
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - button "+new" [ref=e30] [cursor=pointer]
+        - button "+combine" [ref=e31] [cursor=pointer]
+      - button "All Thinkers" [ref=e35] [cursor=pointer]
+      - button "Repopulate" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - text: Repopulate
+    - generic [ref=e40]:
+      - generic [ref=e43]:
+        - button "Zoom In" [ref=e44] [cursor=pointer]
+        - button "Zoom Out" [ref=e45] [cursor=pointer]
+        - button "Reset" [ref=e46] [cursor=pointer]
+      - generic [ref=e48]:
+        - button "×" [ref=e49] [cursor=pointer]
+        - generic [ref=e50]:
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - heading "Lines" [level=3] [ref=e53]
+              - generic [ref=e54]:
+                - button "labels" [ref=e55] [cursor=pointer]
+                - generic [ref=e56]: "|"
+                - button "none" [ref=e57] [cursor=pointer]
+            - generic [ref=e58]:
+              - button "Influenced" [ref=e59] [cursor=pointer]:
+                - generic [ref=e61]: Influenced
+              - button "Critiqued" [ref=e62] [cursor=pointer]:
+                - generic [ref=e64]: Critiqued
+              - button "Built Upon" [ref=e65] [cursor=pointer]:
+                - generic [ref=e67]: Built Upon
+              - button "Synthesized" [ref=e68] [cursor=pointer]:
+                - generic [ref=e70]: Synthesized
+          - generic [ref=e71]:
+            - heading "Notes" [level=3] [ref=e72]
+            - generic [ref=e73]:
+              - button "👁 Visible" [ref=e74] [cursor=pointer]:
+                - generic [ref=e75]: 👁
+                - generic [ref=e76]: Visible
+              - button "+ Add" [ref=e77] [cursor=pointer]
+    - dialog "Help & Keyboard Shortcuts" [ref=e78]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - heading "Help & Keyboard Shortcuts" [level=2] [ref=e81]
+          - button "Close modal" [ref=e82] [cursor=pointer]:
+            - generic [ref=e83]: ×
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - heading "Quick Reference" [level=3] [ref=e86]
+            - generic [ref=e87]:
+              - generic [ref=e88]:
+                - generic [ref=e89]: Ctrl+T
+                - text: — Add Thinker
+              - generic [ref=e90]:
+                - generic [ref=e91]: Ctrl+K
+                - text: — Add Connection
+              - generic [ref=e92]:
+                - generic [ref=e93]: Ctrl+E
+                - text: — Add Event
+              - generic [ref=e94]:
+                - generic [ref=e95]: Ctrl+N
+                - text: — New Timeline
+              - generic [ref=e96]:
+                - generic [ref=e97]: Ctrl+S
+                - text: — Sticky Note Mode
+              - generic [ref=e98]:
+                - generic [ref=e99]: Ctrl+Click
+                - text: — Quick Add at position
+              - generic [ref=e100]: Shift+Click — Quick Connect
+              - generic [ref=e101]: "? — This help"
+          - generic [ref=e102]:
+            - heading "Navigation & Zoom" [level=3] [ref=e103]
+            - list [ref=e104]:
+              - listitem [ref=e105]: Scroll — Zoom in/out on timeline
+              - listitem [ref=e106]: Click + Drag — Pan the timeline
+              - listitem [ref=e107]: Pinch — Zoom (trackpad)
+              - listitem [ref=e108]: Use +/- buttons in bottom right to zoom
+          - generic [ref=e109]:
+            - heading "Search" [level=3] [ref=e110]
+            - list [ref=e111]:
+              - listitem [ref=e112]: Type in the search box to find thinkers by name
+              - listitem [ref=e113]: Click on a search result to open the thinker's detail panel
+              - listitem [ref=e114]: Search filters the timeline view in real-time
+          - generic [ref=e115]:
+            - heading "Adding Thinkers" [level=3] [ref=e116]
+            - list [ref=e117]:
+              - listitem [ref=e118]:
+                - generic [ref=e119]: Ctrl+T
+                - text: — Open Add Thinker modal
+              - listitem [ref=e120]:
+                - generic [ref=e121]: Ctrl+Click
+                - text: on timeline — Quick add at that year
+              - listitem [ref=e122]: Thinkers are positioned at midpoint of birth/death years
+              - listitem [ref=e123]:
+                - strong [ref=e124]: Drag
+                - text: thinkers to reposition them on the canvas
+              - listitem [ref=e125]: Thinkers are added to the currently selected timeline
+          - generic [ref=e126]:
+            - heading "Creating Connections" [level=3] [ref=e127]
+            - list [ref=e128]:
+              - listitem [ref=e129]: "Quick Connect (recommended):"
+              - listitem [ref=e130]: Hold Shift and click first thinker
+              - listitem [ref=e131]: Keep holding Shift and click second thinker
+              - listitem [ref=e132]: Connection modal opens with both pre-selected
+              - listitem [ref=e133]:
+                - generic [ref=e134]: Ctrl+K
+                - text: — Open Connection modal with dropdowns
+              - listitem [ref=e135]:
+                - strong [ref=e136]: Click
+                - text: on a connection line to edit or delete it
+          - generic [ref=e137]:
+            - heading "Sticky Notes" [level=3] [ref=e138]
+            - list [ref=e139]:
+              - listitem [ref=e140]:
+                - generic [ref=e141]: Ctrl+S
+                - text: — Enter sticky note mode (cursor changes)
+              - listitem [ref=e142]:
+                - strong [ref=e143]: Click
+                - text: anywhere on canvas to place a note
+              - listitem [ref=e144]:
+                - strong [ref=e145]: Click
+                - text: existing note to edit or delete it
+              - listitem [ref=e146]: Notes show title only (compact view) - click to see full content
+              - listitem [ref=e147]: "4 colors: yellow, pink, blue, green"
+          - generic [ref=e148]:
+            - heading "Detail Panel" [level=3] [ref=e149]
+            - list [ref=e150]:
+              - listitem [ref=e151]:
+                - strong [ref=e152]: Click
+                - text: on a thinker to open their detail panel
+              - listitem [ref=e153]: Add/edit publications, quotes, and tags
+              - listitem [ref=e154]: View and manage all connections
+              - listitem [ref=e155]:
+                - text: Open
+                - strong [ref=e156]: Connection Map
+                - text: to visualize the full network
+              - listitem [ref=e157]: Esc — Close panel
+          - generic [ref=e158]:
+            - heading "Connection Map" [level=3] [ref=e159]
+            - list [ref=e160]:
+              - listitem [ref=e161]: Open from a thinker's detail panel
+              - listitem [ref=e162]:
+                - text: Shows the
+                - strong [ref=e163]: full network
+                - text: of connected thinkers
+              - listitem [ref=e164]: Thinkers arranged in rings by connection distance
+              - listitem [ref=e165]: Arrows show influence direction
+              - listitem [ref=e166]: Hover over nodes to highlight their connections
+          - generic [ref=e167]:
+            - heading "Timelines" [level=3] [ref=e168]
+            - list [ref=e169]:
+              - listitem [ref=e170]: Click tabs at top to switch between timelines
+              - listitem [ref=e171]:
+                - strong [ref=e172]: "\"All Thinkers\""
+                - text: — Shows everyone across all timelines
+              - listitem [ref=e173]:
+                - strong [ref=e174]: "\"Combined View\""
+                - text: — Overlay multiple timelines
+              - listitem [ref=e175]: Use negative years for BCE (e.g., -500 = 500 BCE)
+              - listitem [ref=e176]: Click gear icon to edit timeline settings
+          - generic [ref=e177]:
+            - heading "Connection Types" [level=3] [ref=e178]
+            - generic [ref=e179]:
+              - generic [ref=e182]:
+                - strong [ref=e183]: Influenced
+                - text: — Shaped ideas
+              - generic [ref=e186]:
+                - strong [ref=e187]: Critiqued
+                - text: — Challenged
+              - generic [ref=e190]:
+                - strong [ref=e191]: Built Upon
+                - text: — Extended
+              - generic [ref=e194]:
+                - strong [ref=e195]: Synthesized
+                - text: — Combined
+          - generic [ref=e196]:
+            - heading "AI Features" [level=3] [ref=e197]
+            - list [ref=e198]:
+              - listitem [ref=e199]:
+                - strong [ref=e200]: Natural Language Add
+                - text: — Type "Add Kant, born 1724, philosopher"
+              - listitem [ref=e201]:
+                - strong [ref=e202]: AI Suggestions
+                - text: — Get connection recommendations
+              - listitem [ref=e203]:
+                - strong [ref=e204]: AI Chat
+                - text: — Ask questions about your research
+              - listitem [ref=e205]:
+                - strong [ref=e206]: Quiz
+                - text: — Test your knowledge of the timeline
+              - listitem [ref=e207]: Use "Refresh Questions" after updates for fresh quizzes
+          - generic [ref=e208]:
+            - heading "Event Symbols" [level=3] [ref=e209]
+            - generic [ref=e210]:
+              - generic [ref=e211]: △ Council
+              - generic [ref=e212]: ▢ Publication
+              - generic [ref=e213]: ◇ War/Conflict
+              - generic [ref=e214]: ★ Invention
+              - generic [ref=e215]: ● Cultural
+              - generic [ref=e216]: ⬟ Political
+          - generic [ref=e217]:
+            - heading "Tips" [level=3] [ref=e218]
+            - list [ref=e219]:
+              - listitem [ref=e220]: Zoom in deeply to see quarter-year granularity
+              - listitem [ref=e221]: Use tags to categorize thinkers by school/period
+              - listitem [ref=e222]: Filter by field, tags, or year range using the toolbar
+              - listitem [ref=e223]: Export your timeline data via the Export button
+              - listitem [ref=e224]: Connection legend (bottom left) can filter visible connection types
+          - generic [ref=e225]:
+            - text: Press ? anytime to open this
+            - button "help" [active] [ref=e226]
+```
