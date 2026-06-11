@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packLanes, type LayoutItem } from '../timelineLayout'
+import { packLanes, buildThinkerLabel, type LayoutItem } from '../timelineLayout'
 
 const opts = { topY: 100, laneStep: 23, laneGap: 6 }
 
@@ -50,5 +50,39 @@ describe('packLanes', () => {
     // x and y avoid lane 2 (and each other)
     expect([out.get('x')!.lane, out.get('y')!.lane]).not.toContain(2)
     expect(out.get('x')!.lane).not.toBe(out.get('y')!.lane)
+  })
+})
+
+describe('buildThinkerLabel', () => {
+  // deterministic fake metrics: 1 unit width per character
+  const measure = (s: string) => s.length
+
+  it('appends "(birth–death)" when it fits', () => {
+    const r = buildThinkerLabel({ name: 'Kant', birthYear: 1724, deathYear: 1804, measure, maxWidth: 100 })
+    expect(r.text).toBe('Kant (1724–1804)')
+    expect(r.truncated).toBe(false)
+  })
+
+  it('uses "(birth–)" when death year is missing', () => {
+    const r = buildThinkerLabel({ name: 'Butler', birthYear: 1956, deathYear: null, measure, maxWidth: 100 })
+    expect(r.text).toBe('Butler (1956–)')
+  })
+
+  it('drops the years when the full label does not fit but the name does', () => {
+    const r = buildThinkerLabel({ name: 'Schleiermacher', birthYear: 1768, deathYear: 1834, measure, maxWidth: 15 })
+    expect(r.text).toBe('Schleiermacher')
+    expect(r.truncated).toBe(false)
+  })
+
+  it('truncates the name with an ellipsis when even the name does not fit', () => {
+    const r = buildThinkerLabel({ name: 'Schleiermacher', birthYear: 1768, deathYear: 1834, measure, maxWidth: 8 })
+    expect(r.text.endsWith('…')).toBe(true)
+    expect(measure(r.text)).toBeLessThanOrEqual(8)
+    expect(r.truncated).toBe(true)
+  })
+
+  it('omits years entirely when birthYear is null', () => {
+    const r = buildThinkerLabel({ name: 'Anon', birthYear: null, deathYear: null, measure, maxWidth: 100 })
+    expect(r.text).toBe('Anon')
   })
 })

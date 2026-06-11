@@ -77,3 +77,24 @@ export function packLanes(items: LayoutItem[], opts: PackOptions): Map<string, P
 
   return result
 }
+
+export function buildThinkerLabel(input: {
+  name: string
+  birthYear?: number | null
+  deathYear?: number | null
+  measure: (s: string) => number
+  maxWidth: number
+}): { text: string; truncated: boolean } {
+  const { name, birthYear, deathYear, measure, maxWidth } = input
+
+  if (birthYear != null) {
+    const full = `${name} (${birthYear}–${deathYear ?? ''})`
+    if (measure(full) <= maxWidth) return { text: full, truncated: false }
+  }
+  if (measure(name) <= maxWidth) return { text: name, truncated: false }
+
+  const ellipsis = '…'
+  let s = name
+  while (s.length > 1 && measure(`${s}${ellipsis}`) > maxWidth) s = s.slice(0, -1)
+  return { text: `${s}${ellipsis}`, truncated: true }
+}
