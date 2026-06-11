@@ -1520,7 +1520,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const my = e.clientY - rect.top
       const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
       const factor = 1 - e.deltaY * sensitivity
-      const newMag = Math.max(1, Math.min(6, magnify * factor))
+      const newMag = Math.max(0.3, Math.min(6, magnify * factor))
       if (newMag === 1) {
         setMagnify(1); setMagOffsetX(0); setMagOffsetY(0)
       } else {
@@ -1850,7 +1850,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const rect = canvas.getBoundingClientRect()
     const mx = rect.width / 2
     const my = rect.height / 2
-    const newMag = Math.max(1, Math.min(6, magnify * factor))
+    const newMag = Math.max(0.3, Math.min(6, magnify * factor))
     if (newMag === 1) {
       setMagnify(1); setMagOffsetX(0); setMagOffsetY(0); return
     }
