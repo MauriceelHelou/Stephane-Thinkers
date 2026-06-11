@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packLanes, buildThinkerLabel, type LayoutItem } from '../timelineLayout'
+import { packLanes, buildThinkerLabel, wrapText, computeBands, hexToRgba, type LayoutItem } from '../timelineLayout'
 
 const opts = { topY: 100, laneStep: 23, laneGap: 6 }
 
@@ -84,5 +84,25 @@ describe('buildThinkerLabel', () => {
   it('omits years entirely when birthYear is null', () => {
     const r = buildThinkerLabel({ name: 'Anon', birthYear: null, deathYear: null, measure, maxWidth: 100 })
     expect(r.text).toBe('Anon')
+  })
+})
+
+describe('wrapText', () => {
+  const measure = (s: string) => s.length // 1 unit/char
+
+  it('breaks on word boundaries to fit maxWidth', () => {
+    expect(wrapText(measure, 'the quick brown fox', 9)).toEqual(['the quick', 'brown fox'])
+  })
+
+  it('hard-breaks a single word longer than maxWidth', () => {
+    expect(wrapText(measure, 'antidisestablishment', 5)).toEqual(['antid', 'isest', 'ablis', 'hment'])
+  })
+
+  it('returns one line when it already fits', () => {
+    expect(wrapText(measure, 'short', 20)).toEqual(['short'])
+  })
+
+  it('handles empty string', () => {
+    expect(wrapText(measure, '', 10)).toEqual([])
   })
 })

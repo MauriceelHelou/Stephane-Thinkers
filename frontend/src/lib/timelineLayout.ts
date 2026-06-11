@@ -98,3 +98,40 @@ export function buildThinkerLabel(input: {
   while (s.length > 1 && measure(`${s}${ellipsis}`) > maxWidth) s = s.slice(0, -1)
   return { text: `${s}${ellipsis}`, truncated: true }
 }
+
+export function wrapText(
+  measure: (s: string) => number,
+  text: string,
+  maxWidth: number,
+): string[] {
+  if (!text) return []
+  const lines: string[] = []
+  const pushWordBroken = (word: string) => {
+    let chunk = ''
+    for (const ch of word) {
+      if (chunk && measure(chunk + ch) > maxWidth) {
+        lines.push(chunk)
+        chunk = ch
+      } else {
+        chunk += ch
+      }
+    }
+    if (chunk) lines.push(chunk)
+  }
+
+  let line = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const candidate = line ? `${line} ${word}` : word
+    if (measure(candidate) <= maxWidth) {
+      line = candidate
+    } else if (measure(word) > maxWidth) {
+      if (line) { lines.push(line); line = '' }
+      pushWordBroken(word)
+    } else {
+      if (line) lines.push(line)
+      line = word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
