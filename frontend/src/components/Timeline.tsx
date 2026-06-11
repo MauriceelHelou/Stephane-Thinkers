@@ -444,7 +444,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     // Cache-aware position calculation — skip expensive collision detection during drag.
     // Build a key from everything that affects positions (NOT drag state).
-    const posKey = `${scale}|${canvasWidth}|${canvasHeight}|${filteredThinkers.map(t => `${t.id}:${t.anchor_year}:${t.position_y}:${t.is_manually_positioned}:${t.birth_year}:${t.death_year}:${t.position_x}`).join(',')}|${timelineEvents.map(e => `${e.id}:${e.year}:${e.end_year}`).join(',')}`
+    const posKey = `${scale}|${canvasWidth}|${canvasHeight}|${filteredThinkers.map(t => `${t.id}:${t.anchor_year}:${t.position_y}:${t.is_manually_positioned}:${t.birth_year}:${t.death_year}:${t.position_x}`).join(',')}|${timelineEvents.map(e => `${e.id}:${e.year}:${e.end_year}`).join(',')}|drag:${draggedThinkerId ?? ''}:${dragLaneRef.current ?? ''}`
 
     let eventPositions: Map<string, EventPos> | undefined
     let thinkerPositions: Map<string, ThinkerPos>
@@ -1655,6 +1655,15 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       if (coords && draggedThinkerPos) {
         const lockedX = draggedThinkerPos.x
         const newY = coords.y - dragOffset.y
+        // Target lane from the cursor Y. packLanes pins the dragged thinker into
+        // this lane (as a hard obstacle) and reflows every other thinker around
+        // it deterministically — live, each frame, via the cache key below.
+        const { thinkerTopY } = computeBands({
+          axisBandHeight: AXIS_BAND_HEIGHT, sectionGap: SECTION_GAP,
+          eventLaneStep: EVENT_LANE_STEP, eventLaneCount: eventLaneCountRef.current,
+        })
+        const laneStep = LANE_BOX_HEIGHT + LANE_ROW_GAP
+        dragLaneRef.current = Math.max(0, Math.round((newY - (thinkerTopY + LANE_BOX_HEIGHT / 2)) / laneStep))
         // Only mark as dragged if there's significant vertical movement (>5px)
         if (Math.abs(newY - draggedThinkerPos.y) > 5) {
           setHasDragged(true)
@@ -1740,10 +1749,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         const anchorYear = isBar
           ? (dragged!.anchor_year ?? xToYear(draggedThinkerPos.x, rect.width, scale))
           : xToYear(draggedThinkerPos.x, rect.width, scale)
-        // Get the timeline axis Y position for calculating vertical offset
-        const axisY = rect.height / 2
-        // position_y is the offset from the axis line (draggedThinkerPos.y is in canvas-space)
-        const positionY = draggedThinkerPos.y - axisY
+        // position_y is the dropped LANE expressed as a downward pixel offset
+        // from the thinker band top (matches the manualLane decode in
+        // calculateThinkerPositions: round(position_y / laneStep)).
+        const laneStep = LANE_BOX_HEIGHT + LANE_ROW_GAP
+        const positionY = (dragLaneRef.current ?? 0) * laneStep
         onThinkerDrag(draggedThinkerId, anchorYear, positionY)
       }
     }
@@ -1752,6 +1762,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     setDraggedThinkerPos(null)
     setDragOffset({ x: 0, y: 0 })
     setHasDragged(false)
+    dragLaneRef.current = null
 
     // Handle note drag end - only save position if there was actual dragging
     if (draggedNoteId && draggedNotePos && onNoteDrag && hasNoteDragged) {
