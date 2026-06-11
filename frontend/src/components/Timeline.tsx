@@ -438,9 +438,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
     const lod = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
 
-    // Draw events at calculated positions
+    // Draw events at calculated positions. Event labels are gated by the same
+    // zoom threshold as tethers: when the axis is compressed (zoomed out), events
+    // render as compact markers so the shallow band doesn't fill with clipped
+    // titles; labels appear once the user zooms in and events spread out.
     if (eventPositions && timelineEvents.length > 0) {
-      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions, dotRegistry, lod)
+      const eventLod = { tether: lod.tether, besideLabel: lod.tether }
+      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions, dotRegistry, eventLod)
     }
 
     // Draw connections and thinkers using pre-computed positions
@@ -1223,17 +1227,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Calculate event positions with collision detection (text-aware bounding boxes)
-  const calculateEventPositions = (events: TimelineEvent[], canvasWidth: number, canvasHeight: number): Map<string, EventPos> => {
+  const calculateEventPositions = (events: TimelineEvent[], canvasWidth: number, _canvasHeight: number): Map<string, EventPos> => {
     const positions = new Map<string, EventPos>()
-    const centerY = canvasHeight / 2
     const canvas = canvasRef.current
     if (!canvas) return positions
     const ctx = canvas.getContext('2d')
     if (!ctx) return positions
-
-    // Vertical gap is fixed — zoom is horizontal-only, so event rows must not
-    // drift vertically as you zoom.
-    const eventGap = EVENT_VERTICAL_GAP
 
     // Sort events by year for left-to-right processing
     const sortedEvents = [...events].sort((a, b) => a.year - b.year)
@@ -1270,62 +1269,31 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       }
     })
 
-    // Track placed events for collision detection
-    const placed: { x: number; y: number; width: number; height: number }[] = []
-
-    // Reserved axis band (same as thinkers) so events never sit on the ticks.
-    const bandTop = centerY - AXIS_BAND_ABOVE
-    const bandBottom = centerY + AXIS_BAND_BELOW
-    const eventBandHalf = EVENT_BAR_HEIGHT / 2 + 2 // drawn half-extent of an event mark
-    const clearsBand = (cy: number) => (cy + eventBandHalf <= bandTop) || (cy - eventBandHalf >= bandBottom)
+    // Pack events into a shallow lane band directly under the axis. Packing uses
+    // the COMPACT marker/bar extent (not the long label), so a dense era doesn't
+    // explode into one lane per title; labels are gated by zoom in the draw pass.
+    const eventItems: LayoutItem[] = sortedEvents.map((event) => {
+      const g = geom.get(event.id)!
+      const cx = g.bar ? (g.bar.x0 + g.bar.x1) / 2 : g.x
+      const half = g.bar ? Math.max(MIN_BAR_WIDTH, g.bar.x1 - g.bar.x0) / 2 : EVENT_BBOX_WIDTH / 2
+      return { id: event.id, left: cx - half, right: cx + half, height: EVENT_LANE_STEP }
+    })
+    const placedEvents = packLanes(eventItems, {
+      topY: AXIS_BAND_HEIGHT + SECTION_GAP + EVENT_LANE_STEP / 2,
+      laneStep: EVENT_LANE_STEP,
+      laneGap: HORIZONTAL_GAP,
+    })
+    eventLaneCountRef.current = placedEvents.size > 0
+      ? Math.max(...[...placedEvents.values()].map((p) => p.lane + 1))
+      : 0
 
     sortedEvents.forEach((event) => {
       const g = geom.get(event.id)!
-      const x = g.x
-      const baseY = centerY + EVENT_ZONE_OFFSET
-      const evtWidth = g.width
-      // Keep the event on the side of the axis it was last on; within that side
-      // it compacts toward baseY, so it moves freely without flipping sides.
-      const prevY = prevEventYRef.current.get(event.id)
-      const preferredSide = Math.sign((prevY ?? baseY) - centerY)
-
-      // Score candidate rows spiraling outward from baseY (natural position).
-      const scored: ScoredLane[] = []
-      for (let ring = 0; ring < 40; ring++) {
-        const candidates = ring === 0
-          ? [baseY]
-          : [baseY - ring * (EVENT_BBOX_HEIGHT + eventGap), baseY + ring * (EVENT_BBOX_HEIGHT + eventGap)]
-
-        for (const candidateY of candidates) {
-          if (candidateY < CANVAS_VERTICAL_PADDING || candidateY > canvasHeight - CANVAS_VERTICAL_PADDING) continue
-          if (!clearsBand(candidateY)) continue
-
-          let hasCollision = false
-          for (const existing of placed) {
-            const hOverlap = Math.abs(x - existing.x) < (evtWidth + existing.width) / 2
-            const vOverlap = Math.abs(candidateY - existing.y) < (EVENT_BBOX_HEIGHT + existing.height) / 2 + eventGap
-            if (hOverlap && vOverlap) {
-              hasCollision = true
-              break
-            }
-          }
-
-          scored.push({
-            y: candidateY,
-            width: evtWidth,
-            compressionRank: 0,
-            collisionCount: hasCollision ? 1 : 0,
-            collisionPenalty: 0,
-            sameSide: Math.sign(candidateY - centerY) === preferredSide,
-          })
-        }
-      }
-
-      const chosen = chooseStableLane(scored, baseY)
-      const bestY = chosen ? chosen.y : baseY
-      prevEventYRef.current.set(event.id, bestY)
-      placed.push({ x, y: bestY, width: evtWidth, height: EVENT_BBOX_HEIGHT })
-      positions.set(event.id, { x, y: bestY, width: evtWidth, height: EVENT_BBOX_HEIGHT, bar: g.bar })
+      const p = placedEvents.get(event.id)
+      if (!p) return
+      // Store the full footprint width for hit-testing (label is clickable), but
+      // the y comes from the compact lane packing above.
+      positions.set(event.id, { x: g.x, y: p.y, width: g.width, height: EVENT_BBOX_HEIGHT, bar: g.bar })
     })
 
     return positions
