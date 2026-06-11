@@ -1,0 +1,116 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - main [ref=e3]:
+    - link "Skip to timeline" [ref=e4] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "Intellectual Genealogy Mapper" [level=1] [ref=e7]
+        - button "?" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - textbox "Search thinkers..." [ref=e11]
+          - img [ref=e12]
+        - button "Thinker Ctrl+T" [ref=e14] [cursor=pointer]:
+          - text: Thinker
+          - generic [ref=e15]: Ctrl+T
+        - button "Connection Ctrl+K" [ref=e16] [cursor=pointer]:
+          - text: Connection
+          - generic [ref=e17]: Ctrl+K
+        - button "Event Ctrl+E" [ref=e18] [cursor=pointer]:
+          - text: Event
+          - generic [ref=e19]: Ctrl+E
+        - button "Tags" [ref=e20] [cursor=pointer]
+        - link "Notes" [ref=e21] [cursor=pointer]:
+          - /url: /notes
+        - button "Filters" [ref=e23] [cursor=pointer]
+        - button "More" [ref=e25] [cursor=pointer]:
+          - text: More
+          - img [ref=e26]
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - button "+new" [ref=e30] [cursor=pointer]
+        - button "+combine" [ref=e31] [cursor=pointer]
+      - button "All Thinkers" [ref=e35] [cursor=pointer]
+      - button "Repopulate" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - text: Repopulate
+    - generic [ref=e40]:
+      - generic [ref=e43]:
+        - button "🔍−" [ref=e44] [cursor=pointer]
+        - button "🔍+" [ref=e45] [cursor=pointer]
+        - button "Zoom In" [ref=e46] [cursor=pointer]
+        - button "Zoom Out" [ref=e47] [cursor=pointer]
+        - button "Reset" [ref=e48] [cursor=pointer]
+      - generic [ref=e50]:
+        - button "×" [ref=e51] [cursor=pointer]
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - heading "Lines" [level=3] [ref=e55]
+              - generic [ref=e56]:
+                - button "labels" [ref=e57] [cursor=pointer]
+                - generic [ref=e58]: "|"
+                - button "all" [ref=e59] [cursor=pointer]
+            - generic [ref=e60]:
+              - button "Influenced" [ref=e61] [cursor=pointer]:
+                - generic [ref=e63]: Influenced
+              - button "Critiqued" [ref=e64] [cursor=pointer]:
+                - generic [ref=e66]: Critiqued
+              - button "Built Upon" [ref=e67] [cursor=pointer]:
+                - generic [ref=e69]: Built Upon
+              - button "Synthesized" [ref=e70] [cursor=pointer]:
+                - generic [ref=e72]: Synthesized
+          - generic [ref=e73]:
+            - heading "Notes" [level=3] [ref=e74]
+            - generic [ref=e75]:
+              - button "👁 Visible" [ref=e76] [cursor=pointer]:
+                - generic [ref=e77]: 👁
+                - generic [ref=e78]: Visible
+              - button "+ Add" [ref=e79] [cursor=pointer]
+    - dialog "Add Thinker" [ref=e80]:
+      - generic [ref=e81]:
+        - generic [ref=e82]:
+          - heading "Add Thinker" [level=2] [ref=e83]
+          - button "Close modal" [ref=e84] [cursor=pointer]:
+            - generic [ref=e85]: ×
+        - generic [ref=e86]:
+          - generic [ref=e87]:
+            - generic [ref=e88]: Name *
+            - textbox "e.g., Michel Foucault" [ref=e89]: Test Philosopher
+          - generic [ref=e90]:
+            - generic [ref=e91]:
+              - generic [ref=e92]: Birth Year
+              - spinbutton [ref=e93]
+            - generic [ref=e94]:
+              - generic [ref=e95]: Death Year
+              - spinbutton [ref=e96]
+          - generic [ref=e97]:
+            - generic [ref=e98]: Active Period
+            - textbox "e.g., 1950s-1980s" [ref=e99]
+          - generic [ref=e100]:
+            - generic [ref=e101]: Field / Discipline
+            - textbox "e.g., Philosophy, Sociology" [ref=e102]
+          - generic [ref=e103]:
+            - generic [ref=e104]: Timeline
+            - button "None (show in all timelines)" [ref=e106] [cursor=pointer]:
+              - generic [ref=e107]: None (show in all timelines)
+              - img [ref=e109]
+          - generic [ref=e111]:
+            - generic [ref=e112]: Timeline Positioning
+            - generic [ref=e113]:
+              - button "Auto (by birth/death year)" [ref=e114] [cursor=pointer]
+              - button "Manual (select year)" [ref=e115] [cursor=pointer]
+          - generic [ref=e116]:
+            - generic [ref=e117]: Biography Notes
+            - textbox "Key biographical information and research notes..." [ref=e118]
+          - generic [ref=e119]:
+            - strong [ref=e120]: "Error:"
+            - text: "Server authentication is misconfigured: SITE_PASSWORD is not set."
+          - generic [ref=e121]:
+            - button "Cancel" [ref=e122] [cursor=pointer]
+            - button "Add Thinker" [ref=e123] [cursor=pointer]
+```

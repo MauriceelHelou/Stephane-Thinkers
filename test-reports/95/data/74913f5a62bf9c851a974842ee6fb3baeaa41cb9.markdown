@@ -1,0 +1,78 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - main [ref=e3]:
+    - link "Skip to timeline" [ref=e4] [cursor=pointer]:
+      - /url: "#timeline-canvas"
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "Intellectual Genealogy Mapper" [level=1] [ref=e7]
+        - button "?" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - textbox "Search thinkers..." [active] [ref=e11]: NonExistentThinker12345
+          - img [ref=e12]
+          - button "×" [ref=e14] [cursor=pointer]
+          - generic [ref=e15]: No thinkers found
+        - button "Thinker Ctrl+T" [ref=e16] [cursor=pointer]:
+          - text: Thinker
+          - generic [ref=e17]: Ctrl+T
+        - button "Connection Ctrl+K" [ref=e18] [cursor=pointer]:
+          - text: Connection
+          - generic [ref=e19]: Ctrl+K
+        - button "Event Ctrl+E" [ref=e20] [cursor=pointer]:
+          - text: Event
+          - generic [ref=e21]: Ctrl+E
+        - button "Tags" [ref=e22] [cursor=pointer]
+        - link "Notes" [ref=e23] [cursor=pointer]:
+          - /url: /notes
+        - button "Filters !" [ref=e25] [cursor=pointer]:
+          - text: Filters
+          - generic [ref=e26]: "!"
+        - button "More" [ref=e28] [cursor=pointer]:
+          - text: More
+          - img [ref=e29]
+    - generic [ref=e31]:
+      - generic [ref=e32]:
+        - button "+new" [ref=e33] [cursor=pointer]
+        - button "+combine" [ref=e34] [cursor=pointer]
+      - button "All Thinkers" [ref=e38] [cursor=pointer]
+      - button "Repopulate" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+        - text: Repopulate
+    - generic [ref=e43]:
+      - generic [ref=e46]:
+        - button "🔍−" [ref=e47] [cursor=pointer]
+        - button "🔍+" [ref=e48] [cursor=pointer]
+        - button "Zoom In" [ref=e49] [cursor=pointer]
+        - button "Zoom Out" [ref=e50] [cursor=pointer]
+        - button "Reset" [ref=e51] [cursor=pointer]
+      - generic [ref=e53]:
+        - button "×" [ref=e54] [cursor=pointer]
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - heading "Lines" [level=3] [ref=e58]
+              - generic [ref=e59]:
+                - button "labels" [ref=e60] [cursor=pointer]
+                - generic [ref=e61]: "|"
+                - button "all" [ref=e62] [cursor=pointer]
+            - generic [ref=e63]:
+              - button "Influenced" [ref=e64] [cursor=pointer]:
+                - generic [ref=e66]: Influenced
+              - button "Critiqued" [ref=e67] [cursor=pointer]:
+                - generic [ref=e69]: Critiqued
+              - button "Built Upon" [ref=e70] [cursor=pointer]:
+                - generic [ref=e72]: Built Upon
+              - button "Synthesized" [ref=e73] [cursor=pointer]:
+                - generic [ref=e75]: Synthesized
+          - generic [ref=e76]:
+            - heading "Notes" [level=3] [ref=e77]
+            - generic [ref=e78]:
+              - button "👁 Visible" [ref=e79] [cursor=pointer]:
+                - generic [ref=e80]: 👁
+                - generic [ref=e81]: Visible
+              - button "+ Add" [ref=e82] [cursor=pointer]
+```

@@ -1,0 +1,17 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Intellectual Genealogy" [level=1] [ref=e6]
+      - paragraph [ref=e7]: A timeline-based knowledge graph
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e10]: Enter Password
+        - textbox "Enter Password" [active] [ref=e11]:
+          - /placeholder: Password
+      - button "Enter" [disabled] [ref=e12]
+    - paragraph [ref=e13]: Intellectual Genealogy Mapper
+```
