@@ -106,3 +106,26 @@ describe('wrapText', () => {
     expect(wrapText(measure, '', 10)).toEqual([])
   })
 })
+
+describe('computeBands', () => {
+  it('places event band under the axis gutter and thinkers under the events', () => {
+    const b = computeBands({ axisBandHeight: 44, sectionGap: 10, eventLaneStep: 19, eventLaneCount: 2 })
+    expect(b.eventTopY).toBe(54)               // 44 + 10
+    // 2 event lanes deep, then a section gap, then thinkers
+    expect(b.thinkerTopY).toBe(54 + 2 * 19 + 10)
+  })
+
+  it('thinkers sit just under the axis when there are no events', () => {
+    const b = computeBands({ axisBandHeight: 44, sectionGap: 10, eventLaneStep: 19, eventLaneCount: 0 })
+    expect(b.thinkerTopY).toBe(54)
+  })
+})
+
+describe('hexToRgba', () => {
+  it('converts #RRGGBB to rgba with alpha', () => {
+    expect(hexToRgba('#8B4513', 0.5)).toBe('rgba(139, 69, 19, 0.5)')
+  })
+  it('falls back to white for invalid input', () => {
+    expect(hexToRgba(null, 0.8)).toBe('rgba(255, 255, 255, 0.8)')
+  })
+})
