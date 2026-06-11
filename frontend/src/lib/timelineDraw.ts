@@ -200,6 +200,10 @@ export interface BarStyle {
   lineWidth: number
   font: string
   glyph?: string
+  /** Fill opacity (0–1) so connector lines behind the bar read through. */
+  fillAlpha?: number
+  /** Explicit inside-label colour; falls back to WCAG pick against `fill`. */
+  textColor?: string
 }
 
 // A drawn-dot registry dedupes coincident axis dots (one per rounded x).
@@ -277,12 +281,16 @@ export const drawBar = (
   const r = BAR_RADIUS
 
   ctx.save()
-  ctx.fillStyle = style.fill
-  ctx.strokeStyle = style.stroke
-  ctx.lineWidth = style.lineWidth
   ctx.beginPath()
   ctx.roundRect(bar.x0, top, w, height, bar.ongoing ? [r, 0, 0, r] : r)
+  // Fill at reduced alpha so connector lines behind the bar read through; the
+  // border is drawn at full opacity so the bar's extent stays crisp.
+  ctx.fillStyle = style.fill
+  ctx.globalAlpha = style.fillAlpha ?? 1
   ctx.fill()
+  ctx.globalAlpha = 1
+  ctx.strokeStyle = style.stroke
+  ctx.lineWidth = style.lineWidth
   ctx.stroke()
   ctx.restore()
 
@@ -297,7 +305,7 @@ export const drawBar = (
   if (bar.placement === 'inside') {
     // Inside text sits on the bar fill → pick a colour with WCAG-readable
     // contrast against it (e.g. white on dark brown).
-    ctx.fillStyle = readableTextColor(style.fill)
+    ctx.fillStyle = style.textColor ?? readableTextColor(style.fill)
     let lx = bar.x0 + BAR_LABEL_PADDING
     let avail = w - BAR_LABEL_PADDING * 2
     if (style.glyph && avail > 0) {

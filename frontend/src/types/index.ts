@@ -54,6 +54,9 @@ export interface Thinker {
   timeline_id?: string | null
   created_at: string
   updated_at: string
+  // Tags are returned by the list endpoint (eager-loaded) so the timeline can
+  // colour boxes by tag without a per-thinker detail fetch.
+  tags?: Tag[]
 }
 
 export interface ThinkerWithRelations extends Thinker {

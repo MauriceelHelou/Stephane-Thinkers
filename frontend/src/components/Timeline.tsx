@@ -8,14 +8,15 @@ import { classifyItem, resolveThinkerRange, resolveEventRange, barExtent } from 
 import {
   MIN_BAR_WIDTH, THINKER_BAR_HEIGHT, EVENT_BAR_HEIGHT, BAR_LABEL_PADDING, BAR_LABEL_GAP, MAX_BESIDE_LABEL_PX,
   CURRENT_YEAR, eventFill, eventGlyph, resolveBarLabelLayout, shouldShowTethers, chooseStableLane,
+  readableTextColor,
   type BarMeta, type BarStyle, type DotRegistry, type BarLOD, type ScoredLane,
-  drawTetherLine, drawTetherDot, drawBulkCheckbox, drawBar,
+  drawTetherLine, drawBulkCheckbox, drawBar,
 } from '@/lib/timelineDraw'
 import { packLanes, computeBands, buildThinkerLabel, hexToRgba, wrapText, type LayoutItem } from '@/lib/timelineLayout'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
 
 // Event layout constants
-const EVENT_SHAPE_SIZE = 8
+const EVENT_SHAPE_SIZE = 6
 const EVENT_LABEL_HEIGHT = 12
 const EVENT_VERTICAL_GAP = 4
 const EVENT_ZONE_OFFSET = -28 // Base Y offset from centerY for events (clears the axis tick band so bars/markers don't sit on the year ticks)
@@ -32,13 +33,16 @@ const AXIS_BAND_BELOW = 42
 const AXIS_LINE_Y = 22            // axis line Y from canvas top (screen space)
 const AXIS_BAND_HEIGHT = 44       // sticky gutter: line + year labels, never drawn into
 const SECTION_GAP = 10            // gap between axis→events and events→thinkers
-const LANE_BOX_HEIGHT = 20        // unified thinker row height (point box AND lifespan bar)
-const LANE_ROW_GAP = 3            // tight inter-row gap  → laneStep = 23
-const EVENT_LANE_STEP = 19        // event row pitch (marker + small label)
+const LANE_BOX_HEIGHT = 15        // unified thinker row height (point box AND lifespan bar)
+const LANE_ROW_GAP = 2            // tight inter-row gap  → laneStep = 17
+const LANE_FONT_PX = 11           // thinker label font (small, for density)
+const LANE_LABEL_PAD = 5          // inside-box horizontal padding per side (tight)
+const EVENT_LANE_STEP = 16        // event row pitch
+const EVENT_LABEL_FONT_PX = 9     // event label font (small)
 const HORIZONTAL_GAP = 6          // fixed horizontal gap between same-lane items (NOT zoom-scaled)
-const BOX_FILL_ALPHA = 0.82
+const BOX_FILL_ALPHA = 0.78       // thinker box fill alpha so connector lines read through
 const SELECTED_FILL_ALPHA = 0.92
-const STRIPE_WIDTH = 3
+const STRIPE_WIDTH = 2
 
 // Position entries. `bar` is present only for range items (drawn as bars).
 // `label` is precomputed (name + life-years when they fit) so the draw pass
@@ -454,9 +458,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
     const lod = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
 
-    // Z-order (back → front): grid → connectors → thinker boxes → event markers.
-    // Connectors render first so the semi-transparent thinker boxes read over
-    // them; event markers sit on top of thinkers (they own the band by the axis).
+    // Z-order (back → front): grid → tethers → connectors → thinker boxes →
+    // event markers → axis. Tethers are backmost (faint droplines to the ruler);
+    // connectors next so the semi-transparent boxes read over them.
+    drawTethers(ctx, thinkerPositions, lod)
+
     if (visibleFilteredConnections.length > 0) {
       drawConnections(ctx, visibleFilteredConnections, filteredThinkers, thinkerPositions)
     }
@@ -612,7 +618,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const ctx = canvas.getContext('2d')
     if (!ctx) return positions
 
-    ctx.font = '14px "Crimson Text", serif'
+    ctx.font = `${LANE_FONT_PX}px "Crimson Text", serif`
     const measure = (t: string) => ctx.measureText(t).width
     const laneStep = LANE_BOX_HEIGHT + LANE_ROW_GAP
     const MAX_BOX = 220
@@ -664,9 +670,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
         : scaleX(thinker.position_x ?? canvasWidth / 2)
       const { text } = buildThinkerLabel({
         name: thinker.name, birthYear: thinker.birth_year ?? null, deathYear: thinker.death_year ?? null,
-        measure, maxWidth: MAX_BOX - 16,
+        measure, maxWidth: MAX_BOX - LANE_LABEL_PAD * 2,
       })
-      const width = Math.max(56, Math.min(MAX_BOX, measure(text) + 16))
+      const width = Math.max(40, Math.min(MAX_BOX, measure(text) + LANE_LABEL_PAD * 2))
       return {
         id: thinker.id,
         item: { id: thinker.id, left: cx - width / 2, right: cx + width / 2, height: LANE_BOX_HEIGHT, priority, pinnedLane },
@@ -706,12 +712,35 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     return `${truncated}${ellipsis}`
   }
 
-  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, ThinkerPos>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
-
-    // Tethers point UP to the sticky top axis. The axis lives at screen y
-    // AXIS_LINE_Y; content is drawn under translate(_, offsetY), so in content
-    // space the axis sits at AXIS_LINE_Y - offsetY.
+  // Vertical tethers from each thinker to the sticky top axis. Drawn as a
+  // SEPARATE pass BEFORE connectors and boxes so the droplines sit behind
+  // everything else (per design: they're a faint reference, not foreground).
+  const drawTethers = (ctx: CanvasRenderingContext2D, positions: Map<string, ThinkerPos>, lod: BarLOD) => {
+    if (!lod.tether) return
     const axisY = AXIS_LINE_Y - offsetY
+    for (const pos of positions.values()) {
+      const topEdge = pos.y - pos.height / 2
+      if (topEdge <= axisY) continue
+      if (pos.bar) {
+        drawTetherLine(ctx, pos.bar.x0, topEdge, axisY)
+        if (!pos.bar.ongoing) drawTetherLine(ctx, pos.bar.x1, topEdge, axisY)
+      } else {
+        drawTetherLine(ctx, pos.x, topEdge, axisY)
+      }
+    }
+  }
+
+  // Additional tags (index ≥ 1) as thin stacked stripes on the box's left edge.
+  const drawTagStripes = (ctx: CanvasRenderingContext2D, thinker: Thinker, leftX: number, y: number, h: number) => {
+    const extra = (thinker.tags ?? []).slice(1, 4)
+    extra.forEach((t, i) => {
+      if (!t.color) return
+      ctx.fillStyle = t.color
+      ctx.fillRect(leftX + i * STRIPE_WIDTH, y - h / 2, STRIPE_WIDTH, h)
+    })
+  }
+
+  const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, ThinkerPos>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
 
     thinkers.forEach((thinker) => {
       const pos = positions.get(thinker.id)
@@ -727,83 +756,64 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       }
       const isSelected = thinker.id === selectedId
       const isBulkSelected = bulkSelected.includes(thinker.id)
-
-      // Selected/bulk items always show full detail regardless of zoom.
       const forced = isSelected || isBulkSelected
-      const itemLod: BarLOD = {
-        tether: forced || lod.tether,
-        besideLabel: forced || lod.besideLabel,
-      }
+      const itemLod: BarLOD = { tether: false, besideLabel: forced || lod.besideLabel }
 
-      // Range thinker → bar (white default / accent selected / blue bulk).
-      // x (and the bar's x0/x1) is data-locked; only y follows a drag.
+      // Fill = first tag's colour (semi-transparent so connectors read through);
+      // selection/bulk override. Border full-opacity; text picked for contrast.
+      const firstTag = thinker.tags?.[0]?.color ?? null
+      const baseFill = isSelected ? '#8B4513' : isBulkSelected ? '#E0F2FE' : (firstTag ?? '#FFFFFF')
+      const fillAlpha = isSelected ? SELECTED_FILL_ALPHA : isBulkSelected ? 0.92 : BOX_FILL_ALPHA
+      const stroke = isSelected ? '#6B3410' : isBulkSelected ? '#0284C7' : '#B5A89A'
+      const textColor = isSelected ? '#FFFFFF' : readableTextColor(baseFill)
+      const font = `${LANE_FONT_PX}px "Crimson Text", serif`
+
+      // Range thinker → bar. x (and the bar's x0/x1) is data-locked; drag moves y.
       if (bar) {
-        const font = '14px "Crimson Text", serif'
-        const style: BarStyle = isSelected
-          ? { fill: '#8B4513', stroke: '#6B3410', lineWidth: 2, font }
-          : isBulkSelected
-            ? { fill: '#E0F2FE', stroke: '#0284C7', lineWidth: 2, font }
-            : { fill: '#FFFFFF', stroke: '#8B4513', lineWidth: 1, font }
-        drawBar(ctx, bar, y, bgHeight, style, axisY, dotRegistry, itemLod)
+        const style: BarStyle = {
+          fill: baseFill, stroke, lineWidth: isSelected || isBulkSelected ? 2 : 1,
+          font, fillAlpha, textColor,
+        }
+        drawBar(ctx, bar, y, bgHeight, style, AXIS_LINE_Y - offsetY, dotRegistry, itemLod)
+        drawTagStripes(ctx, thinker, bar.x0, y, bgHeight)
         if (isBulkSelected) drawBulkCheckbox(ctx, bar.x0, y)
         return
       }
 
-      // Point thinker → name-box marker + solid vertical tether to the axis.
-      if (axisY > 0 && itemLod.tether) {
-        const edgeY = y < axisY ? y + bgHeight / 2 : y - bgHeight / 2
-        drawTetherLine(ctx, x, edgeY, axisY)
-        drawTetherDot(ctx, x, axisY, dotRegistry)
-      }
-
       // When labels are suppressed (compressed axis), a point thinker collapses
-      // to a small marker instead of a full name-box.
+      // to a small tag-coloured marker instead of a full name-box.
       if (!itemLod.besideLabel) {
         ctx.beginPath()
-        ctx.arc(x, y, 5, 0, Math.PI * 2)
-        ctx.fillStyle = isSelected ? '#8B4513' : isBulkSelected ? '#0284C7' : '#FFFFFF'
-        ctx.strokeStyle = isSelected ? '#6B3410' : isBulkSelected ? '#0284C7' : '#8B4513'
+        ctx.arc(x, y, 4, 0, Math.PI * 2)
+        ctx.fillStyle = baseFill
+        ctx.strokeStyle = stroke
         ctx.lineWidth = 1
         ctx.fill()
         ctx.stroke()
-        if (isBulkSelected) drawBulkCheckbox(ctx, x - 5, y)
+        if (isBulkSelected) drawBulkCheckbox(ctx, x - 4, y)
         return
       }
 
-      // Draw name label with background
-      ctx.font = '14px "Crimson Text", serif'
+      // Point thinker → name box (tag-coloured, semi-transparent fill).
+      ctx.font = font
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-
-      // Draw background rectangle
-      if (isSelected) {
-        ctx.fillStyle = '#8B4513'
-        ctx.strokeStyle = '#6B3410'
-        ctx.lineWidth = 2
-      } else if (isBulkSelected) {
-        ctx.fillStyle = '#E0F2FE'  // Light blue for bulk selection
-        ctx.strokeStyle = '#0284C7'  // Blue border
-        ctx.lineWidth = 2
-      } else {
-        ctx.fillStyle = '#FFFFFF'
-        ctx.strokeStyle = '#CCCCCC'
-        ctx.lineWidth = 1
-      }
-
+      ctx.save()
+      ctx.globalAlpha = fillAlpha
+      ctx.fillStyle = baseFill
       ctx.fillRect(x - bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight)
+      ctx.restore()
+      ctx.strokeStyle = stroke
+      ctx.lineWidth = isSelected || isBulkSelected ? 2 : 1
       ctx.strokeRect(x - bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight)
+      drawTagStripes(ctx, thinker, x - bgWidth / 2, y, bgHeight)
 
-      // Draw text (name only - no date labels)
-      ctx.fillStyle = isSelected ? '#FFFFFF' : '#1A1A1A'
-      const textPadding = 8
-      const maxTextWidth = Math.max(10, bgWidth - textPadding * 2)
-      const displayName = fitTextToWidth(ctx, thinker.name, maxTextWidth)
-      ctx.fillText(displayName, x, y)
+      ctx.fillStyle = textColor
+      const maxTextWidth = Math.max(10, bgWidth - LANE_LABEL_PAD * 2)
+      const labelText = pos.label ?? thinker.name
+      ctx.fillText(fitTextToWidth(ctx, labelText, maxTextWidth), x, y)
 
-      // Draw checkbox indicator for bulk selected items
-      if (isBulkSelected) {
-        drawBulkCheckbox(ctx, x - bgWidth / 2, y)
-      }
+      if (isBulkSelected) drawBulkCheckbox(ctx, x - bgWidth / 2, y)
     })
   }
 
@@ -1235,46 +1245,52 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Sort events by year for left-to-right processing
     const sortedEvents = [...events].sort((a, b) => a.year - b.year)
 
-    // Precompute per-event geometry: x-centre, footprint width, and (for ranged
-    // events) bar metadata. The FULL label is measured so collision reserves
-    // enough horizontal space; overlaps resolve by vertical stacking, never by
-    // truncation.
-    ctx.font = '10px "JetBrains Mono", monospace'
+    // Labels show only when the axis isn't heavily compressed (same gate as the
+    // draw pass). When shown, a point event's label sits to the RIGHT of its
+    // marker on ONE line, so each lane is a single tight row (no vertical
+    // label/marker collisions) and the footprint reserves the label width so
+    // labels never overlap horizontally either.
+    ctx.font = `${EVENT_LABEL_FONT_PX}px "JetBrains Mono", monospace`
     const measureEvt = (t: string) => ctx.measureText(t).width
-    interface EvtGeom { x: number; width: number; bar?: BarMeta }
+    const size = EVENT_SHAPE_SIZE
+    let sY: number, eY: number
+    if (selectedTimeline) {
+      sY = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      eY = selectedTimeline.end_year ?? DEFAULT_END_YEAR
+    } else {
+      const r = calculateAllThinkersRange(); sY = r.startYear; eY = r.endYear
+    }
+    const showLabels = shouldShowTethers((eY - sY) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale))
+
+    interface EvtGeom { x: number; left: number; right: number; bar?: BarMeta }
     const geom = new Map<string, EvtGeom>()
     sortedEvents.forEach((event) => {
       const range = resolveEventRange(event)
       const classified = classifyItem(range)
+      const labelText = `${eventGlyph(event.event_type)} ${event.name}`
       if (classified.kind === 'range' && classified.startYear != null && classified.endYear != null) {
         const { x0, x1, barWidth } = barExtent(
           yearToX(classified.startYear, canvasWidth, scale),
           yearToX(classified.endYear, canvasWidth, scale),
           MIN_BAR_WIDTH,
         )
-        const labelText = `${eventGlyph(event.event_type)} ${event.name}`
         const layout = resolveBarLabelLayout({ measure: measureEvt, labelText, barWidthPx: barWidth, padding: BAR_LABEL_PADDING, gap: BAR_LABEL_GAP, maxBesidePx: MAX_BESIDE_LABEL_PX })
+        const labelExtra = showLabels && layout.placement === 'beside' ? BAR_LABEL_GAP + layout.besideMaxPx : 0
         geom.set(event.id, {
-          x: x0 + layout.footprintWidth / 2,
-          width: layout.footprintWidth,
+          x: x0 + barWidth / 2, left: x0, right: x1 + labelExtra,
           bar: { x0, x1, ongoing: false, labelText, placement: layout.placement, besideMaxPx: layout.besideMaxPx },
         })
       } else {
-        geom.set(event.id, {
-          x: yearToX(event.year, canvasWidth, scale),
-          width: Math.max(EVENT_BBOX_WIDTH, measureEvt(event.name) + 4),
-        })
+        const cx = yearToX(event.year, canvasWidth, scale)
+        const right = cx + size + (showLabels ? 4 + measureEvt(labelText) : 0)
+        geom.set(event.id, { x: cx, left: cx - size, right })
       }
     })
 
-    // Pack events into a shallow lane band directly under the axis. Packing uses
-    // the COMPACT marker/bar extent (not the long label), so a dense era doesn't
-    // explode into one lane per title; labels are gated by zoom in the draw pass.
+    // Greedy lane-pack the events into the shallow band under the axis.
     const eventItems: LayoutItem[] = sortedEvents.map((event) => {
       const g = geom.get(event.id)!
-      const cx = g.bar ? (g.bar.x0 + g.bar.x1) / 2 : g.x
-      const half = g.bar ? Math.max(MIN_BAR_WIDTH, g.bar.x1 - g.bar.x0) / 2 : EVENT_BBOX_WIDTH / 2
-      return { id: event.id, left: cx - half, right: cx + half, height: EVENT_LANE_STEP }
+      return { id: event.id, left: g.left, right: g.right, height: EVENT_LANE_STEP }
     })
     const placedEvents = packLanes(eventItems, {
       topY: AXIS_BAND_HEIGHT + SECTION_GAP + EVENT_LANE_STEP / 2,
@@ -1289,9 +1305,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       const g = geom.get(event.id)!
       const p = placedEvents.get(event.id)
       if (!p) return
-      // Store the full footprint width for hit-testing (label is clickable), but
-      // the y comes from the compact lane packing above.
-      positions.set(event.id, { x: g.x, y: p.y, width: g.width, height: EVENT_BBOX_HEIGHT, bar: g.bar })
+      positions.set(event.id, { x: g.x, y: p.y, width: g.right - g.left, height: EVENT_LANE_STEP, bar: g.bar })
     })
 
     return positions
@@ -1305,7 +1319,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       if (!pos) return
       const { x, y } = pos
 
-      // Ranged event → bar (type-coloured fill + glyph label) with tethers.
+      // Ranged event → type-coloured bar with glyph label (no foreground tether).
       if (pos.bar) {
         const fill = eventFill(event.event_type)
         drawBar(
@@ -1313,10 +1327,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           pos.bar,
           y,
           EVENT_BAR_HEIGHT,
-          { fill, stroke: '#6B3410', lineWidth: 1, font: '10px "JetBrains Mono", monospace' },
+          { fill, stroke: '#6B3410', lineWidth: 1, font: `${EVENT_LABEL_FONT_PX}px "JetBrains Mono", monospace`, textColor: '#FFFFFF' },
           axisY,
           dotRegistry,
-          lod,
+          { tether: false, besideLabel: lod.besideLabel },
         )
         return
       }
@@ -1386,19 +1400,14 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
           break
       }
 
-      // Event label (suppressed when the axis is too compressed to read it).
+      // Event label: ONE line to the RIGHT of the marker (glyph + name), so each
+      // event lane is a single tight row. Suppressed when the axis is compressed.
       if (lod.besideLabel) {
-        ctx.fillStyle = '#333333'
-        ctx.font = '10px "JetBrains Mono", monospace'
-        ctx.textAlign = 'center'
-        ctx.fillText(event.name, x, y - size - 5)
-      }
-
-      // Vertical tether from the shape's axis-facing edge down/up to the axis.
-      if (axisY > 0 && lod.tether) {
-        const edgeY = y < axisY ? y + size : y - size
-        drawTetherLine(ctx, x, edgeY, axisY)
-        drawTetherDot(ctx, x, axisY, dotRegistry)
+        ctx.fillStyle = '#5C4A36'
+        ctx.font = `${EVENT_LABEL_FONT_PX}px "JetBrains Mono", monospace`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(`${eventGlyph(event.event_type)} ${event.name}`, x + size + 4, y)
       }
     })
   }
