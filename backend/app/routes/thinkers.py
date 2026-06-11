@@ -33,7 +33,7 @@ def get_thinkers(
     search: Optional[str] = Query(None, description="Search thinkers by name (case-insensitive partial match)"),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Thinker)
+    query = db.query(Thinker).options(joinedload(Thinker.tags))
     if timeline_id:
         query = query.filter(Thinker.timeline_id == timeline_id)
     if search:
