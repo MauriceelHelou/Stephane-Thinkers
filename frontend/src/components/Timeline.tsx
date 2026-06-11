@@ -433,9 +433,17 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
-    // Camera magnify: a uniform scale over the WHOLE scene (content + axis) so
-    // small text becomes readable. At magnify=1 this is a no-op (the axis stays
-    // pinned to the top). It does NOT touch the year→pixel mapping.
+    // Clip ALL content to BELOW the sticky axis band (screen space). Nothing —
+    // magnified, panned, or zoomed-out — can ever render above or through the
+    // ruler; the ruler itself is painted afterwards in screen space, on top.
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, AXIS_BAND_HEIGHT, canvasWidth, canvasHeight - AXIS_BAND_HEIGHT)
+    ctx.clip()
+
+    // Camera magnify: a uniform scale over the CONTENT so small text becomes
+    // readable. The axis ruler is NOT inside this transform (drawn below in
+    // screen space), so it stays pinned to the top. Does NOT change the year map.
     ctx.translate(magOffsetX, magOffsetY)
     ctx.scale(magnify, magnify)
 
@@ -512,10 +520,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       drawStickyNotes(ctx, canvasNotes, draggedNoteId, draggedNotePos)
     }
 
-    ctx.restore()
+    ctx.restore() // remove offsetX/offsetY translate (back to camera transform)
+    ctx.restore() // remove camera magnify + content clip (back to screen space)
 
-    // Sticky top axis band — painted LAST in screen space (ignores vertical pan),
-    // so the year ruler is always pinned to the top and content scrolls under it.
+    // Sticky top axis ruler — painted LAST in screen space, opaque, pinned to the
+    // very top. Tick X tracks the magnified/panned content; Y is fixed, so the
+    // ruler never moves and content can never go above or through it.
     drawAxisBand(ctx, canvasWidth)
   }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, magnify, magOffsetX, magOffsetY, selectedThinkerId, bulkSelectedIds, connectionFromId, filteredThinkers, visibleFilteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, showConnectionLabels])
 
@@ -611,16 +621,19 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       endYear = range.endYear
     }
     const yearSpan = endYear - startYear
-    const interval = getYearInterval(width, yearSpan, scale)
+    // Magnify scales the on-screen pixels-per-year too, so fold it into the tick
+    // interval — fewer ticks when magnified out (no label cram), more when in.
+    const interval = getYearInterval(width, yearSpan, scale * magnify)
 
-    // Ticks + labels: shift X by offsetX so they track horizontal pan. BCE years
-    // are shown as "N BCE" rather than a bare negative number.
-    ctx.save()
-    ctx.translate(offsetX, 0)
+    // Ticks + labels in SCREEN space. X mirrors the content transform
+    // (magOffset + magnify·(offsetX + yearToX)) so ticks stay aligned with the
+    // bars through pan/zoom/magnify; Y is fixed so the ruler never moves. BCE
+    // years are shown as "N BCE" rather than a bare negative number.
     ctx.font = '12px "JetBrains Mono", monospace'
     ctx.textAlign = 'center'
     for (let year = Math.ceil(startYear / interval) * interval; year <= endYear; year += interval) {
-      const x = yearToX(year, width, scale)
+      const x = magOffsetX + magnify * (offsetX + yearToX(year, width, scale))
+      if (x < -40 || x > width + 40) continue
       const yearLabel = interval < 1
         ? year.toFixed(2).replace(/\.?0+$/, '')
         : year < 0 ? `${-year} BCE` : `${year}`
@@ -633,7 +646,6 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       ctx.fillStyle = '#666666'
       ctx.fillText(yearLabel, x, AXIS_LINE_Y + 18)
     }
-    ctx.restore()
   }
 
   // Calculate thinker positions with zoom-aware collision detection
