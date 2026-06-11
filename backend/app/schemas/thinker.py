@@ -61,6 +61,7 @@ class ThinkerUpdate(BaseModel):
     anchor_year: Optional[int] = None  # Year the thinker is pinned to on timeline
     is_manually_positioned: Optional[bool] = None  # True if user manually dragged this thinker
     timeline_id: Optional[UUID] = None
+    tag_ids: Optional[List[UUID]] = None
 
     @field_validator('name')
     @classmethod
