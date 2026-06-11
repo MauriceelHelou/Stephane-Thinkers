@@ -10,13 +10,13 @@ import {
   CURRENT_YEAR, eventFill, eventGlyph, resolveBarLabelLayout, shouldShowTethers, chooseStableLane,
   readableTextColor,
   type BarMeta, type BarStyle, type DotRegistry, type BarLOD, type ScoredLane,
-  drawTetherLine, drawBulkCheckbox, drawBar,
+  drawBulkCheckbox, drawBar,
 } from '@/lib/timelineDraw'
 import { packLanes, computeBands, buildThinkerLabel, hexToRgba, wrapText, type LayoutItem } from '@/lib/timelineLayout'
 import type { Thinker, Connection, Timeline as TimelineType, TimelineEvent, Note, NoteColor } from '@/types'
 
 // Event layout constants
-const EVENT_SHAPE_SIZE = 6
+const EVENT_SHAPE_SIZE = 5
 const EVENT_LABEL_HEIGHT = 12
 const EVENT_VERTICAL_GAP = 4
 const EVENT_ZONE_OFFSET = -28 // Base Y offset from centerY for events (clears the axis tick band so bars/markers don't sit on the year ticks)
@@ -37,7 +37,7 @@ const LANE_BOX_HEIGHT = 15        // unified thinker row height (point box AND l
 const LANE_ROW_GAP = 2            // tight inter-row gap  → laneStep = 17
 const LANE_FONT_PX = 11           // thinker label font (small, for density)
 const LANE_LABEL_PAD = 5          // inside-box horizontal padding per side (tight)
-const EVENT_LANE_STEP = 16        // event row pitch
+const EVENT_LANE_STEP = 18        // event row pitch (> marker/bar height so rows never touch)
 const EVENT_LABEL_FONT_PX = 9     // event label font (small)
 const HORIZONTAL_GAP = 6          // fixed horizontal gap between same-lane items (NOT zoom-scaled)
 const BOX_FILL_ALPHA = 0.78       // thinker box fill alpha so connector lines read through
@@ -483,11 +483,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
     const lod = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
 
-    // Z-order (back → front): grid → tethers → connectors → thinker boxes →
-    // event markers → axis. Tethers are backmost (faint droplines to the ruler);
-    // connectors next so the semi-transparent boxes read over them.
-    drawTethers(ctx, thinkerPositions, lod)
-
+    // Z-order (back → front): grid → connectors → thinker boxes → event markers
+    // → axis. (No tethers: a bar's horizontal extent already reads against the
+    // top ruler, so the droplines were just clutter.)
     if (visibleFilteredConnections.length > 0) {
       drawConnections(ctx, visibleFilteredConnections, filteredThinkers, thinkerPositions)
     }
@@ -738,24 +736,6 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       truncated = truncated.slice(0, -1)
     }
     return `${truncated}${ellipsis}`
-  }
-
-  // Vertical tethers from each thinker to the sticky top axis. Drawn as a
-  // SEPARATE pass BEFORE connectors and boxes so the droplines sit behind
-  // everything else (per design: they're a faint reference, not foreground).
-  const drawTethers = (ctx: CanvasRenderingContext2D, positions: Map<string, ThinkerPos>, lod: BarLOD) => {
-    if (!lod.tether) return
-    const axisY = AXIS_LINE_Y - offsetY
-    for (const pos of positions.values()) {
-      const topEdge = pos.y - pos.height / 2
-      if (topEdge <= axisY) continue
-      if (pos.bar) {
-        drawTetherLine(ctx, pos.bar.x0, topEdge, axisY)
-        if (!pos.bar.ongoing) drawTetherLine(ctx, pos.bar.x1, topEdge, axisY)
-      } else {
-        drawTetherLine(ctx, pos.x, topEdge, axisY)
-      }
-    }
   }
 
   // Additional tags (index ≥ 1) as thin stacked stripes on the box's left edge.
@@ -1529,16 +1509,16 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const rect = canvas.getBoundingClientRect()
 
-    // IMPORTANT: macOS trackpad pinch-to-zoom reports ctrlKey=true with tiny
-    // (<10px) deltas — identical to a real Ctrl key except for magnitude. So a
-    // pinch must NOT magnify; it zooms the timeline like a normal gesture. Only a
-    // DELIBERATE Ctrl/Cmd + larger scroll (mouse wheel or firm two-finger swipe)
-    // triggers the camera MAGNIFY (uniform zoom for reading small text/notes).
-    const isPinch = e.ctrlKey && Math.abs(e.deltaY) < 10
-    if ((e.ctrlKey || e.metaKey) && !isPinch) {
+    // MAGNIFY = Ctrl/Cmd (or Shift) + scroll: a uniform camera zoom of the whole
+    // scene so small text/notes become readable, focused on the cursor. Does NOT
+    // change the year→pixel mapping. Plain two-finger scroll / mouse wheel (no
+    // modifier) zooms the TIMELINE extent instead. macOS trackpad pinch also
+    // reports ctrlKey, so a pinch magnifies too — use plain scroll to zoom time.
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
-      const factor = 1 - e.deltaY * 0.0015
+      const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
+      const factor = 1 - e.deltaY * sensitivity
       const newMag = Math.max(1, Math.min(6, magnify * factor))
       if (newMag === 1) {
         setMagnify(1); setMagOffsetX(0); setMagOffsetY(0)
@@ -1552,11 +1532,11 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       return
     }
 
-    // Everything else (plain scroll OR pinch) = horizontal time-stretch zoom
+    // Plain scroll / mouse wheel (no modifier) = horizontal time-stretch zoom
     // (changes the year→pixel extent), toward the cursor.
     const mouseX = e.clientX - rect.left
     const oldScale = scale
-    // Pinch sends small deltas, the wheel sends larger ones — scale the
+    // Trackpad sends small deltas, a mouse wheel sends larger ones — scale the
     // sensitivity so both produce a comfortable zoom rate.
     const delta = 1 - e.deltaY * (Math.abs(e.deltaY) < 10 ? 0.02 : 0.001)
     const { minScale, maxScale } = calculateZoomBounds()
@@ -1861,6 +1841,25 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
   }
 
+  // Magnify by a factor about the canvas centre — the button-driven counterpart
+  // to Shift/Ctrl+scroll, so reading-zoom never competes with the timeline zoom.
+  const applyMagnify = (factor: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const mx = rect.width / 2
+    const my = rect.height / 2
+    const newMag = Math.max(1, Math.min(6, magnify * factor))
+    if (newMag === 1) {
+      setMagnify(1); setMagOffsetX(0); setMagOffsetY(0); return
+    }
+    const wx = (mx - magOffsetX) / magnify
+    const wy = (my - magOffsetY) / magnify
+    setMagnify(newMag)
+    setMagOffsetX(mx - wx * newMag)
+    setMagOffsetY(my - wy * newMag)
+  }
+
   if (thinkersLoading || connectionsLoading || eventsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1885,11 +1884,27 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       />
 
       <div className="absolute bottom-4 right-4 flex gap-2">
+        {/* Magnify (reading zoom) — independent of the timeline time-zoom. */}
+        <button
+          onClick={() => applyMagnify(1 / 1.25)}
+          title="Magnify out (reading zoom). Shortcut: Shift/Ctrl + scroll"
+          className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
+        >
+          🔍−
+        </button>
+        <button
+          onClick={() => applyMagnify(1.25)}
+          title="Magnify in (reading zoom). Shortcut: Shift/Ctrl + scroll"
+          className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
+        >
+          🔍+
+        </button>
         <button
           onClick={() => {
             const { maxScale } = calculateZoomBounds()
             setScale((prev) => Math.min(maxScale, prev * 1.1))
           }}
+          title="Zoom the timeline in (more years per screen). Shortcut: scroll"
           className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
         >
           Zoom In
@@ -1899,6 +1914,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
             const { minScale } = calculateZoomBounds()
             setScale((prev) => Math.max(minScale, prev * 0.9))
           }}
+          title="Zoom the timeline out. Shortcut: scroll"
           className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
         >
           Zoom Out

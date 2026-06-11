@@ -5,7 +5,7 @@
 // Range-bar + tether constants
 export const MIN_BAR_WIDTH = 12          // tiny spans stay visible/clickable
 export const THINKER_BAR_HEIGHT = 24     // matches the point name-box height
-export const EVENT_BAR_HEIGHT = 16
+export const EVENT_BAR_HEIGHT = 11       // shorter than EVENT_LANE_STEP so event rows never touch
 export const BAR_LABEL_PADDING = 6       // inside-label horizontal padding (per side)
 export const BAR_LABEL_GAP = 6           // gap between bar and a beside-label
 export const BAR_RADIUS = 2
