@@ -1529,18 +1529,19 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // the pinch gesture. Pinch + plain scroll therefore zoom the TIMELINE extent.
     if (e.shiftKey) {
       const mx = e.clientX - rect.left
-      const my = e.clientY - rect.top
       const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
       const factor = 1 - e.deltaY * sensitivity
       const newMag = Math.max(0.3, Math.min(6, magnify * factor))
       if (newMag === 1) {
         setMagnify(1); setMagOffsetX(0); setMagOffsetY(0)
       } else {
+        // Horizontal: keep the cursor's year fixed (zoom into a time period).
         const wx = (mx - magOffsetX) / magnify
-        const wy = (my - magOffsetY) / magnify
         setMagnify(newMag)
         setMagOffsetX(mx - wx * newMag)
-        setMagOffsetY(my - wy * newMag)
+        // Vertical: pivot at the axis line so content always grows DOWNWARD from
+        // the ruler and can never rise above/behind it as you magnify in/out.
+        setMagOffsetY((AXIS_BAND_HEIGHT + SECTION_GAP) * (1 - newMag))
       }
       return
     }
@@ -1861,16 +1862,16 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
     const mx = rect.width / 2
-    const my = rect.height / 2
     const newMag = Math.max(0.3, Math.min(6, magnify * factor))
     if (newMag === 1) {
       setMagnify(1); setMagOffsetX(0); setMagOffsetY(0); return
     }
+    // Horizontal: keep the centre's year fixed. Vertical: pivot at the axis line
+    // so content grows downward and never rises above/behind the ruler.
     const wx = (mx - magOffsetX) / magnify
-    const wy = (my - magOffsetY) / magnify
     setMagnify(newMag)
     setMagOffsetX(mx - wx * newMag)
-    setMagOffsetY(my - wy * newMag)
+    setMagOffsetY((AXIS_BAND_HEIGHT + SECTION_GAP) * (1 - newMag))
   }
 
   if (thinkersLoading || connectionsLoading || eventsLoading) {
