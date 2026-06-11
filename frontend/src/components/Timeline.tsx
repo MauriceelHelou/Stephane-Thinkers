@@ -265,6 +265,21 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   // Helper function to scale X coordinates (for stored positions)
   const scaleX = (x: number): number => x * scale
 
+  // Clamp vertical pan to the content extent: content top stays just under the
+  // sticky axis band (offsetY ≤ 0), and you can't scroll past the lowest lane.
+  // When all lanes already fit the viewport, vertical pan is pinned at 0.
+  const clampOffsetY = (value: number): number => {
+    const canvas = canvasRef.current
+    const viewportH = canvas ? canvas.getBoundingClientRect().height : 800
+    let maxLaneY = 0
+    for (const p of positionCacheRef.current.thinkerPositions.values()) {
+      if (p.y > maxLaneY) maxLaneY = p.y
+    }
+    const contentBottom = maxLaneY + LANE_BOX_HEIGHT + SECTION_GAP
+    const minOffsetY = Math.min(0, viewportH - contentBottom)
+    return Math.max(minOffsetY, Math.min(0, value))
+  }
+
   // Memoized filter for thinkers by timeline, tags, search query, field, and year range
   const filteredThinkers = useMemo(() => {
     return thinkers.filter((t) => {
@@ -1659,7 +1674,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       } else {
         setOffsetX((prev) => Math.min(rect.width * 0.2, Math.max(-rect.width * 0.2, prev + dx)))
       }
-      setOffsetY((prev) => prev + dy)
+      setOffsetY((prev) => clampOffsetY(prev + dy))
     }
   }
 
