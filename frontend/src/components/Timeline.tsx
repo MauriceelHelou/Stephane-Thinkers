@@ -1509,12 +1509,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const rect = canvas.getBoundingClientRect()
 
-    // MAGNIFY = Ctrl/Cmd (or Shift) + scroll: a uniform camera zoom of the whole
-    // scene so small text/notes become readable, focused on the cursor. Does NOT
-    // change the year→pixel mapping. Plain two-finger scroll / mouse wheel (no
-    // modifier) zooms the TIMELINE extent instead. macOS trackpad pinch also
-    // reports ctrlKey, so a pinch magnifies too — use plain scroll to zoom time.
-    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+    // MAGNIFY = SHIFT + scroll (or the on-screen 🔍 buttons): a uniform camera
+    // zoom of the whole scene so small text/notes become readable, focused on the
+    // cursor. Does NOT change the year→pixel mapping.
+    // NOTE: Ctrl is deliberately NOT a magnify modifier — macOS trackpad
+    // pinch-to-zoom reports ctrlKey=true, so binding magnify to Ctrl would hijack
+    // the pinch gesture. Pinch + plain scroll therefore zoom the TIMELINE extent.
+    if (e.shiftKey) {
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
       const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
