@@ -411,16 +411,21 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // High-DPI canvas scaling to prevent pixelation
+    // High-DPI canvas scaling to prevent pixelation.
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
 
-    // Set canvas internal resolution to match device pixel ratio
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-
-    // Scale the context to match
-    ctx.scale(dpr, dpr)
+    // Only resize the backing bitmap when the dimensions actually change.
+    // Assigning canvas.width/height forces a full GPU realloc + clear, which on
+    // every pointer-move (drag) drops frames ("janky / skipping"); guard it.
+    const bw = Math.round(rect.width * dpr)
+    const bh = Math.round(rect.height * dpr)
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw
+      canvas.height = bh
+    }
+    // Reset to the DPR base transform every frame (absolute, not cumulative).
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     // Use CSS dimensions for layout calculations
     const canvasWidth = rect.width
@@ -1524,14 +1529,16 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const rect = canvas.getBoundingClientRect()
 
-    // Ctrl/Cmd + wheel (and trackpad pinch, which reports ctrlKey) = camera
-    // MAGNIFY: a uniform zoom of the whole scene so small text/notes become
-    // readable, focused on the cursor. Does NOT change the year→pixel mapping.
-    if (e.ctrlKey || e.metaKey) {
+    // IMPORTANT: macOS trackpad pinch-to-zoom reports ctrlKey=true with tiny
+    // (<10px) deltas — identical to a real Ctrl key except for magnitude. So a
+    // pinch must NOT magnify; it zooms the timeline like a normal gesture. Only a
+    // DELIBERATE Ctrl/Cmd + larger scroll (mouse wheel or firm two-finger swipe)
+    // triggers the camera MAGNIFY (uniform zoom for reading small text/notes).
+    const isPinch = e.ctrlKey && Math.abs(e.deltaY) < 10
+    if ((e.ctrlKey || e.metaKey) && !isPinch) {
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
-      const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
-      const factor = 1 - e.deltaY * sensitivity
+      const factor = 1 - e.deltaY * 0.0015
       const newMag = Math.max(1, Math.min(6, magnify * factor))
       if (newMag === 1) {
         setMagnify(1); setMagOffsetX(0); setMagOffsetY(0)
@@ -1545,10 +1552,13 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       return
     }
 
-    // Plain scroll wheel = horizontal time-stretch zoom (year→pixel), toward cursor.
+    // Everything else (plain scroll OR pinch) = horizontal time-stretch zoom
+    // (changes the year→pixel extent), toward the cursor.
     const mouseX = e.clientX - rect.left
     const oldScale = scale
-    const delta = 1 - e.deltaY * 0.001
+    // Pinch sends small deltas, the wheel sends larger ones — scale the
+    // sensitivity so both produce a comfortable zoom rate.
+    const delta = 1 - e.deltaY * (Math.abs(e.deltaY) < 10 ? 0.02 : 0.001)
     const { minScale, maxScale } = calculateZoomBounds()
     const newScale = Math.max(minScale, Math.min(maxScale, oldScale * delta))
 
