@@ -400,7 +400,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Removed ctx.scale(scale, scale) - we now scale X coordinates manually for horizontal-only zoom
 
     drawGrid(ctx, canvasWidth, canvasHeight)
-    drawTimeline(ctx, canvasWidth, canvasHeight)
+    // The axis ruler is no longer drawn here — it is a sticky screen-space band
+    // painted LAST (drawAxisBand, after ctx.restore) so content scrolls under it.
 
     // Cache-aware position calculation — skip expensive collision detection during drag.
     // Build a key from everything that affects positions (NOT drag state).
@@ -438,16 +439,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     const visibleYearSpan = (lodEndYear - lodStartYear) / (TIMELINE_CONTENT_WIDTH_PERCENT * scale)
     const lod = { tether: shouldShowTethers(visibleYearSpan), besideLabel: true }
 
-    // Draw events at calculated positions. Event labels are gated by the same
-    // zoom threshold as tethers: when the axis is compressed (zoomed out), events
-    // render as compact markers so the shallow band doesn't fill with clipped
-    // titles; labels appear once the user zooms in and events spread out.
-    if (eventPositions && timelineEvents.length > 0) {
-      const eventLod = { tether: lod.tether, besideLabel: lod.tether }
-      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions, dotRegistry, eventLod)
-    }
-
-    // Draw connections and thinkers using pre-computed positions
+    // Z-order (back → front): grid → connectors → thinker boxes → event markers.
+    // Connectors render first so the semi-transparent thinker boxes read over
+    // them; event markers sit on top of thinkers (they own the band by the axis).
     if (visibleFilteredConnections.length > 0) {
       drawConnections(ctx, visibleFilteredConnections, filteredThinkers, thinkerPositions)
     }
@@ -458,12 +452,24 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       drawEmptyState(ctx, canvasWidth, canvasHeight)
     }
 
+    // Event labels are gated by the same zoom threshold as tethers: when the axis
+    // is compressed (zoomed out), events render as compact markers so the shallow
+    // band doesn't fill with clipped titles; labels appear once zoomed in.
+    if (eventPositions && timelineEvents.length > 0) {
+      const eventLod = { tether: lod.tether, besideLabel: lod.tether }
+      drawTimelineEvents(ctx, timelineEvents, canvasWidth, canvasHeight, eventPositions, dotRegistry, eventLod)
+    }
+
     // Draw sticky notes on top of everything
     if (canvasNotes.length > 0) {
       drawStickyNotes(ctx, canvasNotes, draggedNoteId, draggedNotePos)
     }
 
     ctx.restore()
+
+    // Sticky top axis band — painted LAST in screen space (ignores vertical pan),
+    // so the year ruler is always pinned to the top and content scrolls under it.
+    drawAxisBand(ctx, canvasWidth)
   }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, visibleFilteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, showConnectionLabels])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
@@ -524,22 +530,31 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     return Math.ceil(minYearInterval / 10000) * 10000
   }
 
-  const drawTimeline = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+  // Sticky top axis ruler. Drawn in SCREEN space (after the pan transform is
+  // restored) so it stays pinned to the top while content scrolls beneath it.
+  // X positions still use yearToX (+ offsetX via a local translate) so ticks
+  // track horizontal zoom/pan; Y ignores the vertical pan.
+  const drawAxisBand = (ctx: CanvasRenderingContext2D, width: number) => {
+    // Opaque gutter strip so panned content scrolls UNDER the ruler.
+    ctx.fillStyle = '#FAFAF8'
+    ctx.fillRect(0, 0, width, AXIS_BAND_HEIGHT)
     ctx.strokeStyle = '#E0E0E0'
-    ctx.lineWidth = 2
-
-    const centerY = height / 2
+    ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(0, centerY)
-    ctx.lineTo(width, centerY)
+    ctx.moveTo(0, AXIS_BAND_HEIGHT)
+    ctx.lineTo(width, AXIS_BAND_HEIGHT)
     ctx.stroke()
 
-    ctx.fillStyle = '#666666'
-    ctx.font = '12px "JetBrains Mono", monospace'
-    ctx.textAlign = 'center'
+    // Axis line spans the full width.
+    ctx.strokeStyle = '#C9C2B6'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(0, AXIS_LINE_Y)
+    ctx.lineTo(width, AXIS_LINE_Y)
+    ctx.stroke()
 
-    // Use the same year range calculation as yearToX
-    let startYear, endYear
+    // Year range + interval (same source as yearToX so ticks line up with bars).
+    let startYear: number, endYear: number
     if (selectedTimeline) {
       startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
       endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
@@ -548,65 +563,30 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       startYear = range.startYear
       endYear = range.endYear
     }
-
     const yearSpan = endYear - startYear
-
-    // Use dynamic interval based on zoom level
     const interval = getYearInterval(width, yearSpan, scale)
 
-    // Draw main year markers
+    // Ticks + labels: shift X by offsetX so they track horizontal pan. BCE years
+    // are shown as "N BCE" rather than a bare negative number.
+    ctx.save()
+    ctx.translate(offsetX, 0)
+    ctx.font = '12px "JetBrains Mono", monospace'
+    ctx.textAlign = 'center'
     for (let year = Math.ceil(startYear / interval) * interval; year <= endYear; year += interval) {
       const x = yearToX(year, width, scale)
-      // Format year nicely - remove trailing zeros for decimals
-      const yearLabel = interval < 1 ? year.toFixed(2).replace(/\.?0+$/, '') : year.toString()
-      ctx.fillStyle = '#666666'
-      ctx.fillText(yearLabel, x, centerY + 30)
-
+      const yearLabel = interval < 1
+        ? year.toFixed(2).replace(/\.?0+$/, '')
+        : year < 0 ? `${-year} BCE` : `${year}`
       ctx.strokeStyle = '#CCCCCC'
       ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(x, centerY - 10)
-      ctx.lineTo(x, centerY + 10)
+      ctx.moveTo(x, AXIS_LINE_Y - 6)
+      ctx.lineTo(x, AXIS_LINE_Y + 6)
       ctx.stroke()
+      ctx.fillStyle = '#666666'
+      ctx.fillText(yearLabel, x, AXIS_LINE_Y + 18)
     }
-
-    // Draw quarter dashes when zoomed in (show sub-intervals)
-    // Show quarter marks between main intervals for finer granularity
-    if (scale >= 1) {
-      const quarterInterval = interval / 4
-      ctx.strokeStyle = '#DDDDDD'
-      ctx.lineWidth = 0.5
-
-      for (let year = Math.ceil(startYear / quarterInterval) * quarterInterval; year <= endYear; year += quarterInterval) {
-        // Skip if this is a main interval marker (use tolerance for floating point)
-        if (Math.abs(year % interval) < 0.0001 || Math.abs(year % interval - interval) < 0.0001) continue
-
-        const x = yearToX(year, width, scale)
-        ctx.beginPath()
-        ctx.moveTo(x, centerY - 5)
-        ctx.lineTo(x, centerY + 5)
-        ctx.stroke()
-      }
-    }
-
-    // Draw even finer marks (twelfths/months) at higher zoom
-    if (scale >= 4) {
-      const monthInterval = interval / 12
-      ctx.strokeStyle = '#EEEEEE'
-      ctx.lineWidth = 0.5
-
-      for (let year = Math.ceil(startYear / monthInterval) * monthInterval; year <= endYear; year += monthInterval) {
-        // Skip if this is a main interval or quarter marker (use tolerance for floating point)
-        const quarterRemainder = year % (interval / 4)
-        if (Math.abs(quarterRemainder) < 0.0001 || Math.abs(quarterRemainder - interval / 4) < 0.0001) continue
-
-        const x = yearToX(year, width, scale)
-        ctx.beginPath()
-        ctx.moveTo(x, centerY - 3)
-        ctx.lineTo(x, centerY + 3)
-        ctx.stroke()
-      }
-    }
+    ctx.restore()
   }
 
   // Calculate thinker positions with zoom-aware collision detection
@@ -713,7 +693,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
   const drawThinkers = (ctx: CanvasRenderingContext2D, thinkers: Thinker[], positions: Map<string, ThinkerPos>, selectedId?: string | null, bulkSelected: string[] = [], dragId?: string | null, dragPos?: { x: number; y: number } | null, canvasHeight = 0, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
 
-    const axisY = canvasHeight / 2
+    // Tethers point UP to the sticky top axis. The axis lives at screen y
+    // AXIS_LINE_Y; content is drawn under translate(_, offsetY), so in content
+    // space the axis sits at AXIS_LINE_Y - offsetY.
+    const axisY = AXIS_LINE_Y - offsetY
 
     thinkers.forEach((thinker) => {
       const pos = positions.get(thinker.id)
@@ -1300,7 +1283,8 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   const drawTimelineEvents = (ctx: CanvasRenderingContext2D, events: TimelineEvent[], canvasWidth: number, canvasHeight: number, eventPositions: Map<string, EventPos>, dotRegistry?: DotRegistry, lod: BarLOD = { tether: true, besideLabel: true }) => {
-    const axisY = canvasHeight / 2
+    // Tethers point UP to the sticky top axis (content-space y, see drawThinkers).
+    const axisY = AXIS_LINE_Y - offsetY
     events.forEach((event) => {
       const pos = eventPositions.get(event.id)
       if (!pos) return
