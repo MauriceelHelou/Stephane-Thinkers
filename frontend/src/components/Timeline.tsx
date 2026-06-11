@@ -43,6 +43,12 @@ const HORIZONTAL_GAP = 6          // fixed horizontal gap between same-lane item
 const BOX_FILL_ALPHA = 0.78       // thinker box fill alpha so connector lines read through
 const SELECTED_FILL_ALPHA = 0.92
 const STRIPE_WIDTH = 2
+// Inline notes: fixed width + fixed small font; full text wraps (no title, no
+// ellipsis, minimal padding). Read tiny text via Ctrl/magnify zoom.
+const NOTE_WIDTH = 116
+const NOTE_FONT_PX = 7
+const NOTE_LINE_H = 9
+const NOTE_PAD = 3
 
 // Position entries. `bar` is present only for range items (drawn as bars).
 // `label` is precomputed (name + life-years when they fit) so the draw pass
@@ -72,6 +78,7 @@ interface TimelineProps {
   stickyNotePreviewLength?: number
   selectedThinkerId?: string | null
   bulkSelectedIds?: string[]
+  connectionFromId?: string | null  // first endpoint while creating a connection
   filterByTimelineId?: string | null
   filterByTagIds?: string[]
   searchQuery?: string
@@ -89,11 +96,18 @@ interface TimelineProps {
   stickyNoteMode?: boolean
 }
 
-export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, onEmptyClick, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, showConnectionLabels = true, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
+export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onEventClick, onThinkerDrag, onEmptyClick, canvasNotes = [], onNoteClick, onNoteDrag, stickyNotePreviewLength = 50, selectedThinkerId, bulkSelectedIds = [], connectionFromId = null, filterByTimelineId, filterByTagIds = [], searchQuery = '', filterByField = '', filterByYearStart = null, filterByYearEnd = null, selectedTimeline, visibleConnectionTypes, showConnectionLabels = true, highlightSelectedConnections = true, animationYear = null, stickyNoteMode = false }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [scale, setScale] = useState(1)
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
+  // Magnify = a uniform "camera" zoom (Ctrl/Cmd+wheel) that scales the whole
+  // rendered scene — text included — so small labels/notes become readable,
+  // WITHOUT changing the year→pixel mapping (that is `scale`). magOffset keeps
+  // the cursor point fixed while magnifying.
+  const [magnify, setMagnify] = useState(1)
+  const [magOffsetX, setMagOffsetX] = useState(0)
+  const [magOffsetY, setMagOffsetY] = useState(0)
   const [isPanning, setIsPanning] = useState(false)
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 })
   // Thinker dragging state
@@ -414,6 +428,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
+    // Camera magnify: a uniform scale over the WHOLE scene (content + axis) so
+    // small text becomes readable. At magnify=1 this is a no-op (the axis stays
+    // pinned to the top). It does NOT touch the year→pixel mapping.
+    ctx.translate(magOffsetX, magOffsetY)
+    ctx.scale(magnify, magnify)
+
     ctx.save()
     ctx.translate(offsetX, offsetY)
     // Removed ctx.scale(scale, scale) - we now scale X coordinates manually for horizontal-only zoom
@@ -468,7 +488,10 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     }
 
     if (filteredThinkers.length > 0) {
-      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, bulkSelectedIds, draggedThinkerId, draggedThinkerPos, canvasHeight, dotRegistry, lod)
+      // The in-progress connection's "from" thinker is highlighted (bulk style)
+      // so it's clear which thinker you're connecting from.
+      const highlightBulk = connectionFromId ? [...bulkSelectedIds, connectionFromId] : bulkSelectedIds
+      drawThinkers(ctx, filteredThinkers, thinkerPositions, selectedThinkerId, highlightBulk, draggedThinkerId, draggedThinkerPos, canvasHeight, dotRegistry, lod)
     } else {
       drawEmptyState(ctx, canvasWidth, canvasHeight)
     }
@@ -491,7 +514,7 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     // Sticky top axis band — painted LAST in screen space (ignores vertical pan),
     // so the year ruler is always pinned to the top and content scrolls under it.
     drawAxisBand(ctx, canvasWidth)
-  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, selectedThinkerId, bulkSelectedIds, filteredThinkers, visibleFilteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, showConnectionLabels])
+  }, [thinkers, connections, timelineEvents, timelines, scale, offsetX, offsetY, magnify, magOffsetX, magOffsetY, selectedThinkerId, bulkSelectedIds, connectionFromId, filteredThinkers, visibleFilteredConnections, filterByTimelineId, filterByTagIds, searchQuery, filterByField, filterByYearStart, filterByYearEnd, selectedTimeline, draggedThinkerId, draggedThinkerPos, canvasNotes, stickyNotePreviewLength, draggedNoteId, draggedNotePos, showConnectionLabels])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#F0F0F0'
@@ -818,18 +841,18 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
   }
 
   // Draw sticky notes on the canvas
+  // Wrap a note's content into the fixed note width using the note font.
+  const wrapNoteLines = (ctx: CanvasRenderingContext2D, content: string): string[] => {
+    ctx.font = `${NOTE_FONT_PX}px "Inter", sans-serif`
+    return wrapText((s) => ctx.measureText(s).width, content ?? '', NOTE_WIDTH - NOTE_PAD * 2)
+  }
+
   const drawStickyNotes = (
     ctx: CanvasRenderingContext2D,
     notes: Note[],
     dragNoteId?: string | null,
     dragNotePos?: { x: number; y: number } | null
   ) => {
-    const PADDING = 10
-    const MIN_WIDTH = 100
-    const MAX_WIDTH = 160
-    const FOLD_SIZE = 14 // Size of the folded corner
-    const LINE_HEIGHT = 14
-
     notes.forEach((note) => {
       if (!note.is_canvas_note || note.position_x == null || note.position_y == null) return
 
@@ -838,147 +861,40 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
       let x = scaleX(note.position_x)
       let y = note.position_y
       if (dragNoteId === note.id && dragNotePos) {
-        // draggedNotePos.x is already in scaled screen space during an active drag.
         x = dragNotePos.x
         y = dragNotePos.y
       }
-      const color = (note.color as NoteColor) || 'yellow'
-      const colors = STICKY_NOTE_COLORS[color] || STICKY_NOTE_COLORS.yellow
+      const colors = STICKY_NOTE_COLORS[(note.color as NoteColor)] || STICKY_NOTE_COLORS.yellow
 
-      // Calculate dimensions
-      ctx.font = 'bold 11px "Inter", sans-serif'
-      const displayTitle = note.title || 'Note'
-      const titleWidth = ctx.measureText(displayTitle).width
-      const STICKY_WIDTH = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + FOLD_SIZE))
+      // Just the note text: small fixed font, full content wrapped (no title, no
+      // ellipsis), minimal padding. The box height grows to fit every line so
+      // nothing is hidden; read the small text via Ctrl/magnify zoom.
+      const lines = wrapNoteLines(ctx, note.content ?? '')
+      const h = NOTE_PAD * 2 + Math.max(1, lines.length) * NOTE_LINE_H
 
-      // Calculate height based on content
-      const hasContent = note.content && note.content.length > 0
-      const showPreview = hasContent && note.title // Only show preview if there's both title and content
-      const STICKY_HEIGHT = showPreview ? 56 : 40
-
-      // Draw shadow (offset slightly for 3D effect)
-      ctx.shadowColor = colors.shadow
-      ctx.shadowBlur = 6
-      ctx.shadowOffsetX = 2
-      ctx.shadowOffsetY = 3
-
-      // Draw main sticky note body (with cut corner for fold)
       ctx.fillStyle = colors.bg
-      ctx.beginPath()
-      ctx.moveTo(x, y)
-      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y)
-      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
-      ctx.lineTo(x + STICKY_WIDTH, y + STICKY_HEIGHT)
-      ctx.lineTo(x, y + STICKY_HEIGHT)
-      ctx.closePath()
-      ctx.fill()
-
-      // Reset shadow
-      ctx.shadowColor = 'transparent'
-      ctx.shadowBlur = 0
-      ctx.shadowOffsetX = 0
-      ctx.shadowOffsetY = 0
-
-      // Draw the folded corner triangle
-      ctx.fillStyle = colors.fold
-      ctx.beginPath()
-      ctx.moveTo(x + STICKY_WIDTH - FOLD_SIZE, y)
-      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y + FOLD_SIZE)
-      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
-      ctx.closePath()
-      ctx.fill()
-
-      // Draw fold crease line
-      ctx.strokeStyle = colors.border
-      ctx.lineWidth = 0.5
-      ctx.beginPath()
-      ctx.moveTo(x + STICKY_WIDTH - FOLD_SIZE, y)
-      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y + FOLD_SIZE)
-      ctx.lineTo(x + STICKY_WIDTH, y + FOLD_SIZE)
-      ctx.stroke()
-
-      // Draw subtle border on main note
       ctx.strokeStyle = colors.border
       ctx.lineWidth = 0.8
       ctx.beginPath()
-      ctx.moveTo(x, y)
-      ctx.lineTo(x + STICKY_WIDTH - FOLD_SIZE, y)
-      ctx.moveTo(x + STICKY_WIDTH, y + FOLD_SIZE)
-      ctx.lineTo(x + STICKY_WIDTH, y + STICKY_HEIGHT)
-      ctx.lineTo(x, y + STICKY_HEIGHT)
-      ctx.lineTo(x, y)
+      ctx.roundRect(x, y, NOTE_WIDTH, h, 3)
+      ctx.fill()
       ctx.stroke()
 
-      // Draw title text inside the note
       ctx.fillStyle = colors.text
-      ctx.font = 'bold 11px "Inter", sans-serif'
+      ctx.font = `${NOTE_FONT_PX}px "Inter", sans-serif`
       ctx.textBaseline = 'top'
       ctx.textAlign = 'left'
-      const maxTitleWidth = STICKY_WIDTH - PADDING * 2 - 4
-      let truncatedTitle = displayTitle
-      if (ctx.measureText(truncatedTitle).width > maxTitleWidth) {
-        while (ctx.measureText(truncatedTitle + '...').width > maxTitleWidth && truncatedTitle.length > 3) {
-          truncatedTitle = truncatedTitle.slice(0, -1)
-        }
-        truncatedTitle += '...'
-      }
-      ctx.fillText(truncatedTitle, x + PADDING, y + PADDING + 1)
-
-      // Draw content preview if there's content
-      if (showPreview) {
-        ctx.font = '10px "Inter", sans-serif'
-        ctx.fillStyle = colors.text
-        ctx.textBaseline = 'top'
-        ctx.textAlign = 'left'
-        ctx.globalAlpha = 0.7
-        const preview = note.content.substring(0, 30) + (note.content.length > 30 ? '...' : '')
-        let truncatedPreview = preview
-        if (ctx.measureText(truncatedPreview).width > maxTitleWidth) {
-          while (ctx.measureText(truncatedPreview + '...').width > maxTitleWidth && truncatedPreview.length > 3) {
-            truncatedPreview = truncatedPreview.slice(0, -1)
-          }
-          truncatedPreview += '...'
-        }
-        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 5)
-        ctx.globalAlpha = 1
-      }
-
-      // If no title but has content, show content as main text
-      if (!note.title && hasContent) {
-        ctx.font = '10px "Inter", sans-serif'
-        ctx.fillStyle = colors.text
-        ctx.textBaseline = 'top'
-        ctx.textAlign = 'left'
-        const preview = note.content.substring(0, 40) + (note.content.length > 40 ? '...' : '')
-        let truncatedPreview = preview
-        if (ctx.measureText(truncatedPreview).width > maxTitleWidth) {
-          while (ctx.measureText(truncatedPreview + '...').width > maxTitleWidth && truncatedPreview.length > 3) {
-            truncatedPreview = truncatedPreview.slice(0, -1)
-          }
-          truncatedPreview += '...'
-        }
-        ctx.fillText(truncatedPreview, x + PADDING, y + PADDING + LINE_HEIGHT + 1)
-      }
-
-      ctx.textBaseline = 'alphabetic' // Reset to default
-      ctx.textAlign = 'center' // Reset to default
+      lines.forEach((ln, i) => ctx.fillText(ln, x + NOTE_PAD, y + NOTE_PAD + i * NOTE_LINE_H))
+      ctx.textBaseline = 'alphabetic'
+      ctx.textAlign = 'center'
     })
   }
 
-  // Store sticky note dimensions for click detection (needs to match drawing)
+  // Note dimensions for click detection (matches drawStickyNotes exactly).
   const getStickyNoteDimensions = (note: Note): { width: number; height: number } => {
-    const PADDING = 10
-    const MIN_WIDTH = 100
-    const MAX_WIDTH = 160
-    const FOLD_SIZE = 14
-    const displayTitle = note.title || 'Note'
-    // Approximate text width (7px per character for bold 11px font)
-    const titleWidth = displayTitle.length * 7
-    const width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, titleWidth + PADDING * 2 + FOLD_SIZE))
-    const hasContent = note.content && note.content.length > 0
-    const showPreview = hasContent && note.title
-    const height = showPreview ? 56 : 40
-    return { width, height }
+    const ctx = canvasRef.current?.getContext('2d')
+    const lineCount = ctx ? Math.max(1, wrapNoteLines(ctx, note.content ?? '').length) : 1
+    return { width: NOTE_WIDTH, height: NOTE_PAD * 2 + lineCount * NOTE_LINE_H }
   }
 
   const CONNECTION_CURVE_OFFSET_STEP = 25
@@ -1426,9 +1342,12 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
     if (!canvas) return null
 
     const rect = canvas.getBoundingClientRect()
-    // Return canvas-space coordinates (after translate, matching what's drawn)
-    const x = e.clientX - rect.left - offsetX
-    const y = e.clientY - rect.top - offsetY
+    // Invert the full transform chain (camera magnify, then content pan) so the
+    // returned coords match what was drawn: screen = magOffset + magnify*(offset + content).
+    const sx = e.clientX - rect.left
+    const sy = e.clientY - rect.top
+    const x = (sx - magOffsetX) / magnify - offsetX
+    const y = (sy - magOffsetY) / magnify - offsetY
 
     return { x, y }
   }
@@ -1605,86 +1524,57 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
 
     const rect = canvas.getBoundingClientRect()
 
-    // INVERTED: Regular scroll = zoom, Cmd/Ctrl+scroll = pan
-    // Pinch-to-zoom on trackpad sends ctrlKey=true (still zooms)
-    const isPan = e.ctrlKey || e.metaKey
-    const isPinchZoom = Math.abs(e.deltaY) < 10 && e.ctrlKey // Trackpad pinch gesture
-
-    if (!isPan || isPinchZoom) {
-      // ZOOM: Regular scroll wheel or pinch gesture
-      const mouseX = e.clientX - rect.left
-      const oldScale = scale
-
-      // Pinch zoom deltaY is typically smaller, so use larger multiplier
-      // Regular scroll wheel uses smaller multiplier
-      const zoomSensitivity = Math.abs(e.deltaY) < 10 ? 0.03 : 0.001
-      const delta = 1 - e.deltaY * zoomSensitivity
-
-      const { minScale, maxScale } = calculateZoomBounds()
-      const newScale = Math.max(minScale, Math.min(maxScale, oldScale * delta))
-
-      // Calculate timeline bounds
-      let startYear, endYear
-      if (selectedTimeline) {
-        startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
-        endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
+    // Ctrl/Cmd + wheel (and trackpad pinch, which reports ctrlKey) = camera
+    // MAGNIFY: a uniform zoom of the whole scene so small text/notes become
+    // readable, focused on the cursor. Does NOT change the year→pixel mapping.
+    if (e.ctrlKey || e.metaKey) {
+      const mx = e.clientX - rect.left
+      const my = e.clientY - rect.top
+      const sensitivity = Math.abs(e.deltaY) < 10 ? 0.02 : 0.0015
+      const factor = 1 - e.deltaY * sensitivity
+      const newMag = Math.max(1, Math.min(6, magnify * factor))
+      if (newMag === 1) {
+        setMagnify(1); setMagOffsetX(0); setMagOffsetY(0)
       } else {
-        const range = calculateAllThinkersRange()
-        startYear = range.startYear
-        endYear = range.endYear
+        const wx = (mx - magOffsetX) / magnify
+        const wy = (my - magOffsetY) / magnify
+        setMagnify(newMag)
+        setMagOffsetX(mx - wx * newMag)
+        setMagOffsetY(my - wy * newMag)
       }
-
-      const timelineStartX = yearToX(startYear, rect.width, newScale)
-      const timelineEndX = yearToX(endYear, rect.width, newScale)
-
-      // Zoom toward mouse cursor
-      const worldX = (mouseX - offsetX) / oldScale
-      let newOffsetX = mouseX - worldX * newScale
-
-      // Apply boundaries
-      const maxOffsetX = rect.width * 0.1 - timelineStartX
-      const minOffsetX = rect.width * 0.9 - timelineEndX
-      const timelineWidth = timelineEndX - timelineStartX
-
-      if (timelineWidth > rect.width) {
-        newOffsetX = Math.min(maxOffsetX, Math.max(minOffsetX, newOffsetX))
-      } else {
-        newOffsetX = Math.min(rect.width * 0.2, Math.max(-rect.width * 0.2, newOffsetX))
-      }
-
-      setScale(newScale)
-      setOffsetX(newOffsetX)
-    } else {
-      // PAN: Cmd/Ctrl + scroll
-      let startYear, endYear
-      if (selectedTimeline) {
-        startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
-        endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
-      } else {
-        const range = calculateAllThinkersRange()
-        startYear = range.startYear
-        endYear = range.endYear
-      }
-
-      const timelineStartX = yearToX(startYear, rect.width, scale)
-      const timelineEndX = yearToX(endYear, rect.width, scale)
-      const maxOffsetX = rect.width * 0.1 - timelineStartX
-      const minOffsetX = rect.width * 0.9 - timelineEndX
-      const timelineWidth = timelineEndX - timelineStartX
-
-      // Apply horizontal pan from deltaX (two-finger horizontal swipe)
-      // Apply vertical pan from deltaY (two-finger vertical swipe)
-      const panMultiplier = 1.5
-      const dx = -e.deltaX * panMultiplier
-      const dy = -e.deltaY * panMultiplier
-
-      if (timelineWidth > rect.width) {
-        setOffsetX((prev) => Math.min(maxOffsetX, Math.max(minOffsetX, prev + dx)))
-      } else {
-        setOffsetX((prev) => Math.min(rect.width * 0.2, Math.max(-rect.width * 0.2, prev + dx)))
-      }
-      setOffsetY((prev) => clampOffsetY(prev + dy))
+      return
     }
+
+    // Plain scroll wheel = horizontal time-stretch zoom (year→pixel), toward cursor.
+    const mouseX = e.clientX - rect.left
+    const oldScale = scale
+    const delta = 1 - e.deltaY * 0.001
+    const { minScale, maxScale } = calculateZoomBounds()
+    const newScale = Math.max(minScale, Math.min(maxScale, oldScale * delta))
+
+    let startYear, endYear
+    if (selectedTimeline) {
+      startYear = selectedTimeline.start_year ?? DEFAULT_START_YEAR
+      endYear = selectedTimeline.end_year ?? DEFAULT_END_YEAR
+    } else {
+      const range = calculateAllThinkersRange()
+      startYear = range.startYear
+      endYear = range.endYear
+    }
+    const timelineStartX = yearToX(startYear, rect.width, newScale)
+    const timelineEndX = yearToX(endYear, rect.width, newScale)
+    const worldX = (mouseX - offsetX) / oldScale
+    let newOffsetX = mouseX - worldX * newScale
+    const maxOffsetX = rect.width * 0.1 - timelineStartX
+    const minOffsetX = rect.width * 0.9 - timelineEndX
+    const timelineWidth = timelineEndX - timelineStartX
+    if (timelineWidth > rect.width) {
+      newOffsetX = Math.min(maxOffsetX, Math.max(minOffsetX, newOffsetX))
+    } else {
+      newOffsetX = Math.min(rect.width * 0.2, Math.max(-rect.width * 0.2, newOffsetX))
+    }
+    setScale(newScale)
+    setOffsetX(newOffsetX)
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -1997,6 +1887,9 @@ export function Timeline({ onThinkerClick, onCanvasClick, onConnectionClick, onE
             setScale(1)
             setOffsetX(0)
             setOffsetY(0)
+            setMagnify(1)
+            setMagOffsetX(0)
+            setMagOffsetY(0)
           }}
           className="px-3 py-2 bg-white border border-timeline rounded shadow-sm hover:bg-gray-50 font-sans text-sm"
         >

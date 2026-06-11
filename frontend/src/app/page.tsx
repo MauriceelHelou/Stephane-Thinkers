@@ -63,10 +63,10 @@ export default function Home() {
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
   const [bulkSelectMode, setBulkSelectMode] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<ConnectionStyleType[]>(
-    Object.keys(CONNECTION_STYLES) as ConnectionStyleType[]
-  )
-  const [showConnectionLabels, setShowConnectionLabels] = useState(true)
+  // Connection lines/arrows and their labels default to OFF (toggled from the
+  // bottom-left "Lines" panel) so the timeline opens clean; the user opts in.
+  const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<ConnectionStyleType[]>([])
+  const [showConnectionLabels, setShowConnectionLabels] = useState(false)
   const [showConnectionLegend, setShowConnectionLegend] = useState(true)
   const [isNetworkMetricsOpen, setIsNetworkMetricsOpen] = useState(false)
   const [isComparisonViewOpen, setIsComparisonViewOpen] = useState(false)
@@ -1627,6 +1627,7 @@ export default function Home() {
             showConnectionLabels={showConnectionLabels}
             highlightSelectedConnections={true}
             stickyNoteMode={stickyNoteMode}
+            connectionFromId={connectionFrom}
           />
         )}
 
