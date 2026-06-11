@@ -16,6 +16,7 @@ import { TagManagementModal } from '@/components/TagManagementModal'
 import { ExportModal } from '@/components/ExportModal'
 import { BulkActionsBar } from '@/components/BulkActionsBar'
 import { DetailPanel } from '@/components/DetailPanel'
+import { EventDetailPanel } from '@/components/EventDetailPanel'
 import { HelpGuide } from '@/components/HelpGuide'
 import { ConnectionLegend } from '@/components/ConnectionLegend'
 import { CanvasControls } from '@/components/CanvasControls'
@@ -57,16 +58,17 @@ export default function Home() {
   const [connectionTo, setConnectionTo] = useState<string | null>(null)
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null)
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [editingTimelineId, setEditingTimelineId] = useState<string | null>(null)
   const [editingCombinedViewId, setEditingCombinedViewId] = useState<string | null>(null)
   const [shiftHeld, setShiftHeld] = useState(false)
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
   const [bulkSelectMode, setBulkSelectMode] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<ConnectionStyleType[]>(
-    Object.keys(CONNECTION_STYLES) as ConnectionStyleType[]
-  )
-  const [showConnectionLabels, setShowConnectionLabels] = useState(true)
+  // Connection lines/arrows and their labels default to OFF (toggled from the
+  // bottom-left "Lines" panel) so the timeline opens clean; the user opts in.
+  const [visibleConnectionTypes, setVisibleConnectionTypes] = useState<ConnectionStyleType[]>([])
+  const [showConnectionLabels, setShowConnectionLabels] = useState(false)
   const [showConnectionLegend, setShowConnectionLegend] = useState(true)
   const [isNetworkMetricsOpen, setIsNetworkMetricsOpen] = useState(false)
   const [isComparisonViewOpen, setIsComparisonViewOpen] = useState(false)
@@ -496,6 +498,8 @@ export default function Home() {
           setStickyNoteMode(false)
         } else if (selectedThinkerId) {
           setSelectedThinkerId(null)
+        } else if (selectedEventId) {
+          setSelectedEventId(null)
         } else if (connectionFrom) {
           setConnectionFrom(null)
           setConnectionTo(null)
@@ -555,7 +559,7 @@ export default function Home() {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isAnyModalOpen, selectedThinkerId, connectionFrom, stickyNoteMode])
+  }, [isAnyModalOpen, selectedThinkerId, selectedEventId, connectionFrom, stickyNoteMode])
 
   const handleCanvasClick = (position: { x: number; y: number }) => {
     if (connectionMode) return
@@ -617,12 +621,18 @@ export default function Home() {
       if (bulkSelectedIds.length > 0) {
         setBulkSelectedIds([])
       }
+      setSelectedEventId(null)
       setSelectedThinkerId(thinkerId)
     }
   }, [shiftHeld, connectionMode, connectionFrom, bulkSelectedIds])
 
   const handleCloseDetailPanel = () => {
     setSelectedThinkerId(null)
+  }
+
+  const handleCloseAllPanels = () => {
+    setSelectedThinkerId(null)
+    setSelectedEventId(null)
   }
 
   // Handle thinker drag - save the new anchor_year and position_y
@@ -681,8 +691,12 @@ export default function Home() {
   }
 
   const handleEventClick = (eventId: string) => {
-    setEditingEventId(eventId)
-    setIsAddEventModalOpen(true)
+    setSelectedEventId(eventId)
+    setSelectedThinkerId(null)
+  }
+
+  const handleCloseEventPanel = () => {
+    setSelectedEventId(null)
   }
 
   const handleCloseEventModal = () => {
@@ -1581,11 +1595,11 @@ export default function Home() {
       </div>
 
       <div id="timeline-canvas" className="flex-1 overflow-hidden relative z-[35]" tabIndex={-1}>
-        {/* Click outside detail panel to close it - scoped to canvas area */}
-        {selectedThinkerId && (
+        {/* Click outside detail/event panel to close it - scoped to canvas area */}
+        {(selectedThinkerId || selectedEventId) && (
           <div
             className="absolute inset-0 z-30"
-            onClick={() => setSelectedThinkerId(null)}
+            onClick={handleCloseAllPanels}
             aria-hidden="true"
           />
         )}
@@ -1627,6 +1641,7 @@ export default function Home() {
             showConnectionLabels={showConnectionLabels}
             highlightSelectedConnections={true}
             stickyNoteMode={stickyNoteMode}
+            connectionFromId={connectionFrom}
           />
         )}
 
@@ -1692,7 +1707,11 @@ export default function Home() {
         isOpen={isAddEventModalOpen}
         onClose={handleCloseEventModal}
         defaultTimelineId={selectedTimelineId}
-        editingEventId={editingEventId}
+      />
+
+      <EventDetailPanel
+        eventId={selectedEventId}
+        onClose={handleCloseEventPanel}
       />
 
       <CreateCombinedViewModal

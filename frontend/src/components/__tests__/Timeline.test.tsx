@@ -397,7 +397,9 @@ describe('Timeline', () => {
     }
 
     const THINKER_X = 313 // ≈ yearToX(1800); within the node's hit box
-    const THINKER_Y = 300 // centerY + position_y(0)
+    // Top-anchored layout: a manually-placed thinker with position_y=0 sits in
+    // lane 0 ≈ AXIS_BAND_HEIGHT(44) + SECTION_GAP(10) + LANE_BOX_HEIGHT/2.
+    const THINKER_Y = 62
 
     it('keeps anchor_year fixed during a large horizontal drag, only changing position_y', async () => {
       mockCanvasRect()
@@ -506,8 +508,10 @@ describe('Timeline', () => {
       // Wait until the bar has been drawn (event data loaded).
       await waitFor(() => expect(canvasCtx().roundRect).toHaveBeenCalled())
       const canvas = container.querySelector('canvas')!
-      // Inside the bar: x0 ≈ yearToX(1750) ≈ 207, y ≈ centerY + EVENT_ZONE_OFFSET = 285.
-      fireEvent.mouseDown(canvas, { clientX: 300, clientY: 285 })
+      // Top-anchored layout: events dock in a shallow band under the axis. The
+      // sole event sits in lane 0 ≈ AXIS_BAND_HEIGHT(44)+SECTION_GAP(10)+EVENT_LANE_STEP/2.
+      // x=300 is inside the bar (x0 ≈ yearToX(1750) ≈ 207).
+      fireEvent.mouseDown(canvas, { clientX: 300, clientY: 62 })
       await waitFor(() => expect(onEventClick).toHaveBeenCalledWith('evt-range'))
     })
   })

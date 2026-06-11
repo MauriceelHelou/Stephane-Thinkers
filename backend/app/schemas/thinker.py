@@ -61,6 +61,7 @@ class ThinkerUpdate(BaseModel):
     anchor_year: Optional[int] = None  # Year the thinker is pinned to on timeline
     is_manually_positioned: Optional[bool] = None  # True if user manually dragged this thinker
     timeline_id: Optional[UUID] = None
+    tag_ids: Optional[List[UUID]] = None
 
     @field_validator('name')
     @classmethod
@@ -91,16 +92,19 @@ class Thinker(ThinkerBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    # Tags are exposed on the base schema so the timeline list endpoint can color
+    # boxes by tag without a per-thinker detail fetch. Eager-loaded in the route.
+    tags: List['Tag'] = Field(default_factory=list)
 
 class ThinkerWithRelations(Thinker):
     model_config = ConfigDict(from_attributes=True)
 
     publications: List['Publication'] = Field(default_factory=list)
     quotes: List['Quote'] = Field(default_factory=list)
-    tags: List['Tag'] = Field(default_factory=list)
 
 from app.schemas.publication import Publication
 from app.schemas.quote import Quote
 from app.schemas.tag import Tag
 
+Thinker.model_rebuild()
 ThinkerWithRelations.model_rebuild()

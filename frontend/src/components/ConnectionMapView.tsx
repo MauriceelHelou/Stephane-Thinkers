@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { thinkersApi, connectionsApi } from '@/lib/api'
 import { CONNECTION_STYLES, ConnectionStyleType } from '@/lib/constants'
+import { computeNetworkLayout, LayoutInputNode, LayoutLink } from '@/lib/connectionMapLayout'
 import { ConnectionType } from '@/types'
 import type { Thinker, Connection } from '@/types'
 
@@ -39,24 +40,10 @@ interface NodeHitArea {
 
 const ALL_CONNECTION_TYPES = Object.values(ConnectionType) as ConnectionStyleType[]
 const NODE_MAX_LABEL_WIDTH = 96
-const PANEL_PADDING = 72
 const NODE_PADDING_X = 10
 const CENTER_NODE_PADDING_X = 12
 const NODE_HEIGHT = 24
 const CENTER_NODE_HEIGHT = 28
-
-function simpleHash(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
 
 function truncateLabel(ctx: CanvasRenderingContext2D, label: string, maxWidth: number): string {
   let displayName = label
@@ -220,82 +207,85 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     return Math.max(...Array.from(distanceMap.values()))
   }, [distanceMap])
 
-  const mapGeometry = useMemo(() => {
-    const width = canvasSize.width
-    const height = canvasSize.height
-    const centerX = width / 2
-    const centerY = height / 2
-    const rawRadius = (Math.min(width, height) / 2) - PANEL_PADDING
-    const mapRadius = Math.max(70, rawRadius)
+  // Measure each label box once (off-screen) so layout and rendering share a
+  // single source of truth for node dimensions.
+  const nodeVisuals = useMemo<Map<string, NodeVisual>>(() => {
+    const visuals = new Map<string, NodeVisual>()
+    if (!centeredThinkerData) return visuals
 
-    return {
-      centerX,
-      centerY,
-      mapRadius,
-      minX: centerX - mapRadius,
-      maxX: centerX + mapRadius,
-      minY: centerY - mapRadius,
-      maxY: centerY + mapRadius,
+    let ctx: CanvasRenderingContext2D | null = null
+    try {
+      ctx = document.createElement('canvas').getContext('2d')
+    } catch {
+      ctx = null
     }
-  }, [canvasSize])
+    if (!ctx) return visuals
+
+    const measure = (id: string, name: string, isCenter: boolean) => {
+      const font = isCenter ? '600 13px "Crimson Text", serif' : '12px "Crimson Text", serif'
+      ctx!.font = font
+      const label = truncateLabel(ctx!, name, NODE_MAX_LABEL_WIDTH + (isCenter ? 18 : 0))
+      const paddingX = isCenter ? CENTER_NODE_PADDING_X : NODE_PADDING_X
+      const width = Math.ceil(ctx!.measureText(label).width + paddingX * 2)
+      const height = isCenter ? CENTER_NODE_HEIGHT : NODE_HEIGHT
+      visuals.set(id, { label, width, height, font })
+    }
+
+    measure(centeredThinkerData.id, centeredThinkerData.name, true)
+    networkThinkers.forEach((thinker: Thinker) => measure(thinker.id, thinker.name, false))
+    return visuals
+  }, [centeredThinkerData, networkThinkers])
 
   const nodes = useMemo<NodePosition[]>(() => {
     if (!centeredThinkerData) return []
+    if (canvasSize.width === 0 || canvasSize.height === 0) return []
 
-    const { centerX, centerY, mapRadius, minX, maxX, minY, maxY } = mapGeometry
-    const items: NodePosition[] = [
+    const centerVisual = nodeVisuals.get(centeredThinkerData.id)
+    const inputNodes: LayoutInputNode[] = [
       {
         id: centeredThinkerData.id,
-        name: centeredThinkerData.name,
-        x: centerX,
-        y: centerY,
         isCenter: true,
-      }
+        distance: 0,
+        width: centerVisual?.width ?? CENTER_NODE_HEIGHT,
+        height: centerVisual?.height ?? CENTER_NODE_HEIGHT,
+      },
     ]
 
-    const grouped = new Map<number, Thinker[]>()
     networkThinkers.forEach((thinker: Thinker) => {
-      const distance = distanceMap.get(thinker.id) || 1
-      if (!grouped.has(distance)) grouped.set(distance, [])
-      grouped.get(distance)!.push(thinker)
-    })
-
-    const distances = Array.from(grouped.keys()).sort((a, b) => a - b)
-    const maxDistance = Math.max(...distances, 1)
-
-    distances.forEach((distance) => {
-      const thinkersAtDistance = (grouped.get(distance) || []).sort((a, b) => a.name.localeCompare(b.name))
-      if (thinkersAtDistance.length === 0) return
-
-      const minRing = mapRadius * 0.34
-      const maxRing = mapRadius * 0.84
-      const ringRadius = maxDistance <= 1
-        ? mapRadius * 0.52
-        : minRing + ((distance - 1) / (maxDistance - 1)) * (maxRing - minRing)
-
-      const angleStep = (2 * Math.PI) / thinkersAtDistance.length
-      const startAngle = (simpleHash(`distance-${distance}`) % 360) * (Math.PI / 180)
-
-      thinkersAtDistance.forEach((thinker, index) => {
-        const angle = startAngle + index * angleStep
-        const jitter = ((simpleHash(thinker.id) % 11) - 5) * 0.012 * ringRadius
-        const radiusFromCenter = ringRadius + jitter
-
-        const x = clamp(centerX + Math.cos(angle) * radiusFromCenter, minX, maxX)
-        const y = clamp(centerY + Math.sin(angle) * radiusFromCenter, minY, maxY)
-
-        items.push({
-          id: thinker.id,
-          name: thinker.name,
-          x,
-          y,
-          isCenter: false,
-        })
+      const visual = nodeVisuals.get(thinker.id)
+      inputNodes.push({
+        id: thinker.id,
+        isCenter: false,
+        distance: distanceMap.get(thinker.id) ?? 1,
+        width: visual?.width ?? NODE_HEIGHT,
+        height: visual?.height ?? NODE_HEIGHT,
       })
     })
 
-    return items
-  }, [centeredThinkerData, mapGeometry, networkThinkers, distanceMap])
+    const links: LayoutLink[] = networkConnections.map((c: Connection) => ({
+      source: c.from_thinker_id,
+      target: c.to_thinker_id,
+    }))
+
+    const positions = computeNetworkLayout(inputNodes, links, {
+      width: canvasSize.width,
+      height: canvasSize.height,
+    })
+
+    const nameById = new Map<string, string>([[centeredThinkerData.id, centeredThinkerData.name]])
+    networkThinkers.forEach((thinker: Thinker) => nameById.set(thinker.id, thinker.name))
+
+    return inputNodes.map((node) => {
+      const position = positions.get(node.id) ?? { x: canvasSize.width / 2, y: canvasSize.height / 2 }
+      return {
+        id: node.id,
+        name: nameById.get(node.id) ?? '',
+        x: position.x,
+        y: position.y,
+        isCenter: node.isCenter,
+      }
+    })
+  }, [centeredThinkerData, nodeVisuals, networkThinkers, networkConnections, distanceMap, canvasSize])
 
   useEffect(() => {
     if (!isOpen || !viewportRef.current) return
@@ -345,23 +335,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
     ctx.fillText(`Network: ${nodes.length} thinkers, ${networkConnections.length} connections`, 20, 24)
 
     const nodeMap = new Map(nodes.map((node) => [node.id, node]))
-    const nodeVisualMap = new Map<string, NodeVisual>()
-    nodes.forEach((node) => {
-      const font = node.isCenter ? '600 13px "Crimson Text", serif' : '12px "Crimson Text", serif'
-      ctx.font = font
-      const label = truncateLabel(ctx, node.name, NODE_MAX_LABEL_WIDTH + (node.isCenter ? 18 : 0))
-      const paddingX = node.isCenter ? CENTER_NODE_PADDING_X : NODE_PADDING_X
-      const textWidth = ctx.measureText(label).width
-      const width = Math.ceil(textWidth + paddingX * 2)
-      const height = node.isCenter ? CENTER_NODE_HEIGHT : NODE_HEIGHT
-
-      nodeVisualMap.set(node.id, {
-        label,
-        width,
-        height,
-        font,
-      })
-    })
+    const nodeVisualMap = nodeVisuals
 
     const pairConnectionCount = new Map<string, { total: number; current: number }>()
     networkConnections.forEach((conn: Connection) => {
@@ -497,7 +471,7 @@ export function ConnectionMapView({ isOpen, onClose, centeredThinkerId, onThinke
       })
     })
     nodeHitAreasRef.current = hitAreas
-  }, [isOpen, centerThinker, nodes, networkConnections, hoveredNode, canvasSize, mapGeometry])
+  }, [isOpen, centerThinker, nodes, networkConnections, hoveredNode, canvasSize, nodeVisuals])
 
   const findNodeAtPoint = useCallback((x: number, y: number): string | null => {
     const areas = nodeHitAreasRef.current

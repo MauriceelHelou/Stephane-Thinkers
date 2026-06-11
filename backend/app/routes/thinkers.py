@@ -5,6 +5,7 @@ from uuid import UUID
 
 from app.database import get_db
 from app.models.thinker import Thinker
+from app.models.tag import Tag
 from app.schemas import thinker as schemas
 
 router = APIRouter(prefix="/api/thinkers", tags=["thinkers"])
@@ -33,7 +34,7 @@ def get_thinkers(
     search: Optional[str] = Query(None, description="Search thinkers by name (case-insensitive partial match)"),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Thinker)
+    query = db.query(Thinker).options(joinedload(Thinker.tags))
     if timeline_id:
         query = query.filter(Thinker.timeline_id == timeline_id)
     if search:
@@ -61,6 +62,11 @@ def update_thinker(thinker_id: UUID, thinker_update: schemas.ThinkerUpdate, db: 
         raise HTTPException(status_code=404, detail="Thinker not found")
 
     update_data = thinker_update.model_dump(exclude_unset=True)
+
+    # Handle tag_ids separately (M2M relationship, not a plain column)
+    tag_ids = update_data.pop('tag_ids', None)
+    if tag_ids is not None:
+        db_thinker.tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
 
     # Validate that the timeline exists if timeline_id is being updated
     if 'timeline_id' in update_data and update_data['timeline_id']:
