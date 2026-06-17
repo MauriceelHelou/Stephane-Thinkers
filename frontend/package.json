@@ -53,7 +53,7 @@
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.6",
     "jsdom": "^25.0.1",
-    "msw": "^2.6.8",
+    "msw": "^2.14.6",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.4.3",
